@@ -44,6 +44,70 @@ async function main(): Promise<void> {
     'GET /api/health body equals { status: "ok" }',
   );
 
+  // 5. POST /api/command — deterministic command bar (Step 5).
+  // NOTE: this queues a couple of *pending* approvals in the dev DB (none are
+  // executed, so no memory files are written); they can be rejected in the UI.
+  const base = `http://${TEST_HOST}:${TEST_PORT}`;
+  async function postCommand(
+    input: string,
+  ): Promise<{ status: number; body: any }> {
+    const r = await fetch(`${base}/api/command`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input }),
+    });
+    return { status: r.status, body: (await r.json()) as unknown };
+  }
+
+  const help = await postCommand("help");
+  assert(
+    help.status === 200 &&
+      help.body.kind === "help" &&
+      Array.isArray(help.body.examples),
+    "command 'help' returns help examples",
+  );
+
+  const addCmd = await postCommand("add task: Smoke task");
+  assert(
+    addCmd.status === 201 &&
+      addCmd.body.kind === "proposal" &&
+      addCmd.body.approval.action_type === "task.create",
+    "command 'add task' creates a task.create proposal",
+  );
+  assert(
+    addCmd.body.approval.status === "pending",
+    "command-created approval is pending (not executed immediately)",
+  );
+
+  const memCmd = await postCommand("append memory preferences: concise please");
+  assert(
+    memCmd.status === 201 &&
+      memCmd.body.approval.action_type === "memory.write" &&
+      memCmd.body.approval.payload.mode === "append",
+    "command 'append memory' creates an append memory.write proposal",
+  );
+
+  const bad = await postCommand("frobnicate the widget");
+  assert(
+    bad.status === 400 && bad.body.kind === "error",
+    "unrecognized command returns a 400 error",
+  );
+
+  const badTarget = await postCommand("append memory nonsense: hi");
+  assert(
+    badTarget.status === 400 && badTarget.body.kind === "error",
+    "unknown memory target is rejected",
+  );
+
+  const events = new Set(
+    (db.prepare("SELECT event_type FROM activity_log").all() as {
+      event_type: string;
+    }[]).map((r) => r.event_type),
+  );
+  assert(events.has("command.received"), "activity log has command.received");
+  assert(events.has("command.proposed"), "activity log has command.proposed");
+  assert(events.has("command.rejected"), "activity log has command.rejected");
+
   // cleanup
   await app.close();
   closeDb();

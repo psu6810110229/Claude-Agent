@@ -5,6 +5,7 @@
 import type {
   Activity,
   Approval,
+  CommandResult,
   CreateMemoryProposalBody,
   MemoryContent,
   MemoryEntry,
@@ -121,5 +122,19 @@ export function createMemoryProposal(
   return request<Approval>("/api/memory/proposals", {
     method: "POST",
     body: JSON.stringify(body),
+  });
+}
+
+// --- Command bar ---------------------------------------------------------
+
+/**
+ * Run a deterministic command. Returns `help` or `proposal` on success;
+ * invalid commands come back as a 4xx and throw ApiError (carrying the
+ * backend's error message), so handle those in a catch.
+ */
+export function runCommand(input: string): Promise<CommandResult> {
+  return request<CommandResult>("/api/command", {
+    method: "POST",
+    body: JSON.stringify({ input }),
   });
 }

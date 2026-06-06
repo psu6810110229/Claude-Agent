@@ -76,3 +76,14 @@ export interface Activity {
   detail: string | null;
   created_at: string;
 }
+
+// --- Command bar ----------------------------------------------------------
+
+/**
+ * POST /api/command result. `help`/`proposal` arrive as 2xx; `error` arrives as
+ * a 4xx and is surfaced via ApiError by the client, so callers handle it in a
+ * catch block rather than as a returned value.
+ */
+export type CommandResult =
+  | { kind: "help"; examples: string[] }
+  | { kind: "proposal"; approval: Approval };

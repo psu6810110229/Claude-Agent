@@ -5,6 +5,7 @@ import { listActivity, listTasks } from "@/lib/api";
 import { useResource } from "@/lib/useResource";
 import { formatTs } from "@/lib/format";
 import { ErrorBanner, Loading } from "@/components/States";
+import { CommandBar } from "@/components/CommandBar";
 import type { Activity, Task } from "@/lib/types";
 
 async function loadToday(): Promise<{ tasks: Task[]; activity: Activity[] }> {
@@ -21,6 +22,8 @@ export default function TodayPage() {
   return (
     <>
       <h2>Today</h2>
+
+      <CommandBar onProposed={reload} />
 
       {loading && <Loading />}
       {error && <ErrorBanner message={error} onRetry={reload} />}

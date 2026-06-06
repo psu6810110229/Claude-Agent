@@ -4,6 +4,7 @@ import { taskRoutes } from "./routes/tasks.js";
 import { activityRoutes } from "./routes/activity.js";
 import { approvalRoutes } from "./routes/approvals.js";
 import { memoryRoutes } from "./routes/memory.js";
+import { commandRoutes } from "./routes/command.js";
 
 /** Builds the Fastify instance (without listening) so it can be reused in tests. */
 export function buildServer(): FastifyInstance {
@@ -13,5 +14,6 @@ export function buildServer(): FastifyInstance {
   app.register(activityRoutes);
   app.register(approvalRoutes);
   app.register(memoryRoutes);
+  app.register(commandRoutes);
   return app;
 }
