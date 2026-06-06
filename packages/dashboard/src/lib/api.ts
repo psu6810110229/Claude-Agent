@@ -2,7 +2,16 @@
  * Typed client for the local backend. All calls go to same-origin `/api/*`,
  * which Next proxies to the backend (see next.config.js). No CORS, no auth.
  */
-import type { Activity, Approval, Task, UpdateTaskBody } from "./types";
+import type {
+  Activity,
+  Approval,
+  CreateMemoryProposalBody,
+  MemoryContent,
+  MemoryEntry,
+  MemoryTarget,
+  Task,
+  UpdateTaskBody,
+} from "./types";
 
 /** Thrown for any non-2xx response; `message` carries the backend's error text. */
 export class ApiError extends Error {
@@ -92,4 +101,25 @@ export async function listActivity(limit = 50): Promise<Activity[]> {
     `/api/activity?limit=${limit}`,
   );
   return data.activity;
+}
+
+// --- Memory --------------------------------------------------------------
+
+export async function listMemory(): Promise<MemoryEntry[]> {
+  const data = await request<{ entries: MemoryEntry[] }>("/api/memory");
+  return data.entries;
+}
+
+export function getMemoryContent(target: MemoryTarget): Promise<MemoryContent> {
+  return request<MemoryContent>(`/api/memory/${target}/content`);
+}
+
+/** Create a memory write/edit proposal; returns the pending approval. */
+export function createMemoryProposal(
+  body: CreateMemoryProposalBody,
+): Promise<Approval> {
+  return request<Approval>("/api/memory/proposals", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }

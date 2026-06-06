@@ -12,6 +12,7 @@
     "build:dashboard": "npm run build -w @claude-agent/dashboard",
     "smoke": "npm run smoke -w @claude-agent/backend",
     "smoke:step2": "npm run smoke:step2 -w @claude-agent/backend",
+    "smoke:step4": "npm run smoke:step4 -w @claude-agent/backend",
     "db:init": "npm run db:init -w @claude-agent/backend",
     "build": "npm run build -w @claude-agent/backend"
   }

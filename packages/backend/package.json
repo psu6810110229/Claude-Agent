@@ -10,7 +10,8 @@
     "start": "node dist/index.js",
     "db:init": "tsx src/db/init.ts",
     "smoke": "tsx scripts/smoke-test.ts",
-    "smoke:step2": "tsx scripts/smoke-step2.ts"
+    "smoke:step2": "tsx scripts/smoke-step2.ts",
+    "smoke:step4": "tsx scripts/smoke-step4.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.2.0",

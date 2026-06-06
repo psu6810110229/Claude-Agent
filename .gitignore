@@ -16,3 +16,8 @@ packages/backend/data/
 # env
 .env
 .env.*
+
+# Memory files hold personal content — keep local, never commit.
+# Only the folder README (template/instructions) is tracked.
+memory/*.md
+!memory/README.md

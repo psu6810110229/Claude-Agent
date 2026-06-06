@@ -2,7 +2,10 @@ import {
   actionPayloadSchemas,
   type ActionType,
 } from "../schemas/approval.js";
+import type { MemoryWritePayload } from "../schemas/memory.js";
 import { createTask, updateTask, archiveTask } from "../db/repositories/taskRepo.js";
+import { writeMemory } from "./memoryStore.js";
+import { upsertMemoryEntry } from "../db/repositories/memoryRepo.js";
 
 /** Thrown when an approval cannot be executed (bad payload or unknown target). */
 export class ExecutorError extends Error {}
@@ -51,6 +54,13 @@ export function executeAction(
       const task = archiveTask(data.id);
       if (!task) throw new ExecutorError(`task #${data.id} not found`);
       return { summary: `archived task #${task.id}` };
+    }
+    case "memory.write": {
+      const data = parsed.data as MemoryWritePayload;
+      // Confined to the whitelisted memory file for this target.
+      const relPath = writeMemory(data.target, data.mode, data.content);
+      upsertMemoryEntry(data.target, relPath, data.summary ?? null);
+      return { summary: `${data.mode} memory '${data.target}' (${relPath})` };
     }
   }
 }

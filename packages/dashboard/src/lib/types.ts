@@ -19,7 +19,45 @@ export interface UpdateTaskBody {
   status?: "open" | "done";
 }
 
-export type ActionType = "task.create" | "task.update" | "task.archive";
+export type ActionType =
+  | "task.create"
+  | "task.update"
+  | "task.archive"
+  | "memory.write";
+
+// --- Memory ---------------------------------------------------------------
+
+export type MemoryTarget =
+  | "preferences"
+  | "routines"
+  | "projects"
+  | "decisions";
+
+export type MemoryWriteMode = "append" | "replace";
+
+export interface MemoryEntry {
+  id: number;
+  slug: string;
+  path: string;
+  summary: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemoryContent {
+  target: MemoryTarget;
+  path: string;
+  exists: boolean;
+  content: string;
+}
+
+/** POST /api/memory/proposals body. */
+export interface CreateMemoryProposalBody {
+  target: MemoryTarget;
+  mode: MemoryWriteMode;
+  content: string;
+  summary?: string;
+}
 
 export type ApprovalStatus = "pending" | "approved" | "rejected";
 

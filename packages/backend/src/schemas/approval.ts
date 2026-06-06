@@ -1,15 +1,17 @@
 import { z } from "zod";
 import { taskStatusSchema } from "./task.js";
+import { memoryWritePayloadSchema } from "./memory.js";
 
 /**
  * The ONLY action types the executor will run for now. All are safe, internal,
- * non-destructive operations against the local DB. Outward/destructive actions
- * are deliberately absent.
+ * non-destructive operations against the local DB or the whitelisted memory
+ * files. Outward/destructive actions are deliberately absent.
  */
 export const actionTypeSchema = z.enum([
   "task.create",
   "task.update",
   "task.archive",
+  "memory.write",
 ]);
 export type ActionType = z.infer<typeof actionTypeSchema>;
 
@@ -31,6 +33,7 @@ export const actionPayloadSchemas = {
   "task.archive": z.object({
     id: z.number().int().positive(),
   }),
+  "memory.write": memoryWritePayloadSchema,
 } as const;
 
 export const approvalStatusSchema = z.enum(["pending", "approved", "rejected"]);
