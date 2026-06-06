@@ -123,8 +123,8 @@ async function buildBriefContext(
       bucket,
     }));
 
-  // Google Calendar (Step 10) — PRIMARY schedule, READ-ONLY. Today + upcoming
-  // windows fetched server-side in Bangkok bounds. Fails closed: any
+  // Google Calendar (Step 10) - PRIMARY schedule. Today + upcoming windows
+  // fetched server-side in Bangkok bounds. Fails closed: any
   // disabled/config/auth/API error yields no Google rows; the brief still works.
   const { todayStartUtc, todayEndUtc, upcomingEndUtc } = agendaBounds(now);
   let googleEvents: BriefContext["googleEvents"] = [];
