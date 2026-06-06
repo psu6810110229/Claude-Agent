@@ -44,9 +44,9 @@ export const CLAUDE_BIN = process.env.CLAUDE_AGENT_CLAUDE_BIN ?? "claude";
 export const CLAUDE_MODEL =
   process.env.CLAUDE_AGENT_CLAUDE_MODEL ?? "claude-sonnet-4-6";
 
-/** Hard timeout for a single `claude -p` invocation (ms). Fail closed on expiry. */
+/** Hard timeout for a single command-mode `claude -p` invocation (ms). */
 export const CLAUDE_TIMEOUT_MS = Number(
-  process.env.CLAUDE_AGENT_CLAUDE_TIMEOUT_MS ?? 20_000,
+  process.env.CLAUDE_AGENT_CLAUDE_TIMEOUT_MS ?? 60_000,
 );
 
 /**
@@ -106,15 +106,13 @@ export const BRIEF_EVENT_CAP = 20;
 export const BRIEF_REMINDER_CAP = 20;
 
 /**
- * Step 10 — Google Calendar read-only connector.
+ * Step 10+ - Google Calendar connector.
  *
- * READ-ONLY by design: the only OAuth scope ever requested is
- * `calendar.readonly`. The backend never creates, updates, or deletes calendar
- * events, and there are NO calendar write action types in the approval
- * allowlist. Google Calendar is the PRIMARY schedule source; local
- * events/reminders (Step 9) remain secondary. Disabled by default; the real
- * fetcher fails closed when off or unconfigured (the stubbed smoke test injects
- * its own fetcher and is unaffected by this flag).
+ * Google Calendar is the PRIMARY schedule source; local events/reminders
+ * (Step 9) remain secondary. Reads are available through dashboard/brief routes.
+ * Writes are create-only and approval-gated via `google_event.create`; there
+ * are no Google update/delete action types. Disabled by default; real Google
+ * calls fail closed when off or unconfigured.
  */
 
 /** Google Calendar integration is OFF unless explicitly enabled. */
@@ -122,7 +120,7 @@ export const GOOGLE_CALENDAR_ENABLED = /^(1|true)$/i.test(
   process.env.GOOGLE_CALENDAR_ENABLED ?? "",
 );
 
-/** Which calendar to read. Defaults to the user's primary calendar. */
+/** Which calendar to read/write. Defaults to the user's primary calendar. */
 export const GOOGLE_CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID ?? "primary";
 
 /** OAuth client secret JSON (Desktop app). Gitignored; never logged. */
@@ -135,9 +133,9 @@ export const GOOGLE_TOKEN_PATH =
   process.env.GOOGLE_CALENDAR_TOKEN_PATH ??
   path.join(DATA_DIR, "google-token.json");
 
-/** The ONLY scope ever requested. Read-only — no write access, ever. */
+/** Narrow event scope: view/edit events only, not calendar sharing/settings. */
 export const GOOGLE_CALENDAR_SCOPES = [
-  "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/calendar.events",
 ];
 
 /** Loopback redirect port used only by the one-time `google-auth` script. */
