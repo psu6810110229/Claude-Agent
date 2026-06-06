@@ -1,8 +1,9 @@
 # Manual live Google Calendar test (Step 10)
 
-Verifies the **read-only** Google Calendar connector against the real API. The
-automated `npm run smoke:step10` never touches the network; this doc covers the
-one live path. Read-only only — nothing is ever created, updated, or deleted.
+Verifies the Google Calendar connector against the real API. The automated
+`npm run smoke:step10` never touches the network; this doc covers the live path.
+The app exposes read routes plus approval-gated create only; there are no Google
+update/delete actions.
 
 ## 1. Google Cloud setup (one time)
 
@@ -20,7 +21,8 @@ one live path. Read-only only — nothing is ever created, updated, or deleted.
 npm run google-auth -w @claude-agent/backend
 ```
 
-- Open the printed URL, sign in, grant **read-only** (`calendar.readonly`).
+- Open the printed URL, sign in, grant Calendar event access
+  (`calendar.events`).
 - The loopback server on `127.0.0.1:8799` captures the code and writes the
   refresh token to `packages/backend/data/google-token.json` (gitignored).
 - The token file and client secret are **never logged or committed**.
@@ -41,15 +43,19 @@ npm run dev:dashboard  # dashboard on :3000 (separate terminal)
 - `GET http://127.0.0.1:8787/api/calendar/upcoming` → next 7 days.
 - Dashboard **Today** and **Upcoming** show Google Calendar as the primary
   schedule; local events appear under "Local events (secondary)".
+- In dashboard AI mode, ask for a clearly dated/timed meeting. Verify a
+  `google_event.create` approval appears, inspect the payload, approve it, then
+  confirm the event appears in Google Calendar.
 - With `GOOGLE_CALENDAR_ENABLED` unset (or creds missing), both endpoints return
   `available: false` and the dashboard shows "Google Calendar not connected" —
   the app still works (fail closed).
 
-## 5. Read-only guarantee
+## 5. Create-only guarantee
 
-- Only `events.list` is ever called; the only scope is `calendar.readonly`.
-- There are no calendar write action types in the approval allowlist, so neither
-  the command bar nor the Daily Brief can propose a calendar change.
+- Read routes call `events.list`; approved Google writes call `events.insert`.
+- The only Google write action type is `google_event.create`.
+- There are no Google update/delete action types, and there is no direct write
+  route that bypasses the approval queue.
 
 ## 6. Troubleshooting `available: false`
 
