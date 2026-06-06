@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "npm run dev -w @claude-agent/backend",
     "smoke": "npm run smoke -w @claude-agent/backend",
+    "smoke:step2": "npm run smoke:step2 -w @claude-agent/backend",
     "db:init": "npm run db:init -w @claude-agent/backend",
     "build": "npm run build -w @claude-agent/backend"
   }
