@@ -28,11 +28,16 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
+  // Only declare a JSON content-type when we actually send a body. Bodyless
+  // POSTs (approve/reject/archive) would otherwise reach Fastify with
+  // `Content-Type: application/json` and an empty body, which its default JSON
+  // parser rejects with a 400 (FST_ERR_CTP_EMPTY_JSON_BODY) before the route
+  // handler runs.
+  const headers: HeadersInit = init?.body
+    ? { "Content-Type": "application/json", ...init?.headers }
+    : { ...init?.headers };
   try {
-    res = await fetch(path, {
-      ...init,
-      headers: { "Content-Type": "application/json", ...init?.headers },
-    });
+    res = await fetch(path, { ...init, headers });
   } catch {
     // Network/connection failure — usually the backend isn't running.
     throw new ApiError("Cannot reach the backend (is it running on :8787?)", 0);
