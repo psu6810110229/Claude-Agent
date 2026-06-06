@@ -631,6 +631,18 @@ pre.payload {
   font-weight: 700;
 }
 
+.followup strong {
+  color: var(--surface-strong);
+}
+
+.followup p {
+  margin: 8px 0 0;
+}
+
+.followup-form {
+  margin: 12px 0 0;
+}
+
 .brief-summary {
   margin: 12px 0 0;
   white-space: pre-wrap;
