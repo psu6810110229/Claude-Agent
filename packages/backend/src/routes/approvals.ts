@@ -45,7 +45,7 @@ export async function approvalRoutes(app: FastifyInstance): Promise<void> {
     // Execute the approved action. Failure leaves the approval pending so it can
     // be retried or rejected — it is NOT marked approved.
     try {
-      const result = executeAction(approval.action_type, approval.payload);
+      const result = await executeAction(approval.action_type, approval.payload);
       const updated = setApprovalStatus(approval.id, "approved");
       logActivity(
         "approval.approve",
