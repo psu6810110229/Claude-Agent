@@ -2,9 +2,10 @@ import { listTasks } from "../db/repositories/taskRepo.js";
 import { memoryTargetSchema } from "../schemas/memory.js";
 import { aiOutputSchema, type AiAction } from "../schemas/aiCommand.js";
 import { buildChiefOfStaffPrompt } from "./chiefOfStaffPrompt.js";
+import { bangkokWallClock } from "./agenda.js";
 import { unwrapJsonOutput } from "./jsonOutput.js";
 import { ClaudeError, type ClaudeInvoker } from "./claudeClient.js";
-import { CLAUDE_CONTEXT_TASK_CAP } from "../config.js";
+import { CLAUDE_CONTEXT_TASK_CAP, nowIso } from "../config.js";
 
 /**
  * AI command orchestration (Step 6). Pure proposal pipeline — it reads a compact
@@ -22,16 +23,21 @@ function buildContext(input: string): {
   input: string;
   openTasks: { id: number; title: string }[];
   memoryTargets: string[];
+  nowUtc: string;
+  nowBangkok: string;
 } {
   const openTasks = listTasks()
     .filter((t) => t.status === "open")
     .slice(0, CLAUDE_CONTEXT_TASK_CAP)
     .map((t) => ({ id: t.id, title: t.title.slice(0, 120) }));
 
+  const now = new Date();
   return {
     input,
     openTasks,
     memoryTargets: [...memoryTargetSchema.options],
+    nowUtc: nowIso(),
+    nowBangkok: bangkokWallClock(now),
   };
 }
 

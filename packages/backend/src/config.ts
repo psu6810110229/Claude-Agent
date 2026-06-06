@@ -86,6 +86,25 @@ export const BRIEF_ACTIVITY_LIMIT = 15;
 /** Max pending approvals listed (by id + type only) in a brief's context. */
 export const BRIEF_APPROVALS_CAP = 10;
 
+/**
+ * Step 9 — local events & reminders.
+ *
+ * The user's local timezone for INTERPRETING natural-language dates/times is
+ * Asia/Bangkok (UTC+7, no DST). This offset is used to compute "today" / 7-day
+ * "upcoming" day boundaries and to tell Claude the local wall-clock time. All
+ * datetimes are still STORED and emitted as ISO 8601 UTC.
+ */
+export const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+/** Default "upcoming" window length in days (excludes today). */
+export const UPCOMING_WINDOW_DAYS = 7;
+
+/** Cap on events included in a brief's compact context. */
+export const BRIEF_EVENT_CAP = 20;
+
+/** Cap on reminders included in a brief's compact context. */
+export const BRIEF_REMINDER_CAP = 20;
+
 /** Single source of truth for UTC ISO 8601 timestamps. */
 export function nowIso(): string {
   return new Date().toISOString();

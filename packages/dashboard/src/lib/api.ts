@@ -6,12 +6,14 @@ import type {
   Activity,
   Approval,
   BriefResult,
+  CalendarEvent,
   CommandMode,
   CommandResult,
   CreateMemoryProposalBody,
   MemoryContent,
   MemoryEntry,
   MemoryTarget,
+  Reminder,
   Task,
   UpdateTaskBody,
 } from "./types";
@@ -130,6 +132,18 @@ export function createMemoryProposal(
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+// --- Events & reminders (Step 9, read-only) ------------------------------
+
+export async function listEvents(): Promise<CalendarEvent[]> {
+  const data = await request<{ events: CalendarEvent[] }>("/api/events");
+  return data.events;
+}
+
+export async function listReminders(): Promise<Reminder[]> {
+  const data = await request<{ reminders: Reminder[] }>("/api/reminders");
+  return data.reminders;
 }
 
 // --- Command bar ---------------------------------------------------------

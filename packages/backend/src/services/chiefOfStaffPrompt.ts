@@ -15,6 +15,10 @@ export interface CompactContext {
   openTasks: { id: number; title: string }[];
   /** Whitelisted memory target names only. */
   memoryTargets: string[];
+  /** Current instant (ISO 8601 UTC) for resolving relative dates. */
+  nowUtc: string;
+  /** Current Asia/Bangkok wall-clock time (the user's local timezone). */
+  nowBangkok: string;
 }
 
 export function buildChiefOfStaffPrompt(ctx: CompactContext): string {
@@ -36,13 +40,29 @@ goes in the separate "payload" object. Do not inline payload fields at the top
 level and do not rename "action_type".
 
 ALLOWED ACTION TYPES (the literal "action_type" value -> its "payload" shape):
-- "task.create"   payload: { "title": string, "status"?: "open" | "done" }
-- "task.update"   payload: { "id": number, "title"?: string, "status"?: "open" | "done" }  (at least one of title/status)
-- "task.archive"  payload: { "id": number }
-- "memory.write"  payload: { "target": <memory target>, "mode": "append" | "replace", "content": string, "summary"?: string }
+- "task.create"      payload: { "title": string, "status"?: "open" | "done" }
+- "task.update"      payload: { "id": number, "title"?: string, "status"?: "open" | "done" }  (at least one of title/status)
+- "task.archive"     payload: { "id": number }
+- "memory.write"     payload: { "target": <memory target>, "mode": "append" | "replace", "content": string, "summary"?: string }
+- "event.create"     payload: { "title": string, "starts_at": <ISO UTC>, "ends_at"?: <ISO UTC>, "location"?: string, "notes"?: string }
+- "event.update"     payload: { "id": number, "title"?: string, "starts_at"?: <ISO UTC>, "ends_at"?: <ISO UTC>, "location"?: string, "notes"?: string }  (at least one field)
+- "event.archive"    payload: { "id": number }
+- "reminder.create"  payload: { "title": string, "due_at": <ISO UTC>, "notes"?: string }
+- "reminder.update"  payload: { "id": number, "title"?: string, "due_at"?: <ISO UTC>, "notes"?: string }  (at least one field)
+- "reminder.archive" payload: { "id": number }
 
 Example of a single valid action:
   { "action_type": "task.create", "payload": { "title": "Buy groceries" } }
+
+DATE & TIME RULES (important):
+- The user's local timezone is Asia/Bangkok (UTC+7). Interpret all relative or
+  local times ("tomorrow", "3pm", "next Monday") in Asia/Bangkok.
+- Every datetime you OUTPUT must be ISO 8601 UTC ending in "Z"
+  (e.g. "2026-06-07T08:00:00.000Z" for 3pm Bangkok on 2026-06-07).
+- If a date or time is ambiguous, missing, or you cannot resolve it confidently,
+  DO NOT propose the event/reminder action. Instead return no action for it and
+  briefly ask for clarification in "notes".
+- CURRENT TIME: ${ctx.nowUtc} (Asia/Bangkok: ${ctx.nowBangkok}).
 
 MEMORY TARGETS (the only valid values for memory.write "target"):
 ${ctx.memoryTargets.map((t) => `- ${t}`).join("\n")}

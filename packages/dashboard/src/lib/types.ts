@@ -23,7 +23,41 @@ export type ActionType =
   | "task.create"
   | "task.update"
   | "task.archive"
-  | "memory.write";
+  | "memory.write"
+  | "event.create"
+  | "event.update"
+  | "event.archive"
+  | "reminder.create"
+  | "reminder.update"
+  | "reminder.archive";
+
+// --- Events & reminders (Step 9) ------------------------------------------
+
+export type EventStatus = "scheduled" | "archived";
+
+export interface CalendarEvent {
+  id: number;
+  title: string;
+  starts_at: string;
+  ends_at: string | null;
+  location: string | null;
+  notes: string | null;
+  status: EventStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ReminderStatus = "active" | "archived";
+
+export interface Reminder {
+  id: number;
+  title: string;
+  due_at: string;
+  notes: string | null;
+  status: ReminderStatus;
+  created_at: string;
+  updated_at: string;
+}
 
 // --- Memory ---------------------------------------------------------------
 

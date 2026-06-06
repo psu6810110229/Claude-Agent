@@ -35,3 +35,28 @@ CREATE TABLE IF NOT EXISTS activity_log (
   detail     TEXT,
   created_at TEXT NOT NULL
 );
+
+-- Step 9 — local events & reminders. All datetimes are ISO 8601 UTC TEXT,
+-- generated/validated by the application layer (see schemas/event, schemas/reminder).
+-- status is 'scheduled'/'active' until soft-archived ('archived'); never hard-deleted.
+CREATE TABLE IF NOT EXISTS event (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  title      TEXT NOT NULL,
+  starts_at  TEXT NOT NULL,
+  ends_at    TEXT,
+  location   TEXT,
+  notes      TEXT,
+  status     TEXT NOT NULL DEFAULT 'scheduled',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS reminder (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  title      TEXT NOT NULL,
+  due_at     TEXT NOT NULL,
+  notes      TEXT,
+  status     TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);

@@ -2,9 +2,12 @@ import { listTasks } from "../db/repositories/taskRepo.js";
 import { listApprovals } from "../db/repositories/approvalRepo.js";
 import { listRecentActivity } from "../db/repositories/activityRepo.js";
 import { listMemoryEntries } from "../db/repositories/memoryRepo.js";
+import { listEvents } from "../db/repositories/eventRepo.js";
+import { listReminders } from "../db/repositories/reminderRepo.js";
 import { briefOutputSchema, type BriefType } from "../schemas/brief.js";
 import type { AiAction } from "../schemas/aiCommand.js";
 import { buildBriefPrompt, type BriefContext } from "./briefPrompt.js";
+import { bangkokWallClock, bucketEvents, bucketReminders } from "./agenda.js";
 import { unwrapJsonOutput } from "./jsonOutput.js";
 import { ClaudeError, type ClaudeInvoker } from "./claudeClient.js";
 import {
@@ -12,6 +15,9 @@ import {
   CLAUDE_BRIEF_TIMEOUT_MS,
   BRIEF_ACTIVITY_LIMIT,
   BRIEF_APPROVALS_CAP,
+  BRIEF_EVENT_CAP,
+  BRIEF_REMINDER_CAP,
+  nowIso,
 } from "../config.js";
 
 /**
@@ -84,12 +90,38 @@ function buildBriefContext(): BriefContext {
     summary: m.summary,
   }));
 
+  // Today + upcoming (7-day) events and overdue/today/upcoming reminders, bucketed
+  // in Asia/Bangkok. Read-only — computing "overdue" never fires anything.
+  const now = new Date();
+  const eb = bucketEvents(listEvents(), now);
+  const events = [...eb.today, ...eb.upcoming]
+    .slice(0, BRIEF_EVENT_CAP)
+    .map((e) => ({ id: e.id, starts_at: e.starts_at, title: e.title.slice(0, 120) }));
+
+  const rb = bucketReminders(listReminders(), now);
+  const reminders = [
+    ...rb.overdue.map((r) => ({ r, bucket: "overdue" as const })),
+    ...rb.today.map((r) => ({ r, bucket: "today" as const })),
+    ...rb.upcoming.map((r) => ({ r, bucket: "upcoming" as const })),
+  ]
+    .slice(0, BRIEF_REMINDER_CAP)
+    .map(({ r, bucket }) => ({
+      id: r.id,
+      due_at: r.due_at,
+      title: r.title.slice(0, 120),
+      bucket,
+    }));
+
   return {
     openTasks,
     pendingApprovalCount: pending.length,
     pendingApprovals,
     recentActivity,
     memorySummaries,
+    nowUtc: nowIso(),
+    nowBangkok: bangkokWallClock(now),
+    events,
+    reminders,
   };
 }
 

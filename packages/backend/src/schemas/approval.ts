@@ -1,6 +1,16 @@
 import { z } from "zod";
 import { taskStatusSchema } from "./task.js";
 import { memoryWritePayloadSchema } from "./memory.js";
+import {
+  createEventPayloadSchema,
+  updateEventPayloadSchema,
+  archiveEventPayloadSchema,
+} from "./event.js";
+import {
+  createReminderPayloadSchema,
+  updateReminderPayloadSchema,
+  archiveReminderPayloadSchema,
+} from "./reminder.js";
 
 /**
  * The ONLY action types the executor will run for now. All are safe, internal,
@@ -12,6 +22,12 @@ export const actionTypeSchema = z.enum([
   "task.update",
   "task.archive",
   "memory.write",
+  "event.create",
+  "event.update",
+  "event.archive",
+  "reminder.create",
+  "reminder.update",
+  "reminder.archive",
 ]);
 export type ActionType = z.infer<typeof actionTypeSchema>;
 
@@ -34,6 +50,12 @@ export const actionPayloadSchemas = {
     id: z.number().int().positive(),
   }),
   "memory.write": memoryWritePayloadSchema,
+  "event.create": createEventPayloadSchema,
+  "event.update": updateEventPayloadSchema,
+  "event.archive": archiveEventPayloadSchema,
+  "reminder.create": createReminderPayloadSchema,
+  "reminder.update": updateReminderPayloadSchema,
+  "reminder.archive": archiveReminderPayloadSchema,
 } as const;
 
 export const approvalStatusSchema = z.enum(["pending", "approved", "rejected"]);

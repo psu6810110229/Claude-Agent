@@ -6,7 +6,14 @@ import { DB_PATH } from "../src/config.js";
 
 const TEST_HOST = "127.0.0.1";
 const TEST_PORT = Number(process.env.CLAUDE_AGENT_SMOKE_PORT ?? 8799);
-const REQUIRED_TABLES = ["task", "memory_index", "approval", "activity_log"];
+const REQUIRED_TABLES = [
+  "task",
+  "memory_index",
+  "approval",
+  "activity_log",
+  "event",
+  "reminder",
+];
 
 function assert(cond: unknown, msg: string): void {
   if (!cond) throw new Error(msg);
@@ -20,7 +27,7 @@ async function main(): Promise<void> {
   initDb();
   assert(fs.existsSync(DB_PATH), `SQLite database exists at ${DB_PATH}`);
 
-  // 2. the four MVP tables exist
+  // 2. the required tables exist (4 MVP + event/reminder from Step 9)
   const db = getDb();
   const rows = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")

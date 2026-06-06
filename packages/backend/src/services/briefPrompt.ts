@@ -23,6 +23,19 @@ export interface BriefContext {
   recentActivity: { event_type: string; detail: string | null }[];
   /** memory_index summaries only (slug + short summary). Never file contents. */
   memorySummaries: { slug: string; summary: string | null }[];
+  /** Current instant (ISO 8601 UTC) for resolving relative dates. */
+  nowUtc: string;
+  /** Current Asia/Bangkok wall-clock time (the user's local timezone). */
+  nowBangkok: string;
+  /** Today + upcoming (7-day) events (id + start + short title). */
+  events: { id: number; starts_at: string; title: string }[];
+  /** Overdue + today + upcoming reminders (id + due + short title + bucket). */
+  reminders: {
+    id: number;
+    due_at: string;
+    title: string;
+    bucket: "overdue" | "today" | "upcoming";
+  }[];
 }
 
 const FRAMING: Record<BriefType, { heading: string; intent: string }> = {
@@ -67,6 +80,20 @@ export function buildBriefPrompt(type: BriefType, ctx: BriefContext): string {
           .join("\n")
       : "  (none)";
 
+  const events =
+    ctx.events.length > 0
+      ? ctx.events
+          .map((e) => `  - #${e.id} ${e.starts_at}: ${e.title}`)
+          .join("\n")
+      : "  (none)";
+
+  const reminders =
+    ctx.reminders.length > 0
+      ? ctx.reminders
+          .map((r) => `  - #${r.id} [${r.bucket}] due ${r.due_at}: ${r.title}`)
+          .join("\n")
+      : "  (none)";
+
   return `You are the chief-of-staff reasoning engine for a local-first personal
 agent. ${f.intent}
 
@@ -80,15 +107,32 @@ goes in the separate "payload" object. Do not inline payload fields at the top
 level and do not rename "action_type".
 
 ALLOWED ACTION TYPES (the literal "action_type" value -> its "payload" shape):
-- "task.create"   payload: { "title": string, "status"?: "open" | "done" }
-- "task.update"   payload: { "id": number, "title"?: string, "status"?: "open" | "done" }  (at least one of title/status)
-- "task.archive"  payload: { "id": number }
-- "memory.write"  payload: { "target": "preferences" | "routines" | "projects" | "decisions", "mode": "append" | "replace", "content": string, "summary"?: string }
+- "task.create"      payload: { "title": string, "status"?: "open" | "done" }
+- "task.update"      payload: { "id": number, "title"?: string, "status"?: "open" | "done" }  (at least one of title/status)
+- "task.archive"     payload: { "id": number }
+- "memory.write"     payload: { "target": "preferences" | "routines" | "projects" | "decisions", "mode": "append" | "replace", "content": string, "summary"?: string }
+- "event.create"     payload: { "title": string, "starts_at": <ISO UTC>, "ends_at"?: <ISO UTC>, "location"?: string, "notes"?: string }
+- "event.update"     payload: { "id": number, ...one or more of title/starts_at/ends_at/location/notes }
+- "event.archive"    payload: { "id": number }
+- "reminder.create"  payload: { "title": string, "due_at": <ISO UTC>, "notes"?: string }
+- "reminder.update"  payload: { "id": number, ...one or more of title/due_at/notes }
+- "reminder.archive" payload: { "id": number }
+
+DATE & TIME RULES: the user's local timezone is Asia/Bangkok (UTC+7). Interpret
+relative/local times in Asia/Bangkok but OUTPUT every datetime as ISO 8601 UTC
+ending in "Z". If a date/time is ambiguous, do not propose that action.
+CURRENT TIME: ${ctx.nowUtc} (Asia/Bangkok: ${ctx.nowBangkok}).
 
 LOCAL CONTEXT (read-only; this is all you have — do not assume anything else):
 
 OPEN TASKS (for resolving task ids; do not invent ids):
 ${tasks}
+
+EVENTS (today + next 7 days; do not invent ids):
+${events}
+
+REMINDERS (overdue / today / upcoming; do not invent ids):
+${reminders}
 
 PENDING APPROVALS (${ctx.pendingApprovalCount} total, ids + types only):
 ${approvals}

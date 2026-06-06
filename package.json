@@ -15,6 +15,7 @@
     "smoke:step4": "npm run smoke:step4 -w @claude-agent/backend",
     "ai-smoke": "npm run ai-smoke -w @claude-agent/backend",
     "brief-smoke": "npm run brief-smoke -w @claude-agent/backend",
+    "smoke:step9": "npm run smoke:step9 -w @claude-agent/backend",
     "db:init": "npm run db:init -w @claude-agent/backend",
     "build": "npm run build -w @claude-agent/backend"
   }

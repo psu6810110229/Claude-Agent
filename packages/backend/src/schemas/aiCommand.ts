@@ -28,6 +28,30 @@ export const aiActionSchema = z.discriminatedUnion("action_type", [
     action_type: z.literal("memory.write"),
     payload: actionPayloadSchemas["memory.write"],
   }),
+  z.object({
+    action_type: z.literal("event.create"),
+    payload: actionPayloadSchemas["event.create"],
+  }),
+  z.object({
+    action_type: z.literal("event.update"),
+    payload: actionPayloadSchemas["event.update"],
+  }),
+  z.object({
+    action_type: z.literal("event.archive"),
+    payload: actionPayloadSchemas["event.archive"],
+  }),
+  z.object({
+    action_type: z.literal("reminder.create"),
+    payload: actionPayloadSchemas["reminder.create"],
+  }),
+  z.object({
+    action_type: z.literal("reminder.update"),
+    payload: actionPayloadSchemas["reminder.update"],
+  }),
+  z.object({
+    action_type: z.literal("reminder.archive"),
+    payload: actionPayloadSchemas["reminder.archive"],
+  }),
 ]);
 export type AiAction = z.infer<typeof aiActionSchema>;
 

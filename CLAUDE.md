@@ -84,8 +84,14 @@ Google Drive later. It is built incrementally, smallest usable foundation first.
 - `services/chiefOfStaffPrompt.ts` — compact context only (allowed action types,
   user input, capped open-task list, memory **target names only** — never DB
   dumps or memory file contents).
-- `services/aiCommand.ts` — invoke → strict `JSON.parse` (trim only, no
-  fence-stripping, no repair) → Zod validate (`schemas/aiCommand.ts`).
+- `services/aiCommand.ts` — invoke → `unwrapJsonOutput` → strict `JSON.parse`
+  → Zod validate (`schemas/aiCommand.ts`). `unwrapJsonOutput`
+  (`services/jsonOutput.ts`, added in the Step 8 follow-up) only trims whitespace
+  and removes a **single outer markdown code fence** (```` ```json ```` or bare
+  ```` ``` ````) when the entire output is fenced. It does **not** extract
+  first-`{`-to-last-`}`, does **not** repair malformed JSON, and does **not**
+  tolerate prose before/after the JSON (such output still fails parse). Zod
+  validation and the allowlist are unchanged.
 - `POST /api/command` gains `mode: "ai"`; valid actions become **pending**
   approvals via the existing queue. Claude never executes and never bypasses
   approval. Allowlist unchanged: `task.create`, `task.update`, `task.archive`,
@@ -117,6 +123,43 @@ Google Drive later. It is built incrementally, smallest usable foundation first.
 - No new dependencies and no dashboard test runner introduced; verification is
   `npm run build:dashboard` plus the manual doc. The live `claude` binary is
   never called from any smoke test.
+
+## Step 9 scope (done) — local events & reminders (proposal-only)
+
+- Two new SQLite tables: `event` (title, starts_at, ends_at?, location?, notes?,
+  status) and `reminder` (title, due_at, notes?, status). All datetimes are ISO
+  8601 UTC `TEXT`; `updated_at` is app-maintained; rows are soft-archived
+  (`status='archived'`), never hard-deleted.
+- Six new **approval-gated** action types added to the single allowlist
+  (`schemas/approval.ts` `actionPayloadSchemas` + `actionTypeSchema`, reused by
+  the command bar, AI schema, and executor): `event.create`, `event.update`,
+  `event.archive`, `reminder.create`, `reminder.update`, `reminder.archive`.
+  Datetime payloads require **ISO 8601 UTC ending in `Z`** (Zod `.datetime()`;
+  offsets rejected). AI still only **proposes** — nothing executes without
+  approval; the executor (`services/executor.ts`) is the single execution gate.
+- The AI command bar (and the Daily Brief) can turn natural language into
+  event/reminder proposals. Prompts (`chiefOfStaffPrompt.ts`, `briefPrompt.ts`)
+  state the user's local timezone is **Asia/Bangkok (UTC+7)**, pass the current
+  time, and instruct: interpret relative/local times in Bangkok, **output UTC**,
+  and if a date/time is ambiguous, propose nothing and ask for clarification.
+- `services/agenda.ts` — pure, read-only Bangkok-aware bucketing
+  (`agendaBounds`, `bucketEvents`, `bucketReminders`) into today / upcoming
+  (7-day) / overdue. Used by the brief context and mirrored client-side in the
+  dashboard (`lib/agenda.ts`). **No scheduler, no notifications** — "overdue" is
+  computed on demand only.
+- Read-only routes: `GET /api/events`, `GET /api/events/:id`,
+  `GET /api/reminders`, `GET /api/reminders/:id` (exclude archived). There are
+  **no write routes**; events/reminders are created only via the approval queue.
+- Daily Brief context now includes today + upcoming events and overdue/today/
+  upcoming reminders (capped).
+- Dashboard: Today page shows overdue reminders, today's events, and reminders
+  due today; a new **Upcoming** page/nav shows the next 7 days. Display only —
+  creation flows through the AI command bar → Approvals.
+- Verification: `npm run build`, `npm run smoke` (now asserts **6** tables),
+  `npm run ai-smoke`, `npm run brief-smoke`, `npm run build:dashboard`, and a new
+  focused `npm run smoke:step9` (stubbed invoker; agenda math, table existence,
+  AI proposal → approve → stored, non-UTC datetime rejected, update/archive).
+  The live `claude` binary is never called from any smoke test.
 
 ## Out of scope (must NOT be added without explicit approval)
 

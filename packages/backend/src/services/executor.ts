@@ -6,6 +6,16 @@ import type { MemoryWritePayload } from "../schemas/memory.js";
 import { createTask, updateTask, archiveTask } from "../db/repositories/taskRepo.js";
 import { writeMemory } from "./memoryStore.js";
 import { upsertMemoryEntry } from "../db/repositories/memoryRepo.js";
+import {
+  createEvent,
+  updateEvent,
+  archiveEvent,
+} from "../db/repositories/eventRepo.js";
+import {
+  createReminder,
+  updateReminder,
+  archiveReminder,
+} from "../db/repositories/reminderRepo.js";
 
 /** Thrown when an approval cannot be executed (bad payload or unknown target). */
 export class ExecutorError extends Error {}
@@ -61,6 +71,64 @@ export function executeAction(
       const relPath = writeMemory(data.target, data.mode, data.content);
       upsertMemoryEntry(data.target, relPath, data.summary ?? null);
       return { summary: `${data.mode} memory '${data.target}' (${relPath})` };
+    }
+    case "event.create": {
+      const data = parsed.data as {
+        title: string;
+        starts_at: string;
+        ends_at?: string;
+        location?: string;
+        notes?: string;
+      };
+      const event = createEvent(data);
+      return { summary: `created event #${event.id}` };
+    }
+    case "event.update": {
+      const data = parsed.data as {
+        id: number;
+        title?: string;
+        starts_at?: string;
+        ends_at?: string;
+        location?: string;
+        notes?: string;
+      };
+      const { id, ...fields } = data;
+      const event = updateEvent(id, fields);
+      if (!event) throw new ExecutorError(`event #${id} not found`);
+      return { summary: `updated event #${event.id}` };
+    }
+    case "event.archive": {
+      const data = parsed.data as { id: number };
+      const event = archiveEvent(data.id);
+      if (!event) throw new ExecutorError(`event #${data.id} not found`);
+      return { summary: `archived event #${event.id}` };
+    }
+    case "reminder.create": {
+      const data = parsed.data as {
+        title: string;
+        due_at: string;
+        notes?: string;
+      };
+      const reminder = createReminder(data);
+      return { summary: `created reminder #${reminder.id}` };
+    }
+    case "reminder.update": {
+      const data = parsed.data as {
+        id: number;
+        title?: string;
+        due_at?: string;
+        notes?: string;
+      };
+      const { id, ...fields } = data;
+      const reminder = updateReminder(id, fields);
+      if (!reminder) throw new ExecutorError(`reminder #${id} not found`);
+      return { summary: `updated reminder #${reminder.id}` };
+    }
+    case "reminder.archive": {
+      const data = parsed.data as { id: number };
+      const reminder = archiveReminder(data.id);
+      if (!reminder) throw new ExecutorError(`reminder #${data.id} not found`);
+      return { summary: `archived reminder #${reminder.id}` };
     }
   }
 }

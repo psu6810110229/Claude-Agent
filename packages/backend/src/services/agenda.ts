@@ -1,0 +1,108 @@
+import { BANGKOK_OFFSET_MS, UPCOMING_WINDOW_DAYS } from "../config.js";
+import type { Event } from "../schemas/event.js";
+import type { Reminder } from "../schemas/reminder.js";
+
+/**
+ * Agenda bucketing (Step 9). Pure, read-only date math — NO scheduler, NO
+ * notifications. Day boundaries are computed in Asia/Bangkok (UTC+7, no DST) so
+ * "today" matches the user's wall clock, while all stored/compared values stay
+ * ISO 8601 UTC. Buckets are derived on demand by the dashboard and the brief.
+ */
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function pad(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/** Bangkok wall-clock string for a given instant, e.g. "2026-06-06 19:30". */
+export function bangkokWallClock(now: Date): string {
+  const b = new Date(now.getTime() + BANGKOK_OFFSET_MS);
+  return `${b.getUTCFullYear()}-${pad(b.getUTCMonth() + 1)}-${pad(
+    b.getUTCDate(),
+  )} ${pad(b.getUTCHours())}:${pad(b.getUTCMinutes())}`;
+}
+
+export interface AgendaBounds {
+  /** Current instant (ISO UTC). */
+  nowUtc: string;
+  /** Start of today in Bangkok, expressed as a UTC instant (inclusive). */
+  todayStartUtc: string;
+  /** Start of tomorrow in Bangkok, as a UTC instant (exclusive end of today). */
+  todayEndUtc: string;
+  /** End of the upcoming window (today end + N days), as a UTC instant. */
+  upcomingEndUtc: string;
+}
+
+/** Compute today / upcoming-window boundaries in Bangkok local time. */
+export function agendaBounds(
+  now: Date = new Date(),
+  upcomingDays: number = UPCOMING_WINDOW_DAYS,
+): AgendaBounds {
+  // Shift into Bangkok wall clock, floor to the calendar date, then shift back.
+  const b = new Date(now.getTime() + BANGKOK_OFFSET_MS);
+  const todayStartMs =
+    Date.UTC(b.getUTCFullYear(), b.getUTCMonth(), b.getUTCDate()) -
+    BANGKOK_OFFSET_MS;
+  const todayEndMs = todayStartMs + DAY_MS;
+  const upcomingEndMs = todayEndMs + upcomingDays * DAY_MS;
+  return {
+    nowUtc: now.toISOString(),
+    todayStartUtc: new Date(todayStartMs).toISOString(),
+    todayEndUtc: new Date(todayEndMs).toISOString(),
+    upcomingEndUtc: new Date(upcomingEndMs).toISOString(),
+  };
+}
+
+export interface EventBuckets {
+  today: Event[];
+  upcoming: Event[];
+}
+
+/**
+ * Bucket events by `starts_at`: those that start today, and those that start
+ * within the next `upcomingDays` (excluding today). Input may be any list;
+ * archived events should already be filtered out by the repository.
+ */
+export function bucketEvents(
+  events: Event[],
+  now: Date = new Date(),
+): EventBuckets {
+  const { todayStartUtc, todayEndUtc, upcomingEndUtc } = agendaBounds(now);
+  const today: Event[] = [];
+  const upcoming: Event[] = [];
+  for (const e of events) {
+    if (e.starts_at >= todayStartUtc && e.starts_at < todayEndUtc) {
+      today.push(e);
+    } else if (e.starts_at >= todayEndUtc && e.starts_at < upcomingEndUtc) {
+      upcoming.push(e);
+    }
+  }
+  return { today, upcoming };
+}
+
+export interface ReminderBuckets {
+  /** Active and due strictly before now. */
+  overdue: Reminder[];
+  /** Active and due later today (>= now, < end of today). */
+  today: Reminder[];
+  /** Active and due within the next `upcomingDays` (excluding today). */
+  upcoming: Reminder[];
+}
+
+/** Bucket reminders by `due_at` into overdue / today / upcoming. */
+export function bucketReminders(
+  reminders: Reminder[],
+  now: Date = new Date(),
+): ReminderBuckets {
+  const { nowUtc, todayEndUtc, upcomingEndUtc } = agendaBounds(now);
+  const overdue: Reminder[] = [];
+  const today: Reminder[] = [];
+  const upcoming: Reminder[] = [];
+  for (const r of reminders) {
+    if (r.due_at < nowUtc) overdue.push(r);
+    else if (r.due_at < todayEndUtc) today.push(r);
+    else if (r.due_at < upcomingEndUtc) upcoming.push(r);
+  }
+  return { overdue, today, upcoming };
+}
