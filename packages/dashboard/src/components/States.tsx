@@ -1,7 +1,7 @@
 /** Tiny shared loading / error / empty presentational helpers. */
 
-export function Loading({ label = "Loading…" }: { label?: string }) {
-  return <p className="muted">{label}</p>;
+export function Loading({ label = "Loading..." }: { label?: string }) {
+  return <div className="state loading">{label}</div>;
 }
 
 export function ErrorBanner({
@@ -24,5 +24,5 @@ export function ErrorBanner({
 }
 
 export function Empty({ label }: { label: string }) {
-  return <p className="muted">{label}</p>;
+  return <div className="state">{label}</div>;
 }

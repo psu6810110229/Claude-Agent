@@ -45,11 +45,17 @@ export default function TasksPage() {
 
   return (
     <>
-      <h2>Tasks</h2>
+      <header className="page-header">
+        <div>
+          <p className="page-kicker">Work Queue</p>
+          <h2>Tasks</h2>
+          <p className="lede">Open, complete, edit, and archive local tasks.</p>
+        </div>
+      </header>
 
-      <form className="form-row" onSubmit={onCreate}>
+      <form className="composer" onSubmit={onCreate}>
         <input
-          placeholder="New task title…"
+          placeholder="New task title..."
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           disabled={busy}
@@ -67,17 +73,19 @@ export default function TasksPage() {
         <ErrorBanner message={actionError} onRetry={() => setActionError(null)} />
       )}
 
-      {loading && <Loading />}
-      {error && <ErrorBanner message={error} onRetry={reload} />}
-      {tasks && tasks.length === 0 && <Empty label="No tasks yet." />}
+      <div className="stack">
+        {loading && <Loading />}
+        {error && <ErrorBanner message={error} onRetry={reload} />}
+        {tasks && tasks.length === 0 && <Empty label="No tasks yet." />}
 
-      {tasks && tasks.length > 0 && (
-        <div className="panel">
-          {tasks.map((task) => (
-            <TaskRow key={task.id} task={task} busy={busy} run={run} />
-          ))}
-        </div>
-      )}
+        {tasks && tasks.length > 0 && (
+          <div className="panel">
+            {tasks.map((task) => (
+              <TaskRow key={task.id} task={task} busy={busy} run={run} />
+            ))}
+          </div>
+        )}
+      </div>
     </>
   );
 }
@@ -130,35 +138,46 @@ function TaskRow({
           disabled={busy}
         />
       ) : (
-        <span className="grow">{task.title}</span>
+        <span className="grow item-title">{task.title}</span>
       )}
 
       <span className="ts">{formatTs(task.updated_at)}</span>
 
       {!archived && !editing && (
-        <>
-          <button onClick={toggleStatus} disabled={busy}>
+        <div className="row-actions">
+          <button type="button" onClick={toggleStatus} disabled={busy}>
             {task.status === "done" ? "Reopen" : "Done"}
           </button>
-          <button onClick={() => setEditing(true)} disabled={busy}>
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            disabled={busy}
+          >
             Edit
           </button>
           <button
+            type="button"
             className="danger"
             onClick={() => run(() => archiveTask(task.id))}
             disabled={busy}
           >
             Archive
           </button>
-        </>
+        </div>
       )}
 
       {editing && (
-        <>
-          <button className="primary" onClick={saveTitle} disabled={busy}>
+        <div className="row-actions">
+          <button
+            type="button"
+            className="primary"
+            onClick={saveTitle}
+            disabled={busy}
+          >
             Save
           </button>
           <button
+            type="button"
             onClick={() => {
               setDraft(task.title);
               setEditing(false);
@@ -167,7 +186,7 @@ function TaskRow({
           >
             Cancel
           </button>
-        </>
+        </div>
       )}
     </div>
   );

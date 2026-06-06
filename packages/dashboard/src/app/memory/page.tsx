@@ -49,7 +49,6 @@ export default function MemoryPage() {
     void loadContent(target);
   }, [target, loadContent]);
 
-  // --- Proposal form ---
   const [mode, setMode] = useState<MemoryWriteMode>("append");
   const [draft, setDraft] = useState("");
   const [summary, setSummary] = useState("");
@@ -87,110 +86,137 @@ export default function MemoryPage() {
 
   return (
     <>
-      <h2>Memory</h2>
-      <p className="muted">
-        Durable context. Edits are <strong>proposed</strong> and applied only
-        after approval — memory is never written directly.
-      </p>
+      <header className="page-header">
+        <div>
+          <p className="page-kicker">Durable Context</p>
+          <h2>Memory</h2>
+          <p className="lede">
+            View approved memory and send proposed edits to the approval queue.
+          </p>
+        </div>
+      </header>
 
-      {/* --- Indexed entries --- */}
-      <h3>Entries</h3>
-      {loading && <Loading />}
-      {error && <ErrorBanner message={error} onRetry={reload} />}
-      {entries && entries.length === 0 && (
-        <Empty label="No memory written yet." />
-      )}
-      {entries && entries.length > 0 && (
-        <div className="panel">
-          {entries.map((entry: MemoryEntry) => (
-            <div className="row" key={entry.id}>
-              <span className="grow">
-                <strong>{entry.slug}</strong>{" "}
-                <span className="muted">{entry.path}</span>
-                {entry.summary && <> — {entry.summary}</>}
-              </span>
-              <span className="ts">{formatTs(entry.updated_at)}</span>
+      <div className="memory-grid">
+        <div className="stack">
+          <section className="section">
+            <h3>Entries</h3>
+            {loading && <Loading />}
+            {error && <ErrorBanner message={error} onRetry={reload} />}
+            {entries && entries.length === 0 && (
+              <Empty label="No memory written yet." />
+            )}
+            {entries && entries.length > 0 && (
+              <div className="panel">
+                {entries.map((entry: MemoryEntry) => (
+                  <div className="row" key={entry.id}>
+                    <span className="grow">
+                      <strong className="item-title">{entry.slug}</strong>
+                      <span className="item-meta">{entry.path}</span>
+                      {entry.summary && (
+                        <span className="item-meta">{entry.summary}</span>
+                      )}
+                    </span>
+                    <span className="ts">{formatTs(entry.updated_at)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="section">
+            <div className="section-header">
+              <h3>View</h3>
+              <span className="badge safety">read-only</span>
             </div>
-          ))}
+            <div className="form-row">
+              <label htmlFor="memory-target">Target</label>
+              <select
+                id="memory-target"
+                value={target}
+                onChange={(e) => setTarget(e.target.value as MemoryTarget)}
+                disabled={busy}
+              >
+                {TARGETS.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {contentLoading && <Loading />}
+            {contentError && (
+              <ErrorBanner
+                message={contentError}
+                onRetry={() => void loadContent(target)}
+              />
+            )}
+            {content && (
+              <pre className="payload memory-content">
+                {content.content ? content.content : "(empty file)"}
+              </pre>
+            )}
+          </section>
         </div>
-      )}
 
-      {/* --- View file content --- */}
-      <h3>View</h3>
-      <div className="form-row">
-        <select
-          value={target}
-          onChange={(e) => setTarget(e.target.value as MemoryTarget)}
-          disabled={busy}
-        >
-          {TARGETS.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h3>Propose edit</h3>
+              <p>Memory writes wait for approval before they are applied.</p>
+            </div>
+            <span className="badge safety">proposal-only</span>
+          </div>
+          <div className="panel-body">
+            {notice && <div className="state">{notice}</div>}
+            {formError && (
+              <ErrorBanner
+                message={formError}
+                onRetry={() => setFormError(null)}
+              />
+            )}
+            <form onSubmit={onPropose}>
+              <div className="form-row">
+                <label htmlFor="memory-mode">Mode</label>
+                <select
+                  id="memory-mode"
+                  value={mode}
+                  onChange={(e) => setMode(e.target.value as MemoryWriteMode)}
+                  disabled={busy}
+                >
+                  <option value="append">append</option>
+                  <option value="replace">replace</option>
+                </select>
+              </div>
+              <div className="form-row">
+                <textarea
+                  placeholder={`New content for "${target}" (${mode})...`}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  rows={6}
+                  maxLength={50000}
+                  disabled={busy}
+                />
+              </div>
+              <div className="form-row">
+                <input
+                  placeholder="Short summary (optional)"
+                  value={summary}
+                  onChange={(e) => setSummary(e.target.value)}
+                  maxLength={200}
+                  disabled={busy}
+                />
+                <button
+                  type="submit"
+                  className="primary"
+                  disabled={busy || draft.trim() === ""}
+                >
+                  Send to approvals
+                </button>
+              </div>
+            </form>
+          </div>
+        </section>
       </div>
-      {contentLoading && <Loading />}
-      {contentError && (
-        <ErrorBanner
-          message={contentError}
-          onRetry={() => void loadContent(target)}
-        />
-      )}
-      {content && (
-        <pre className="payload">
-          {content.content ? content.content : "(empty file)"}
-        </pre>
-      )}
-
-      {/* --- Propose an edit --- */}
-      <h3>Propose edit</h3>
-      {notice && <p className="muted">{notice}</p>}
-      {formError && (
-        <ErrorBanner message={formError} onRetry={() => setFormError(null)} />
-      )}
-      <form onSubmit={onPropose}>
-        <div className="form-row">
-          <label>
-            Mode:{" "}
-            <select
-              value={mode}
-              onChange={(e) => setMode(e.target.value as MemoryWriteMode)}
-              disabled={busy}
-            >
-              <option value="append">append</option>
-              <option value="replace">replace</option>
-            </select>
-          </label>
-        </div>
-        <div className="form-row">
-          <textarea
-            placeholder={`New content for "${target}" (${mode})…`}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            rows={6}
-            maxLength={50000}
-            disabled={busy}
-            style={{ width: "100%" }}
-          />
-        </div>
-        <div className="form-row">
-          <input
-            placeholder="Short summary (optional)"
-            value={summary}
-            onChange={(e) => setSummary(e.target.value)}
-            maxLength={200}
-            disabled={busy}
-          />
-          <button
-            type="submit"
-            className="primary"
-            disabled={busy || draft.trim() === ""}
-          >
-            Send to approvals
-          </button>
-        </div>
-      </form>
     </>
   );
 }

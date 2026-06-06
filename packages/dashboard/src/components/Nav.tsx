@@ -15,12 +15,13 @@ const LINKS = [
 export function Nav() {
   const pathname = usePathname();
   return (
-    <nav className="nav">
+    <nav className="nav" aria-label="Primary">
       {LINKS.map((l) => (
         <Link
           key={l.href}
           href={l.href}
           className={pathname === l.href ? "active" : ""}
+          aria-current={pathname === l.href ? "page" : undefined}
         >
           {l.label}
         </Link>

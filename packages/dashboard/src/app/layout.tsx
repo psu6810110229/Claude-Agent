@@ -21,10 +21,20 @@ export default function RootLayout({
       <body suppressHydrationWarning>
         <div className="layout">
           <aside className="sidebar">
-            <h1>Claude_Agent</h1>
+            <div className="brand">
+              <div className="brand-mark" aria-hidden="true">
+                CA
+              </div>
+              <div>
+                <h1>Claude_Agent</h1>
+                <p>Personal Agent OS</p>
+              </div>
+            </div>
             <Nav />
           </aside>
-          <main className="main">{children}</main>
+          <main className="main">
+            <div className="main-inner">{children}</div>
+          </main>
         </div>
       </body>
     </html>

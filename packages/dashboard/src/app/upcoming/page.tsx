@@ -29,28 +29,41 @@ export default function UpcomingPage() {
 
   return (
     <>
-      <h2>Upcoming</h2>
-      <p className="muted">Events and reminders in the next 7 days.</p>
+      <header className="page-header">
+        <div>
+          <p className="page-kicker">Agenda</p>
+          <h2>Upcoming</h2>
+          <p className="lede">Events and reminders in the next 7 days.</p>
+        </div>
+      </header>
 
-      {loading && <Loading />}
-      {error && <ErrorBanner message={error} onRetry={reload} />}
+      <div className="stack">
+        {loading && <Loading />}
+        {error && <ErrorBanner message={error} onRetry={reload} />}
 
-      {data && (
-        <>
-          <h3>Schedule (Google Calendar)</h3>
-          {data.calendar.available ? (
-            <GoogleEventList events={data.calendar.events} />
-          ) : (
-            <p className="muted">Google Calendar not connected.</p>
-          )}
+        {data && (
+          <>
+            <section className="section">
+              <h3>Schedule (Google Calendar)</h3>
+              {data.calendar.available ? (
+                <GoogleEventList events={data.calendar.events} />
+              ) : (
+                <div className="state">Google Calendar not connected.</div>
+              )}
+            </section>
 
-          <h3>Local events (secondary)</h3>
-          <EventList events={bucketEvents(data.events).upcoming} />
+            <section className="section">
+              <h3>Local events (secondary)</h3>
+              <EventList events={bucketEvents(data.events).upcoming} />
+            </section>
 
-          <h3>Reminders</h3>
-          <ReminderList reminders={bucketReminders(data.reminders).upcoming} />
-        </>
-      )}
+            <section className="section">
+              <h3>Reminders</h3>
+              <ReminderList reminders={bucketReminders(data.reminders).upcoming} />
+            </section>
+          </>
+        )}
+      </div>
     </>
   );
 }
