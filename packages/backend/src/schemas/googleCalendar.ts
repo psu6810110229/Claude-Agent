@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { isoUtcDateTime } from "./event.js";
 
 /**
- * Google Calendar event (Step 10) — READ-ONLY projection.
+ * Google Calendar event (Step 10) - read projection.
  *
  * This is a normalized, display-oriented shape derived from the Google Calendar
  * API. It is deliberately distinct from the local `event` row (schemas/event.ts):
- * Google events are never persisted, never written back, and have no status /
+ * Google events are never persisted in the local DB and have no status /
  * created_at / updated_at of our own. `source` is a literal so the dashboard can
  * label Google entries as the PRIMARY schedule.
  *
@@ -36,4 +37,25 @@ export const googleEventListResponseSchema = z.object({
 });
 export type GoogleEventListResponse = z.infer<
   typeof googleEventListResponseSchema
+>;
+
+/**
+ * `google_event.create` approval payload. Google Calendar is the primary
+ * schedule source; creating an event is allowed only through the approval
+ * executor, never directly from AI or the command route.
+ */
+export const createGoogleEventPayloadSchema = z
+  .object({
+    title: z.string().trim().min(1).max(500),
+    starts_at: isoUtcDateTime,
+    ends_at: isoUtcDateTime,
+    location: z.string().trim().max(500).optional(),
+    notes: z.string().trim().max(2000).optional(),
+  })
+  .refine((v) => v.ends_at > v.starts_at, {
+    message: "ends_at must be after starts_at",
+    path: ["ends_at"],
+  });
+export type CreateGoogleEventPayload = z.infer<
+  typeof createGoogleEventPayloadSchema
 >;
