@@ -12,13 +12,14 @@ export interface CalendarRouteOptions {
 }
 
 /**
- * Google Calendar read routes (Step 10). READ-ONLY.
+ * Google Calendar read routes (Step 10).
  *
  * `today` and `upcoming` (next 7 days) windows are computed in Asia/Bangkok via
  * the shared `agendaBounds`, then passed to Google as server-side time filters.
  * Both endpoints FAIL CLOSED: any disabled/config/auth/API error returns an
  * empty list with `available: false` instead of erroring, so the dashboard and
- * brief degrade gracefully. There are deliberately no write endpoints.
+ * brief degrade gracefully. There are deliberately no write endpoints; Google
+ * writes happen only through approval-gated executor actions.
  */
 export async function calendarRoutes(
   app: FastifyInstance,
