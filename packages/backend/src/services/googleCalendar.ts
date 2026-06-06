@@ -7,14 +7,19 @@ import {
   GOOGLE_TOKEN_PATH,
   GOOGLE_CALENDAR_MAX_RESULTS,
 } from "../config.js";
-import { googleEventSchema, type GoogleEvent } from "../schemas/googleCalendar.js";
+import {
+  googleEventSchema,
+  type CreateGoogleEventPayload,
+  type GoogleEvent,
+} from "../schemas/googleCalendar.js";
 
 /**
- * Google Calendar read-only connector (Step 10).
+ * Google Calendar connector (Step 10+).
  *
  * SAFETY BOUNDARIES:
- * - READ-ONLY. Only `events.list` is ever called; this module exposes no
- *   create/update/delete path and requests only the `calendar.readonly` scope.
+ * - Reads are fail-closed and display-oriented.
+ * - Writes are create-only and are called only by the approval executor. This
+ *   module exposes no update/delete path.
  * - FAILS CLOSED. Disabled flag, missing/invalid credential files, or any API
  *   error throw `GoogleCalendarError`; callers turn that into an empty,
  *   `available: false` result so the dashboard/brief degrade gracefully.
@@ -43,6 +48,11 @@ export type GoogleEventsFetcher = (
   timeMinIso: string,
   timeMaxIso: string,
 ) => Promise<GoogleEvent[]>;
+
+export interface CreatedGoogleEvent {
+  id: string;
+  htmlLink: string | null;
+}
 
 /** Whether the connector is enabled (env flag). */
 export function isGoogleCalendarEnabled(): boolean {
@@ -117,7 +127,7 @@ export function buildOAuthClient(): GoogleOAuth2Client {
   return client;
 }
 
-/** Normalize a raw Google event item into our read-only shape (or null to skip). */
+/** Normalize a raw Google event item into our display shape (or null to skip). */
 function normalizeEvent(item: {
   id?: string | null;
   summary?: string | null;
@@ -144,8 +154,8 @@ function normalizeEvent(item: {
 }
 
 /**
- * The real fetcher. READ-ONLY single `events.list` call with server-side time
- * filtering and ordering. Fails closed on disabled/config/auth/API errors.
+ * The real fetcher. Single `events.list` call with server-side time filtering
+ * and ordering. Fails closed on disabled/config/auth/API errors.
  */
 export const realGoogleEventsFetcher: GoogleEventsFetcher = async (
   timeMinIso,
@@ -180,3 +190,48 @@ export const realGoogleEventsFetcher: GoogleEventsFetcher = async (
     .map((it) => normalizeEvent(it))
     .filter((e): e is GoogleEvent => e !== null);
 };
+
+/**
+ * Create one timed Google Calendar event. This is intentionally not exposed as
+ * an HTTP route; it is called only after a `google_event.create` approval has
+ * been approved and re-validated by the executor.
+ */
+export async function createGoogleCalendarEvent(
+  payload: CreateGoogleEventPayload,
+): Promise<CreatedGoogleEvent> {
+  if (!GOOGLE_CALENDAR_ENABLED) {
+    throw new GoogleCalendarError("disabled", "Google Calendar is disabled.");
+  }
+
+  const auth = buildOAuthClient();
+  const calendar = google.calendar({ version: "v3", auth });
+
+  try {
+    const res = await calendar.events.insert({
+      calendarId: GOOGLE_CALENDAR_ID,
+      sendUpdates: "none",
+      requestBody: {
+        summary: payload.title,
+        start: { dateTime: payload.starts_at },
+        end: { dateTime: payload.ends_at },
+        location: payload.location,
+        description: payload.notes,
+      },
+    });
+
+    const id = res.data.id;
+    if (!id) {
+      throw new GoogleCalendarError(
+        "api",
+        "Google Calendar returned an event without an id.",
+      );
+    }
+    return { id, htmlLink: res.data.htmlLink ?? null };
+  } catch (err) {
+    if (err instanceof GoogleCalendarError) throw err;
+    throw new GoogleCalendarError(
+      "api",
+      "Failed to create Google Calendar event.",
+    );
+  }
+}
