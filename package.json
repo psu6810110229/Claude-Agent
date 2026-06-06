@@ -1,0 +1,15 @@
+{
+  "name": "claude-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first Personal Agent OS / AI secretary",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @claude-agent/backend",
+    "smoke": "npm run smoke -w @claude-agent/backend",
+    "db:init": "npm run db:init -w @claude-agent/backend",
+    "build": "npm run build -w @claude-agent/backend"
+  }
+}
