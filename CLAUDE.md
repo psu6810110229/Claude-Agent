@@ -75,12 +75,30 @@ Google Drive later. It is built incrementally, smallest usable foundation first.
 - Types hand-mirrored from backend Zod (`src/lib/types.ts`); a shared types
   package remains a later step
 
+## Step 6 scope (done) — Claude reasoning runtime (proposal-only)
+
+- Claude reasoning runtime added **proposal-only** and **approval-gated**.
+- `services/claudeClient.ts` — controlled `claude -p` via `execFile` (no shell),
+  hard timeout, fails closed, drops `ANTHROPIC_API_KEY` from the child env.
+  Gated by `CLAUDE_AGENT_AI_ENABLED` (default off).
+- `services/chiefOfStaffPrompt.ts` — compact context only (allowed action types,
+  user input, capped open-task list, memory **target names only** — never DB
+  dumps or memory file contents).
+- `services/aiCommand.ts` — invoke → strict `JSON.parse` (trim only, no
+  fence-stripping, no repair) → Zod validate (`schemas/aiCommand.ts`).
+- `POST /api/command` gains `mode: "ai"`; valid actions become **pending**
+  approvals via the existing queue. Claude never executes and never bypasses
+  approval. Allowlist unchanged: `task.create`, `task.update`, `task.archive`,
+  `memory.write`.
+- Activity events: `ai.command.received|proposed|rejected|failed`.
+- `scripts/ai-smoke-test.ts` (`npm run ai-smoke`) verifies the above with a
+  **stubbed** invoker (the real binary is never called in tests).
+- Dashboard AI toggle is intentionally deferred to a small follow-up step.
+
 ## Out of scope (must NOT be added without explicit approval)
 
 The following remain **out of scope** and must not be introduced silently:
 
-- Command bar
-- Claude spawn logic (`claude -p`)
 - MCP
 - External connectors
 - Scheduler

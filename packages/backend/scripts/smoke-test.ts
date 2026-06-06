@@ -111,8 +111,10 @@ async function main(): Promise<void> {
   // cleanup
   await app.close();
   closeDb();
+  // Let the process exit naturally after teardown. Calling process.exit(0) here
+  // raced libuv handle teardown on Windows (UV_HANDLE_CLOSING assertion) and
+  // produced a nonzero exit despite all assertions passing.
   console.log("\nSMOKE OK");
-  process.exit(0);
 }
 
 main().catch((err: unknown) => {

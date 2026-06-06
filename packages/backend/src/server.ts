@@ -5,15 +5,21 @@ import { activityRoutes } from "./routes/activity.js";
 import { approvalRoutes } from "./routes/approvals.js";
 import { memoryRoutes } from "./routes/memory.js";
 import { commandRoutes } from "./routes/command.js";
+import type { ClaudeInvoker } from "./services/claudeClient.js";
+
+export interface BuildServerOptions {
+  /** Inject a stub Claude invoker (tests). Defaults to the real `claude -p`. */
+  aiInvoker?: ClaudeInvoker;
+}
 
 /** Builds the Fastify instance (without listening) so it can be reused in tests. */
-export function buildServer(): FastifyInstance {
+export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   const app = Fastify({ logger: true });
   app.register(healthRoutes);
   app.register(taskRoutes);
   app.register(activityRoutes);
   app.register(approvalRoutes);
   app.register(memoryRoutes);
-  app.register(commandRoutes);
+  app.register(commandRoutes, { aiInvoker: options.aiInvoker });
   return app;
 }
