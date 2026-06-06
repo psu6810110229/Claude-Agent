@@ -29,12 +29,22 @@ export const commandProposalResponseSchema = z.object({
 export const commandAiProposalResponseSchema = z.object({
   kind: z.literal("proposal"),
   approvals: z.array(approvalSchema),
+  notes: z.string().optional(),
+});
+
+/** A valid AI command that needs one more user answer before approval. */
+export const commandClarificationResponseSchema = z.object({
+  kind: z.literal("clarification"),
+  message: z.string(),
+  question: z.string(),
+  notes: z.string().optional(),
 });
 
 /** A valid AI command that produced no actionable proposals (200). */
 export const commandNoneResponseSchema = z.object({
   kind: z.literal("none"),
   message: z.string(),
+  notes: z.string().optional(),
 });
 
 /** A rejected/invalid/failed command (4xx/5xx). */
