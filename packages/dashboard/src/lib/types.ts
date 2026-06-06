@@ -98,3 +98,23 @@ export type CommandResult =
   | { kind: "help"; examples: string[] }
   | { kind: "proposal"; approval?: Approval; approvals?: Approval[] }
   | { kind: "none"; message: string };
+
+// --- Briefs ---------------------------------------------------------------
+
+/** Daily Brief vs Evening Review. */
+export type BriefType = "daily" | "evening";
+
+/**
+ * POST /api/briefs/:type success shape (200). The `summary` is the primary
+ * product; `approvals` are any pending proposals the brief queued (may be
+ * empty). Briefs are stateless and proposal-only — nothing executes. Failures
+ * arrive as 4xx/5xx via ApiError (503 disabled, 504 timeout, 502 failure, 400
+ * invalid output), handled in a catch like the command bar.
+ */
+export interface BriefResult {
+  kind: "brief";
+  type: BriefType;
+  summary: string;
+  notes?: string;
+  approvals: Approval[];
+}

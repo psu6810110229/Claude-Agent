@@ -5,6 +5,7 @@ import { activityRoutes } from "./routes/activity.js";
 import { approvalRoutes } from "./routes/approvals.js";
 import { memoryRoutes } from "./routes/memory.js";
 import { commandRoutes } from "./routes/command.js";
+import { briefRoutes } from "./routes/briefs.js";
 import type { ClaudeInvoker } from "./services/claudeClient.js";
 
 export interface BuildServerOptions {
@@ -21,5 +22,6 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   app.register(approvalRoutes);
   app.register(memoryRoutes);
   app.register(commandRoutes, { aiInvoker: options.aiInvoker });
+  app.register(briefRoutes, { aiInvoker: options.aiInvoker });
   return app;
 }

@@ -67,6 +67,8 @@ async function main(): Promise<void> {
       });
     if (prompt.includes("CASE_FENCE"))
       return "```json\n" + validOutput + "\n```";
+    if (prompt.includes("CASE_PROSE"))
+      return "Here is the result:\n" + validOutput;
     if (prompt.includes("CASE_TOOMANY"))
       return JSON.stringify({
         actions: Array.from({ length: 6 }, (_, i) => ({
@@ -145,14 +147,30 @@ async function main(): Promise<void> {
     "unknown action type created zero approvals",
   );
 
-  // --- 4. Markdown fences are NOT stripped → rejected (strict parsing) ---
+  // --- 4. A single outer markdown code fence is unwrapped → accepted ---
   const before4 = countApprovals();
   const fenced = await postAi("CASE_FENCE add a task");
   assert(
-    fenced.status === 400 && fenced.json.kind === "error",
-    "fenced JSON is rejected (no fence-stripping)",
+    fenced.status === 201 && fenced.json.kind === "proposal",
+    "fenced JSON is unwrapped and accepted",
   );
-  assert(countApprovals() === before4, "fenced response created zero approvals");
+  assert(
+    Array.isArray(fenced.json.approvals) && fenced.json.approvals.length === 2,
+    "fenced JSON created two approvals",
+  );
+  assert(
+    countApprovals() === before4 + 2,
+    "fenced response persisted two approvals",
+  );
+
+  // --- 4b. Prose before the JSON is still rejected (not unwrapped) ---
+  const before4b = countApprovals();
+  const prose = await postAi("CASE_PROSE add a task");
+  assert(
+    prose.status === 400 && prose.json.kind === "error",
+    "prose + JSON is rejected",
+  );
+  assert(countApprovals() === before4b, "prose response created zero approvals");
 
   // --- 5. More than 5 actions is rejected ---
   const before5 = countApprovals();

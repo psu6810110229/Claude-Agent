@@ -1,5 +1,10 @@
 import { execFile } from "node:child_process";
-import { CLAUDE_BIN, CLAUDE_TIMEOUT_MS, CLAUDE_AI_ENABLED } from "../config.js";
+import {
+  CLAUDE_BIN,
+  CLAUDE_MODEL,
+  CLAUDE_TIMEOUT_MS,
+  CLAUDE_AI_ENABLED,
+} from "../config.js";
 
 /**
  * Controlled wrapper around `claude -p` (Step 6).
@@ -31,8 +36,21 @@ export class ClaudeError extends Error {
   }
 }
 
-/** A function that takes a prompt and resolves with Claude's raw stdout. */
-export type ClaudeInvoker = (prompt: string) => Promise<string>;
+/** Per-call options for an invocation. */
+export interface ClaudeInvokeOptions {
+  /** Override the hard timeout (ms) for this call. Defaults to CLAUDE_TIMEOUT_MS. */
+  timeoutMs?: number;
+}
+
+/**
+ * A function that takes a prompt (and optional per-call options) and resolves
+ * with Claude's raw stdout. The options arg is optional so existing/stub
+ * invokers that accept only a prompt remain compatible.
+ */
+export type ClaudeInvoker = (
+  prompt: string,
+  opts?: ClaudeInvokeOptions,
+) => Promise<string>;
 
 /**
  * Build a child env that deliberately drops sensitive Anthropic credentials so
@@ -45,7 +63,7 @@ function sanitizedEnv(): NodeJS.ProcessEnv {
 }
 
 /** Real invoker: spawns the Claude CLI. Gated by CLAUDE_AI_ENABLED. */
-export const realClaudeInvoker: ClaudeInvoker = (prompt) =>
+export const realClaudeInvoker: ClaudeInvoker = (prompt, opts) =>
   new Promise<string>((resolve, reject) => {
     if (!CLAUDE_AI_ENABLED) {
       reject(
@@ -57,11 +75,13 @@ export const realClaudeInvoker: ClaudeInvoker = (prompt) =>
       return;
     }
 
+    const timeoutMs = opts?.timeoutMs ?? CLAUDE_TIMEOUT_MS;
+
     execFile(
       CLAUDE_BIN,
-      ["-p", prompt],
+      ["--model", CLAUDE_MODEL, "-p", prompt],
       {
-        timeout: CLAUDE_TIMEOUT_MS,
+        timeout: timeoutMs,
         maxBuffer: 1024 * 1024,
         windowsHide: true,
         env: sanitizedEnv(),
@@ -73,7 +93,7 @@ export const realClaudeInvoker: ClaudeInvoker = (prompt) =>
             reject(
               new ClaudeError(
                 "timeout",
-                `claude -p timed out after ${CLAUDE_TIMEOUT_MS}ms`,
+                `claude -p timed out after ${timeoutMs}ms`,
               ),
             );
             return;

@@ -5,6 +5,7 @@
 import type {
   Activity,
   Approval,
+  BriefResult,
   CommandMode,
   CommandResult,
   CreateMemoryProposalBody,
@@ -148,4 +149,20 @@ export function runCommand(
     method: "POST",
     body: JSON.stringify({ input, mode }),
   });
+}
+
+// --- Briefs --------------------------------------------------------------
+
+/**
+ * Generate a Daily Brief or Evening Review. Bodyless POST (request() omits the
+ * JSON content-type when there is no body). Proposal-only and AI-gated: returns
+ * a `brief` with the summary plus any queued approvals on success; AI failures
+ * throw ApiError (503 disabled, 504 timeout, 502 failure, 400 invalid output).
+ */
+export function generateDailyBrief(): Promise<BriefResult> {
+  return request<BriefResult>("/api/briefs/daily", { method: "POST" });
+}
+
+export function generateEveningBrief(): Promise<BriefResult> {
+  return request<BriefResult>("/api/briefs/evening", { method: "POST" });
 }

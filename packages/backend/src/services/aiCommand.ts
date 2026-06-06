@@ -2,6 +2,7 @@ import { listTasks } from "../db/repositories/taskRepo.js";
 import { memoryTargetSchema } from "../schemas/memory.js";
 import { aiOutputSchema, type AiAction } from "../schemas/aiCommand.js";
 import { buildChiefOfStaffPrompt } from "./chiefOfStaffPrompt.js";
+import { unwrapJsonOutput } from "./jsonOutput.js";
 import { ClaudeError, type ClaudeInvoker } from "./claudeClient.js";
 import { CLAUDE_CONTEXT_TASK_CAP } from "../config.js";
 
@@ -52,10 +53,11 @@ export async function runAiCommand(
     return { kind: "failed", reason: "spawn", message };
   }
 
-  // 2. Strict JSON parse: trim whitespace only. No fence-stripping, no repair.
+  // 2. Normalize (trim + unwrap a single outer code fence only) then strict
+  //    JSON parse. No first-{-to-last-} extraction, no repair; prose still fails.
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw.trim());
+    parsed = JSON.parse(unwrapJsonOutput(raw));
   } catch {
     return {
       kind: "rejected",

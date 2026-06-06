@@ -12,7 +12,8 @@
     "smoke": "tsx scripts/smoke-test.ts",
     "smoke:step2": "tsx scripts/smoke-step2.ts",
     "smoke:step4": "tsx scripts/smoke-step4.ts",
-    "ai-smoke": "tsx scripts/ai-smoke-test.ts"
+    "ai-smoke": "tsx scripts/ai-smoke-test.ts",
+    "brief-smoke": "tsx scripts/brief-smoke-test.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.2.0",

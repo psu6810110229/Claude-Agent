@@ -35,9 +35,28 @@ export const MEMORY_DIR =
 /** Path/name of the Claude Code CLI binary. */
 export const CLAUDE_BIN = process.env.CLAUDE_AGENT_CLAUDE_BIN ?? "claude";
 
+/**
+ * Model the agent uses for its `claude -p` reasoning calls. Pinned to Sonnet 4.6
+ * (cheaper/faster) and passed explicitly via `--model`, so it is independent of
+ * whatever default the interactive Claude Code CLI is configured to use for
+ * coding. Overridable via env.
+ */
+export const CLAUDE_MODEL =
+  process.env.CLAUDE_AGENT_CLAUDE_MODEL ?? "claude-sonnet-4-6";
+
 /** Hard timeout for a single `claude -p` invocation (ms). Fail closed on expiry. */
 export const CLAUDE_TIMEOUT_MS = Number(
   process.env.CLAUDE_AGENT_CLAUDE_TIMEOUT_MS ?? 20_000,
+);
+
+/**
+ * Separate, longer timeout for brief generation (ms). Briefs read more context
+ * and produce a narrative summary plus optional actions, so they legitimately
+ * take longer than the lightweight command bar. Kept independent so command AI
+ * stays snappy. Fail closed on expiry. Overridable via env.
+ */
+export const CLAUDE_BRIEF_TIMEOUT_MS = Number(
+  process.env.CLAUDE_AGENT_BRIEF_TIMEOUT_MS ?? 90_000,
 );
 
 /**
@@ -54,6 +73,18 @@ export const CLAUDE_MAX_ACTIONS = 5;
 
 /** Cap on open tasks included in the compact context snapshot passed to Claude. */
 export const CLAUDE_CONTEXT_TASK_CAP = 20;
+
+/**
+ * Step 8 — Daily Brief / Evening Review (proposal-only, AI-gated). Briefs reuse
+ * the Claude reasoning runtime and the approval queue; they are stateless (never
+ * persisted) and emit only the existing allowlisted action types.
+ */
+
+/** Max recent activity rows included in a brief's compact context. */
+export const BRIEF_ACTIVITY_LIMIT = 15;
+
+/** Max pending approvals listed (by id + type only) in a brief's context. */
+export const BRIEF_APPROVALS_CAP = 10;
 
 /** Single source of truth for UTC ISO 8601 timestamps. */
 export function nowIso(): string {
