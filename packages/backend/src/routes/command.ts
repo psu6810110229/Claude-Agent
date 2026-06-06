@@ -110,11 +110,27 @@ async function handleAiCommand(
     return reply.code(400).send({ kind: "error", error: result.message });
   }
 
+  // Valid but missing required details. Ask a follow-up before anything reaches
+  // the approval queue.
+  if (result.actions.length === 0 && result.clarification) {
+    logActivity("ai.command.clarification", result.clarification);
+    return reply.code(200).send({
+      kind: "clarification",
+      message: "More information is needed before anything can be queued.",
+      question: result.clarification,
+      notes: result.notes,
+    });
+  }
+
   // Valid but no actionable proposals.
   if (result.actions.length === 0) {
     return reply
       .code(200)
-      .send({ kind: "none", message: "No actionable proposals were produced." });
+      .send({
+        kind: "none",
+        message: "No actionable proposals were produced.",
+        notes: result.notes,
+      });
   }
 
   // Valid actions: each becomes a pending approval. Output was already validated
@@ -126,8 +142,8 @@ async function handleAiCommand(
       "ai.command.proposed",
       `approval #${approval.id} (${approval.action_type}) from ai`,
     );
-    return approvalSchema.parse(approval);
+    return approval;
   });
 
-  return reply.code(201).send({ kind: "proposal", approvals });
+  return reply.code(201).send({ kind: "proposal", approvals, notes: result.notes });
 }
