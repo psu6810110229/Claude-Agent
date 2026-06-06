@@ -28,17 +28,18 @@ async function getJson(p: string): Promise<{ status: number; json: any }> {
 }
 
 async function main(): Promise<void> {
-  console.log("Running Claude_Agent Step 10 (Google Calendar read-only) smoke...");
+  console.log("Running Claude_Agent Step 10 (Google Calendar read/create) smoke...");
 
   const { buildServer } = await import("../src/server.js");
   const { initDb } = await import("../src/db/init.js");
   const { closeDb } = await import("../src/db/connection.js");
   const { actionTypeSchema } = await import("../src/schemas/approval.js");
+  const { GOOGLE_CALENDAR_SCOPES } = await import("../src/config.js");
   const { GoogleCalendarError, realGoogleEventsFetcher } = await import(
     "../src/services/googleCalendar.js"
   );
 
-  // --- 0. The allowlist contains NO calendar write action types ---
+  // --- 0. The allowlist contains only the create Google Calendar action ---
   const actionTypes = (actionTypeSchema as any).options as string[];
   const forbidden = [
     "calendar.create",
@@ -46,11 +47,20 @@ async function main(): Promise<void> {
     "calendar.delete",
     "calendar.event.create",
     "gcal.create",
+    "google_event.update",
+    "google_event.delete",
+    "google_event.archive",
   ];
   assert(
-    forbidden.every((t) => !actionTypes.includes(t)) &&
-      !actionTypes.some((t) => t.startsWith("calendar")),
-    "allowlist has no Google Calendar write action types",
+    actionTypes.includes("google_event.create") &&
+      forbidden.every((t) => !actionTypes.includes(t)),
+    "allowlist has create-only Google Calendar write action type",
+  );
+  assert(
+    GOOGLE_CALENDAR_SCOPES.length === 1 &&
+      GOOGLE_CALENDAR_SCOPES[0] ===
+        "https://www.googleapis.com/auth/calendar.events",
+    "Google OAuth scope is limited to Calendar events",
   );
 
   // --- 1. Disabled (real fetcher, flag off) fails closed with 'disabled' ---
@@ -129,7 +139,7 @@ async function main(): Promise<void> {
     "GET /api/calendar/upcoming returns available:true",
   );
 
-  // --- 3. Brief includes Google events in its context (read-only) ---
+  // --- 3. Brief includes Google events in its context ---
   const res = await fetch(`${BASE}/api/briefs/daily`, { method: "POST" });
   assert(res.status === 200, "POST /api/briefs/daily succeeds");
   assert(promptSawGoogle, "Google Calendar events reach the brief prompt");
