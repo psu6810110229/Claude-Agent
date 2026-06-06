@@ -28,7 +28,7 @@ export interface BriefContext {
   /** Current Asia/Bangkok wall-clock time (the user's local timezone). */
   nowBangkok: string;
   /**
-   * Google Calendar events (the PRIMARY, READ-ONLY schedule): today + upcoming
+   * Google Calendar events (the PRIMARY schedule): today + upcoming
    * (7-day), with start (RFC 3339), short title, all-day flag, and bucket.
    */
   googleEvents: {
@@ -137,6 +137,7 @@ ALLOWED ACTION TYPES (the literal "action_type" value -> its "payload" shape):
 - "reminder.create"  payload: { "title": string, "due_at": <ISO UTC>, "notes"?: string }
 - "reminder.update"  payload: { "id": number, ...one or more of title/due_at/notes }
 - "reminder.archive" payload: { "id": number }
+- "google_event.create" payload: { "title": string, "starts_at": <ISO UTC>, "ends_at": <ISO UTC>, "location"?: string, "notes"?: string }
 
 DATE & TIME RULES: the user's local timezone is Asia/Bangkok (UTC+7). Interpret
 relative/local times in Asia/Bangkok but OUTPUT every datetime as ISO 8601 UTC
@@ -148,9 +149,10 @@ LOCAL CONTEXT (read-only; this is all you have — do not assume anything else):
 OPEN TASKS (for resolving task ids; do not invent ids):
 ${tasks}
 
-GOOGLE CALENDAR (the user's PRIMARY schedule; today + next 7 days; READ-ONLY —
-you may summarise and reference these but CANNOT create, update, or delete
-calendar events, and there is no action type to do so):
+GOOGLE CALENDAR (the user's PRIMARY schedule; today + next 7 days; read this
+context for awareness. Only propose "google_event.create" if the brief context
+clearly requires adding a missing future event; there are no Google update/delete
+action types):
 ${googleEvents}
 
 LOCAL EVENTS (secondary/local-only; today + next 7 days; do not invent ids):
