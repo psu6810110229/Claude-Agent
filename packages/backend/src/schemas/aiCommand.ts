@@ -52,17 +52,24 @@ export const aiActionSchema = z.discriminatedUnion("action_type", [
     action_type: z.literal("reminder.archive"),
     payload: actionPayloadSchemas["reminder.archive"],
   }),
+  z.object({
+    action_type: z.literal("google_event.create"),
+    payload: actionPayloadSchemas["google_event.create"],
+  }),
 ]);
 export type AiAction = z.infer<typeof aiActionSchema>;
 
 /**
  * The full envelope. `actions` is capped at CLAUDE_MAX_ACTIONS; an empty array
- * is valid and means "no actionable proposals". `notes` is advisory only and is
- * never executed. `.strict()` rejects any unexpected top-level keys.
+ * is valid and means "no actionable proposals". `clarification` is a
+ * user-facing follow-up question for missing details that must be answered
+ * before an approval can be queued. `notes` is advisory only and is never
+ * executed. `.strict()` rejects any unexpected top-level keys.
  */
 export const aiOutputSchema = z
   .object({
     actions: z.array(aiActionSchema).max(CLAUDE_MAX_ACTIONS),
+    clarification: z.string().trim().min(1).max(500).optional(),
     notes: z.string().max(2000).optional(),
   })
   .strict();
