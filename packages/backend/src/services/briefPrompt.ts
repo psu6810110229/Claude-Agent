@@ -34,7 +34,7 @@ const FRAMING: Record<BriefType, { heading: string; intent: string }> = {
   evening: {
     heading: "Evening Review",
     intent:
-      "Write a short Evening Review that reflects on the day: summarise what changed (from recent activity), what is still open, and what to carry into tomorrow.",
+      "Write a short Evening Review that reflects on the day: summarise the recent changes listed below, what is still open, and what to carry into tomorrow. The listed changes are the only record of the day; do not infer system health, errors, or backlog beyond them.",
   },
 };
 
@@ -93,7 +93,7 @@ ${tasks}
 PENDING APPROVALS (${ctx.pendingApprovalCount} total, ids + types only):
 ${approvals}
 
-RECENT ACTIVITY (newest first):
+RECENT CHANGES (genuine state changes only, newest first; NOT a system-health or error report):
 ${activity}
 
 MEMORY SUMMARIES (slug + short summary only; full contents are NOT available):

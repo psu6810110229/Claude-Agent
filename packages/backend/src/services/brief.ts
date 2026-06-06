@@ -20,6 +20,36 @@ import {
  * database or file writes; the route routes any valid actions into the approval
  * queue. Every branch fails closed. Mirrors `runAiCommand`.
  */
+
+/**
+ * Activity event types that represent a genuine, user-meaningful CHANGE to the
+ * system of record — the only events a brief should reflect on. This is an
+ * allowlist on purpose: internal/runtime/diagnostic events (`brief.*`,
+ * `ai.command.*`, `command.*`, `approval.create`, `memory.propose`) are noise
+ * and, worse, feed stale failures back into the next brief as if they were
+ * current truth. Pending work is conveyed separately via the approval COUNT.
+ */
+const BRIEF_RELEVANT_EVENTS = new Set<string>([
+  "task.create",
+  "task.update",
+  "task.archive",
+  "memory.write",
+  "approval.approve",
+  "approval.reject",
+]);
+
+/** True only for genuine state-change events worth surfacing in a brief. */
+export function isBriefRelevantEvent(eventType: string): boolean {
+  return BRIEF_RELEVANT_EVENTS.has(eventType);
+}
+
+/**
+ * How many recent rows to scan before filtering. We over-fetch then filter to
+ * the allowlist so a burst of internal events can't crowd out real changes from
+ * the capped window.
+ */
+const BRIEF_ACTIVITY_SCAN = 100;
+
 export type BriefResult =
   | { kind: "generated"; summary: string; actions: AiAction[]; notes?: string }
   | { kind: "rejected"; message: string }
@@ -37,10 +67,15 @@ function buildBriefContext(): BriefContext {
     .slice(0, BRIEF_APPROVALS_CAP)
     .map((a) => ({ id: a.id, action_type: a.action_type }));
 
-  const recentActivity = listRecentActivity(BRIEF_ACTIVITY_LIMIT).map((a) => ({
-    event_type: a.event_type,
-    detail: a.detail ? a.detail.slice(0, 120) : null,
-  }));
+  // Over-fetch, drop internal/diagnostic/runtime events, then cap. This keeps
+  // stale failures and brief/AI runtime chatter out of the brief context.
+  const recentActivity = listRecentActivity(BRIEF_ACTIVITY_SCAN)
+    .filter((a) => isBriefRelevantEvent(a.event_type))
+    .slice(0, BRIEF_ACTIVITY_LIMIT)
+    .map((a) => ({
+      event_type: a.event_type,
+      detail: a.detail ? a.detail.slice(0, 120) : null,
+    }));
 
   // memory_index SUMMARIES only — never file contents (summaries are capped at
   // 200 chars by the memory schema).

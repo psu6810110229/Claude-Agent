@@ -43,6 +43,30 @@ async function main(): Promise<void> {
   const { initDb } = await import("../src/db/init.js");
   const { getDb, closeDb } = await import("../src/db/connection.js");
   const { ClaudeError } = await import("../src/services/claudeClient.js");
+  const { isBriefRelevantEvent } = await import("../src/services/brief.js");
+
+  // --- 0. Activity allowlist predicate: genuine changes in, runtime noise out ---
+  for (const ev of [
+    "task.create",
+    "task.update",
+    "task.archive",
+    "memory.write",
+    "approval.approve",
+    "approval.reject",
+  ]) {
+    assert(isBriefRelevantEvent(ev), `brief keeps domain event '${ev}'`);
+  }
+  for (const ev of [
+    "brief.daily.failed",
+    "brief.evening.requested",
+    "ai.command.failed",
+    "ai.command.received",
+    "command.received",
+    "approval.create",
+    "memory.propose",
+  ]) {
+    assert(!isBriefRelevantEvent(ev), `brief drops internal event '${ev}'`);
+  }
 
   const validOutput = JSON.stringify({
     summary: SUMMARY_TEXT,
@@ -241,6 +265,32 @@ async function main(): Promise<void> {
     failed.status === 502 && failed.json.kind === "error",
     "Claude failure fails closed with 502",
   );
+
+  // --- 11b. Brief context excludes internal/runtime events, keeps real changes ---
+  // The log is already full of brief.*/ai.* runtime events from the calls above.
+  // Seed one genuine domain change, then assert the prompt reflects the filter.
+  const ts = new Date().toISOString();
+  const DOMAIN_DETAIL = "DOMAIN_CHANGE_SENTINEL";
+  db.prepare(
+    "INSERT INTO activity_log (event_type, detail, created_at) VALUES (?, ?, ?)",
+  ).run("task.create", DOMAIN_DETAIL, ts);
+  behavior = async () => JSON.stringify({ summary: SUMMARY_TEXT, actions: [] });
+  await postBrief("evening");
+  assert(
+    lastPrompt.includes(DOMAIN_DETAIL),
+    "brief prompt includes the genuine domain change in RECENT CHANGES",
+  );
+  for (const noise of [
+    "brief.daily.failed",
+    "brief.evening.requested",
+    "ai.command.received",
+    "ai.command.failed",
+  ]) {
+    assert(
+      !lastPrompt.includes(noise),
+      `brief prompt excludes internal event '${noise}'`,
+    );
+  }
 
   // --- 12. Activity events present, and full brief text never logged ---
   const rows = db
