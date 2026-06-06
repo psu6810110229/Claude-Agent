@@ -147,7 +147,7 @@ export async function listReminders(): Promise<Reminder[]> {
   return data.reminders;
 }
 
-// --- Google Calendar (Step 10, read-only, primary schedule) --------------
+// --- Google Calendar (Step 10, primary schedule) -------------------------
 
 /** Today's Google Calendar events. `available:false` if disabled/unconfigured. */
 export function getCalendarToday(): Promise<GoogleEventListResponse> {
@@ -163,10 +163,11 @@ export function getCalendarUpcoming(): Promise<GoogleEventListResponse> {
 
 /**
  * Run a command. `mode` selects the deterministic parser (default) or the
- * proposal-only AI path. Returns `help`/`proposal`/`none` on success; failures
- * come back as 4xx/5xx and throw ApiError (carrying the backend's message and
- * status), so handle those in a catch — the status distinguishes AI states:
- * 503 disabled, 504 timeout, 502 spawn/empty failure, 400 invalid output.
+ * proposal-only AI path. Returns `help`/`proposal`/`clarification`/`none` on
+ * success; failures come back as 4xx/5xx and throw ApiError (carrying the
+ * backend's message and status), so handle those in a catch — the status
+ * distinguishes AI states: 503 disabled, 504 timeout, 502 spawn/empty failure,
+ * 400 invalid output.
  */
 export function runCommand(
   input: string,
