@@ -14,7 +14,12 @@ import { CLAUDE_CONTEXT_TASK_CAP, nowIso } from "../config.js";
  * approval queue. Every branch fails closed.
  */
 export type AiCommandResult =
-  | { kind: "proposed"; actions: AiAction[] }
+  | {
+      kind: "proposed";
+      actions: AiAction[];
+      clarification?: string;
+      notes?: string;
+    }
   | { kind: "rejected"; message: string }
   | { kind: "failed"; reason: string; message: string };
 
@@ -84,5 +89,10 @@ export async function runAiCommand(
     };
   }
 
-  return { kind: "proposed", actions: check.data.actions };
+  return {
+    kind: "proposed",
+    actions: check.data.actions,
+    clarification: check.data.clarification,
+    notes: check.data.notes,
+  };
 }
