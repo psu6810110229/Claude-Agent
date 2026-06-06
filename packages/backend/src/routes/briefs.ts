@@ -8,10 +8,15 @@ import {
   realClaudeInvoker,
   type ClaudeInvoker,
 } from "../services/claudeClient.js";
+import {
+  realGoogleEventsFetcher,
+  type GoogleEventsFetcher,
+} from "../services/googleCalendar.js";
 
-/** Plugin options. `aiInvoker` is injectable so tests can stub Claude. */
+/** Plugin options. Both injectables let tests stub Claude / Google Calendar. */
 export interface BriefRouteOptions {
   aiInvoker?: ClaudeInvoker;
+  calendarFetcher?: GoogleEventsFetcher;
 }
 
 /**
@@ -28,23 +33,25 @@ export async function briefRoutes(
   opts: BriefRouteOptions,
 ): Promise<void> {
   const invoke = opts.aiInvoker ?? realClaudeInvoker;
+  const fetchGoogle = opts.calendarFetcher ?? realGoogleEventsFetcher;
 
   app.post("/api/briefs/daily", (_req, reply) =>
-    handleBrief("daily", invoke, reply),
+    handleBrief("daily", invoke, fetchGoogle, reply),
   );
   app.post("/api/briefs/evening", (_req, reply) =>
-    handleBrief("evening", invoke, reply),
+    handleBrief("evening", invoke, fetchGoogle, reply),
   );
 }
 
 async function handleBrief(
   type: BriefType,
   invoke: ClaudeInvoker,
+  fetchGoogle: GoogleEventsFetcher,
   reply: FastifyReply,
 ): Promise<unknown> {
   logActivity(`brief.${type}.requested`);
 
-  const result = await runBrief(type, invoke);
+  const result = await runBrief(type, invoke, fetchGoogle);
 
   // Spawn/timeout/disabled/empty errors: fail closed, create zero approvals.
   if (result.kind === "failed") {

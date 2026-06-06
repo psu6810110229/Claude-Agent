@@ -105,6 +105,49 @@ export const BRIEF_EVENT_CAP = 20;
 /** Cap on reminders included in a brief's compact context. */
 export const BRIEF_REMINDER_CAP = 20;
 
+/**
+ * Step 10 — Google Calendar read-only connector.
+ *
+ * READ-ONLY by design: the only OAuth scope ever requested is
+ * `calendar.readonly`. The backend never creates, updates, or deletes calendar
+ * events, and there are NO calendar write action types in the approval
+ * allowlist. Google Calendar is the PRIMARY schedule source; local
+ * events/reminders (Step 9) remain secondary. Disabled by default; the real
+ * fetcher fails closed when off or unconfigured (the stubbed smoke test injects
+ * its own fetcher and is unaffected by this flag).
+ */
+
+/** Google Calendar integration is OFF unless explicitly enabled. */
+export const GOOGLE_CALENDAR_ENABLED = /^(1|true)$/i.test(
+  process.env.GOOGLE_CALENDAR_ENABLED ?? "",
+);
+
+/** Which calendar to read. Defaults to the user's primary calendar. */
+export const GOOGLE_CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID ?? "primary";
+
+/** OAuth client secret JSON (Desktop app). Gitignored; never logged. */
+export const GOOGLE_CLIENT_SECRET_PATH =
+  process.env.GOOGLE_CALENDAR_CLIENT_SECRET_PATH ??
+  path.join(DATA_DIR, "google-client-secret.json");
+
+/** Stored OAuth token (refresh token) JSON. Gitignored; never logged. */
+export const GOOGLE_TOKEN_PATH =
+  process.env.GOOGLE_CALENDAR_TOKEN_PATH ??
+  path.join(DATA_DIR, "google-token.json");
+
+/** The ONLY scope ever requested. Read-only — no write access, ever. */
+export const GOOGLE_CALENDAR_SCOPES = [
+  "https://www.googleapis.com/auth/calendar.readonly",
+];
+
+/** Loopback redirect port used only by the one-time `google-auth` script. */
+export const GOOGLE_OAUTH_REDIRECT_PORT = Number(
+  process.env.GOOGLE_CALENDAR_OAUTH_PORT ?? 8799,
+);
+
+/** Cap on events fetched per Google Calendar query. */
+export const GOOGLE_CALENDAR_MAX_RESULTS = 50;
+
 /** Single source of truth for UTC ISO 8601 timestamps. */
 export function nowIso(): string {
   return new Date().toISOString();

@@ -161,17 +161,56 @@ Google Drive later. It is built incrementally, smallest usable foundation first.
   AI proposal → approve → stored, non-UTC datetime rejected, update/archive).
   The live `claude` binary is never called from any smoke test.
 
+## Step 10 scope (done) — Google Calendar read-only connector
+
+- **READ-ONLY** native Google Calendar integration via the `googleapis` SDK.
+  The ONLY OAuth scope ever requested is `calendar.readonly`. There is **no
+  write path** and **no calendar action types** in the approval allowlist — the
+  allowlist is unchanged (`task.*`, `memory.write`, `event.*`, `reminder.*`).
+- Google Calendar is the **primary** schedule source; local events/reminders
+  (Step 9) remain **secondary**. The backend owns the connector boundary
+  (chosen over MCP, which is runtime-bound and exposes write tools).
+- `services/googleCalendar.ts` — builds an OAuth2 client from gitignored
+  client-secret + token files (refresh token), calls only `events.list`,
+  normalizes to a read-only `GoogleEvent`. **Fails closed** (disabled / missing
+  creds / API error → throw) and **never logs secrets or tokens**. The fetcher
+  (`GoogleEventsFetcher`) is injectable for tests.
+- `schemas/googleCalendar.ts` — `googleEvent` / list response (`available` flag).
+- Read routes `GET /api/calendar/today` and `GET /api/calendar/upcoming`
+  (Bangkok-aware windows via `agendaBounds`, server-side time filtering). Both
+  return `{ events, available }` and degrade to `available:false` on any error.
+- Config (gated, **off by default**): `GOOGLE_CALENDAR_ENABLED`,
+  `GOOGLE_CALENDAR_ID` (default `primary`), `GOOGLE_CALENDAR_CLIENT_SECRET_PATH`,
+  `GOOGLE_CALENDAR_TOKEN_PATH` (both default under gitignored `data/`),
+  `GOOGLE_CALENDAR_OAUTH_PORT`.
+- `scripts/google-auth.ts` (`npm run google-auth`) — one-time loopback
+  (`127.0.0.1`) OAuth consent; stores ONLY the refresh token (0600).
+- Daily Brief context now includes Google today + upcoming events (primary,
+  read-only); the prompt states the AI may summarize/reference but **cannot**
+  create/update/delete calendar events (no action type exists to do so).
+- Dashboard Today + Upcoming show Google events as the primary schedule and
+  local events as secondary; "not connected" when unavailable. Display only.
+- AI **may summarize/recommend** but never executes; nothing bypasses the
+  approval queue. The live `claude` binary and the real Google API are **never**
+  called from any smoke test.
+- Verification: `npm run build`, `npm run smoke:step10` (stubbed fetcher: no
+  calendar write action types, fail-closed-when-disabled, read routes,
+  all-day normalization, brief includes Google events, error → `available:false`),
+  `npm run smoke`, `npm run ai-smoke`, `npm run brief-smoke`,
+  `npm run build:dashboard`.
+
 ## Out of scope (must NOT be added without explicit approval)
 
 The following remain **out of scope** and must not be introduced silently:
 
 - MCP
-- External connectors
+- External connectors **other than the Step 10 Google Calendar read-only connector**
+- **Google Calendar write access** (create/update/delete events) — read-only only
 - Scheduler
 - Voice
-- Google Calendar, Notion, Gmail, Google Drive
+- Notion, Gmail, Google Drive
 - Local filesystem scanning
-- Authentication
+- Authentication **beyond the minimal OAuth for Google Calendar read-only**
 
 ## Rules for future Claude Code sessions
 
@@ -212,6 +251,8 @@ Claude_Agent/
 
 - `npm install` — install workspace dependencies
 - `npm run smoke` — run backend smoke test
+- `npm run smoke:step10` — Step 10 Google Calendar smoke (stubbed; no network)
+- `npm run google-auth` — one-time Google Calendar read-only OAuth setup
 - `npm run db:init` — initialize the SQLite database
 - `npm run dev` — run backend in watch mode (127.0.0.1:8787)
 - `npm run dev:dashboard` — run the dashboard (Next.js, :3000); requires the

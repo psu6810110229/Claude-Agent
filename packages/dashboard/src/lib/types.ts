@@ -47,6 +47,31 @@ export interface CalendarEvent {
   updated_at: string;
 }
 
+// --- Google Calendar (Step 10, read-only, PRIMARY schedule) ---------------
+
+/**
+ * Normalized Google Calendar event. Read-only projection mirrored from the
+ * backend (schemas/googleCalendar.ts). `start`/`end` are RFC 3339 strings as
+ * Google returns them: an instant for timed events, a `YYYY-MM-DD` date for
+ * all-day events (`allDay` disambiguates).
+ */
+export interface GoogleEvent {
+  id: string;
+  title: string;
+  start: string;
+  end: string | null;
+  allDay: boolean;
+  location: string | null;
+  htmlLink: string | null;
+  source: "google";
+}
+
+/** GET /api/calendar/* — `available` is false when disabled or on fetch error. */
+export interface GoogleEventListResponse {
+  events: GoogleEvent[];
+  available: boolean;
+}
+
 export type ReminderStatus = "active" | "archived";
 
 export interface Reminder {

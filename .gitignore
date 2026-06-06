@@ -17,6 +17,13 @@ packages/backend/data/
 .env
 .env.*
 
+# Google Calendar OAuth credentials — secret/token, never commit.
+# (data/ is already ignored above; these guard custom paths too.)
+google-client-secret.json
+google-token.json
+**/google-client-secret.json
+**/google-token.json
+
 # Memory files hold personal content — keep local, never commit.
 # Only the folder README (template/instructions) is tracked.
 memory/*.md

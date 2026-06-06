@@ -1,29 +1,43 @@
 "use client";
 
 import Link from "next/link";
-import { listActivity, listEvents, listReminders, listTasks } from "@/lib/api";
+import {
+  getCalendarToday,
+  listActivity,
+  listEvents,
+  listReminders,
+  listTasks,
+} from "@/lib/api";
 import { useResource } from "@/lib/useResource";
 import { formatTs } from "@/lib/format";
 import { bucketEvents, bucketReminders } from "@/lib/agenda";
 import { ErrorBanner, Loading } from "@/components/States";
 import { CommandBar } from "@/components/CommandBar";
 import { BriefPanel } from "@/components/BriefPanel";
-import { EventList, ReminderList } from "@/components/Agenda";
-import type { Activity, CalendarEvent, Reminder, Task } from "@/lib/types";
+import { EventList, GoogleEventList, ReminderList } from "@/components/Agenda";
+import type {
+  Activity,
+  CalendarEvent,
+  GoogleEventListResponse,
+  Reminder,
+  Task,
+} from "@/lib/types";
 
 async function loadToday(): Promise<{
   tasks: Task[];
   activity: Activity[];
+  calendar: GoogleEventListResponse;
   events: CalendarEvent[];
   reminders: Reminder[];
 }> {
-  const [tasks, activity, events, reminders] = await Promise.all([
+  const [tasks, activity, calendar, events, reminders] = await Promise.all([
     listTasks(),
     listActivity(10),
+    getCalendarToday(),
     listEvents(),
     listReminders(),
   ]);
-  return { tasks, activity, events, reminders };
+  return { tasks, activity, calendar, events, reminders };
 }
 
 export default function TodayPage() {
@@ -43,7 +57,11 @@ export default function TodayPage() {
         <>
           <Summary tasks={data.tasks} />
 
-          <TodayAgenda events={data.events} reminders={data.reminders} />
+          <TodayAgenda
+            calendar={data.calendar}
+            events={data.events}
+            reminders={data.reminders}
+          />
 
           <h3>Recent activity</h3>
           {data.activity.length === 0 ? (
@@ -69,9 +87,11 @@ export default function TodayPage() {
 }
 
 function TodayAgenda({
+  calendar,
   events,
   reminders,
 }: {
+  calendar: GoogleEventListResponse;
   events: CalendarEvent[];
   reminders: Reminder[];
 }) {
@@ -87,7 +107,14 @@ function TodayAgenda({
         </>
       )}
 
-      <h3>Today’s events</h3>
+      <h3>Today’s schedule (Google Calendar)</h3>
+      {calendar.available ? (
+        <GoogleEventList events={calendar.events} />
+      ) : (
+        <p className="muted">Google Calendar not connected.</p>
+      )}
+
+      <h3>Local events (secondary)</h3>
       <EventList events={ev.today} />
 
       <h3>Reminders due today</h3>

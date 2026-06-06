@@ -10,6 +10,7 @@ import type {
   CommandMode,
   CommandResult,
   CreateMemoryProposalBody,
+  GoogleEventListResponse,
   MemoryContent,
   MemoryEntry,
   MemoryTarget,
@@ -144,6 +145,18 @@ export async function listEvents(): Promise<CalendarEvent[]> {
 export async function listReminders(): Promise<Reminder[]> {
   const data = await request<{ reminders: Reminder[] }>("/api/reminders");
   return data.reminders;
+}
+
+// --- Google Calendar (Step 10, read-only, primary schedule) --------------
+
+/** Today's Google Calendar events. `available:false` if disabled/unconfigured. */
+export function getCalendarToday(): Promise<GoogleEventListResponse> {
+  return request<GoogleEventListResponse>("/api/calendar/today");
+}
+
+/** Upcoming (next 7 days) Google Calendar events. */
+export function getCalendarUpcoming(): Promise<GoogleEventListResponse> {
+  return request<GoogleEventListResponse>("/api/calendar/upcoming");
 }
 
 // --- Command bar ---------------------------------------------------------

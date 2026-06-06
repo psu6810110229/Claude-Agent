@@ -7,9 +7,18 @@ import { listReminders } from "../db/repositories/reminderRepo.js";
 import { briefOutputSchema, type BriefType } from "../schemas/brief.js";
 import type { AiAction } from "../schemas/aiCommand.js";
 import { buildBriefPrompt, type BriefContext } from "./briefPrompt.js";
-import { bangkokWallClock, bucketEvents, bucketReminders } from "./agenda.js";
+import {
+  agendaBounds,
+  bangkokWallClock,
+  bucketEvents,
+  bucketReminders,
+} from "./agenda.js";
 import { unwrapJsonOutput } from "./jsonOutput.js";
 import { ClaudeError, type ClaudeInvoker } from "./claudeClient.js";
+import {
+  realGoogleEventsFetcher,
+  type GoogleEventsFetcher,
+} from "./googleCalendar.js";
 import {
   CLAUDE_CONTEXT_TASK_CAP,
   CLAUDE_BRIEF_TIMEOUT_MS,
@@ -61,8 +70,10 @@ export type BriefResult =
   | { kind: "rejected"; message: string }
   | { kind: "failed"; reason: string; message: string };
 
-/** Build the compact, local-only context snapshot for a brief. */
-function buildBriefContext(): BriefContext {
+/** Build the compact context snapshot for a brief. */
+async function buildBriefContext(
+  fetchGoogle: GoogleEventsFetcher,
+): Promise<BriefContext> {
   const openTasks = listTasks()
     .filter((t) => t.status === "open")
     .slice(0, CLAUDE_CONTEXT_TASK_CAP)
@@ -112,6 +123,31 @@ function buildBriefContext(): BriefContext {
       bucket,
     }));
 
+  // Google Calendar (Step 10) — PRIMARY schedule, READ-ONLY. Today + upcoming
+  // windows fetched server-side in Bangkok bounds. Fails closed: any
+  // disabled/config/auth/API error yields no Google rows; the brief still works.
+  const { todayStartUtc, todayEndUtc, upcomingEndUtc } = agendaBounds(now);
+  let googleEvents: BriefContext["googleEvents"] = [];
+  try {
+    const [gToday, gUpcoming] = await Promise.all([
+      fetchGoogle(todayStartUtc, todayEndUtc),
+      fetchGoogle(todayEndUtc, upcomingEndUtc),
+    ]);
+    googleEvents = [
+      ...gToday.map((e) => ({ e, bucket: "today" as const })),
+      ...gUpcoming.map((e) => ({ e, bucket: "upcoming" as const })),
+    ]
+      .slice(0, BRIEF_EVENT_CAP)
+      .map(({ e, bucket }) => ({
+        start: e.start,
+        title: e.title.slice(0, 120),
+        allDay: e.allDay,
+        bucket,
+      }));
+  } catch {
+    googleEvents = [];
+  }
+
   return {
     openTasks,
     pendingApprovalCount: pending.length,
@@ -120,6 +156,7 @@ function buildBriefContext(): BriefContext {
     memorySummaries,
     nowUtc: nowIso(),
     nowBangkok: bangkokWallClock(now),
+    googleEvents,
     events,
     reminders,
   };
@@ -128,8 +165,9 @@ function buildBriefContext(): BriefContext {
 export async function runBrief(
   type: BriefType,
   invoke: ClaudeInvoker,
+  fetchGoogle: GoogleEventsFetcher = realGoogleEventsFetcher,
 ): Promise<BriefResult> {
-  const prompt = buildBriefPrompt(type, buildBriefContext());
+  const prompt = buildBriefPrompt(type, await buildBriefContext(fetchGoogle));
 
   // 1. Invoke Claude with the longer brief timeout. Any spawn/timeout/disabled
   //    error fails closed.

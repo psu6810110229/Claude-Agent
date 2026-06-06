@@ -1,9 +1,35 @@
 "use client";
 
 import { formatTs } from "@/lib/format";
-import type { CalendarEvent, Reminder } from "@/lib/types";
+import type { CalendarEvent, GoogleEvent, Reminder } from "@/lib/types";
 
-/** Presentational lists for events and reminders. Read-only (Step 9). */
+/** Presentational lists for events and reminders. Read-only (Step 9 / 10). */
+
+/**
+ * Google Calendar events (Step 10) — the PRIMARY schedule, READ-ONLY. All-day
+ * events show their date; timed events show local time. There is no edit/create
+ * affordance by design.
+ */
+export function GoogleEventList({ events }: { events: GoogleEvent[] }) {
+  if (events.length === 0)
+    return <p className="muted">No calendar events.</p>;
+  return (
+    <div className="panel">
+      {events.map((e) => (
+        <div className="row" key={e.id}>
+          <span className="badge">calendar</span>
+          <span className="grow">
+            <strong>{e.title}</strong>
+            {e.location ? <span className="muted"> · {e.location}</span> : null}
+          </span>
+          <span className="ts">
+            {e.allDay ? `${e.start} (all-day)` : formatTs(e.start)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function EventList({ events }: { events: CalendarEvent[] }) {
   if (events.length === 0) return <p className="muted">No events.</p>;

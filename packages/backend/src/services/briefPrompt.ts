@@ -27,7 +27,17 @@ export interface BriefContext {
   nowUtc: string;
   /** Current Asia/Bangkok wall-clock time (the user's local timezone). */
   nowBangkok: string;
-  /** Today + upcoming (7-day) events (id + start + short title). */
+  /**
+   * Google Calendar events (the PRIMARY, READ-ONLY schedule): today + upcoming
+   * (7-day), with start (RFC 3339), short title, all-day flag, and bucket.
+   */
+  googleEvents: {
+    start: string;
+    title: string;
+    allDay: boolean;
+    bucket: "today" | "upcoming";
+  }[];
+  /** Local (secondary) events (id + start + short title). */
   events: { id: number; starts_at: string; title: string }[];
   /** Overdue + today + upcoming reminders (id + due + short title + bucket). */
   reminders: {
@@ -80,6 +90,16 @@ export function buildBriefPrompt(type: BriefType, ctx: BriefContext): string {
           .join("\n")
       : "  (none)";
 
+  const googleEvents =
+    ctx.googleEvents.length > 0
+      ? ctx.googleEvents
+          .map(
+            (e) =>
+              `  - [${e.bucket}] ${e.start}${e.allDay ? " (all-day)" : ""}: ${e.title}`,
+          )
+          .join("\n")
+      : "  (none)";
+
   const events =
     ctx.events.length > 0
       ? ctx.events
@@ -128,7 +148,12 @@ LOCAL CONTEXT (read-only; this is all you have — do not assume anything else):
 OPEN TASKS (for resolving task ids; do not invent ids):
 ${tasks}
 
-EVENTS (today + next 7 days; do not invent ids):
+GOOGLE CALENDAR (the user's PRIMARY schedule; today + next 7 days; READ-ONLY —
+you may summarise and reference these but CANNOT create, update, or delete
+calendar events, and there is no action type to do so):
+${googleEvents}
+
+LOCAL EVENTS (secondary/local-only; today + next 7 days; do not invent ids):
 ${events}
 
 REMINDERS (overdue / today / upcoming; do not invent ids):

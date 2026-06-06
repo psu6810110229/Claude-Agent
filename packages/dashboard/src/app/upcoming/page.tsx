@@ -1,21 +1,27 @@
 "use client";
 
-import { listEvents, listReminders } from "@/lib/api";
+import { getCalendarUpcoming, listEvents, listReminders } from "@/lib/api";
 import { useResource } from "@/lib/useResource";
 import { bucketEvents, bucketReminders } from "@/lib/agenda";
 import { ErrorBanner, Loading } from "@/components/States";
-import { EventList, ReminderList } from "@/components/Agenda";
-import type { CalendarEvent, Reminder } from "@/lib/types";
+import { EventList, GoogleEventList, ReminderList } from "@/components/Agenda";
+import type {
+  CalendarEvent,
+  GoogleEventListResponse,
+  Reminder,
+} from "@/lib/types";
 
 async function loadUpcoming(): Promise<{
+  calendar: GoogleEventListResponse;
   events: CalendarEvent[];
   reminders: Reminder[];
 }> {
-  const [events, reminders] = await Promise.all([
+  const [calendar, events, reminders] = await Promise.all([
+    getCalendarUpcoming(),
     listEvents(),
     listReminders(),
   ]);
-  return { events, reminders };
+  return { calendar, events, reminders };
 }
 
 export default function UpcomingPage() {
@@ -31,7 +37,14 @@ export default function UpcomingPage() {
 
       {data && (
         <>
-          <h3>Events</h3>
+          <h3>Schedule (Google Calendar)</h3>
+          {data.calendar.available ? (
+            <GoogleEventList events={data.calendar.events} />
+          ) : (
+            <p className="muted">Google Calendar not connected.</p>
+          )}
+
+          <h3>Local events (secondary)</h3>
           <EventList events={bucketEvents(data.events).upcoming} />
 
           <h3>Reminders</h3>
