@@ -55,6 +55,45 @@ async function main(): Promise<void> {
     ],
     notes: "ignored",
   });
+  const clarificationOutput = JSON.stringify({
+    actions: [],
+    clarification: "What time should I remind you?",
+  });
+  const followUpGoogleOutput = JSON.stringify({
+    actions: [
+      {
+        action_type: "google_event.create",
+        payload: {
+          title: "Call Pam",
+          starts_at: "2026-06-07T03:00:00.000Z",
+          ends_at: "2026-06-07T03:30:00.000Z",
+        },
+      },
+    ],
+  });
+  const thaiFollowUpOutput = JSON.stringify({
+    actions: [
+      {
+        action_type: "reminder.create",
+        payload: {
+          title: "เตรียมเอกสารสละสิทธิ์หอพัก ออกบ้านได้ 11:00",
+          due_at: "2026-06-07T02:00:00.000Z",
+          notes: "สำนักงานหอ 10 — ปิดรับ 15:00 พักเที่ยง 12:00–13:00",
+        },
+      },
+      {
+        action_type: "google_event.create",
+        payload: {
+          title: "ยื่นเรื่องสละสิทธิ์หอพัก — สำนักงานหอ 10",
+          starts_at: "2026-06-07T04:00:00.000Z",
+          ends_at: "2026-06-07T08:00:00.000Z",
+          location: "สำนักงานหอ 10",
+          notes:
+            "ออกจากบ้านเร็วสุด 11:00 / พักเที่ยง 12:00–13:00 ไม่รับเรื่อง / ปิดรับเรื่อง 15:00 — ควรไปถึงก่อน 12:00 หรือหลัง 13:00",
+        },
+      },
+    ],
+  });
 
   // Stubbed Claude invoker. Switches on a marker embedded in the user input
   // (the prompt contains the raw input). NEVER calls the real binary.
@@ -76,6 +115,9 @@ async function main(): Promise<void> {
           payload: { title: `t${i}` },
         })),
       });
+    if (prompt.includes("CASE_THAI_FOLLOWUP")) return thaiFollowUpOutput;
+    if (prompt.includes("CASE_FOLLOWUP_GOOGLE")) return followUpGoogleOutput;
+    if (prompt.includes("CASE_CLARIFY")) return clarificationOutput;
     if (prompt.includes("CASE_EMPTY"))
       return JSON.stringify({ actions: [] });
     if (prompt.includes("CASE_FAIL"))
@@ -190,16 +232,83 @@ async function main(): Promise<void> {
   );
   assert(countApprovals() === before6, "empty actions created zero approvals");
 
-  // --- 7. Invoker failure fails closed; zero approvals ---
+  // --- 7. Clarification asks a follow-up and creates no approvals ---
   const before7 = countApprovals();
+  const clarify = await postAi("CASE_CLARIFY remind me to call Pam");
+  assert(
+    clarify.status === 200 && clarify.json.kind === "clarification",
+    "missing details returns 200 clarification",
+  );
+  assert(
+    clarify.json.question === "What time should I remind you?",
+    "clarification response carries the follow-up question",
+  );
+  assert(
+    countApprovals() === before7,
+    "clarification created zero approvals",
+  );
+
+  // --- 8. A follow-up answer can become a Google event approval ---
+  const before8 = countApprovals();
+  const followUp = await postAi(
+    [
+      "CASE_FOLLOWUP_GOOGLE remind me to call Pam",
+      "",
+      'Follow-up answer to "What time should I remind you?": tomorrow 10am',
+    ].join("\n"),
+  );
+  assert(
+    followUp.status === 201 && followUp.json.kind === "proposal",
+    "follow-up answer can return 201 proposal",
+  );
+  assert(
+    followUp.json.approvals[0].action_type === "google_event.create",
+    "follow-up proposal can queue google_event.create",
+  );
+  assert(
+    countApprovals() === before8 + 1,
+    "follow-up proposal persisted one approval",
+  );
+
+  // --- 9. A Thai follow-up can queue reminder + Google event approvals ---
+  const before9 = countApprovals();
+  const thaiFollowUp = await postAi(
+    [
+      "CASE_THAI_FOLLOWUP เตือนและใส่ปฏิทินเรื่องสละสิทธิ์หอพัก",
+      "",
+      'Follow-up answer to "What time should I remind you?": ออกบ้าน 11 โมง',
+    ].join("\n"),
+  );
+  assert(
+    thaiFollowUp.status === 201 && thaiFollowUp.json.kind === "proposal",
+    "Thai follow-up returns 201 proposal",
+  );
+  assert(
+    thaiFollowUp.json.approvals.length === 2,
+    "Thai follow-up queues two approvals",
+  );
+  assert(
+    thaiFollowUp.json.approvals
+      .map((a: any) => a.action_type)
+      .sort()
+      .join(",") === "google_event.create,reminder.create",
+    "Thai follow-up carries reminder and Google event action types",
+  );
+  assert(
+    countApprovals() === before9 + 2,
+    "Thai follow-up persisted two approvals",
+  );
+
+  // --- 10. Invoker failure fails closed; zero approvals ---
+  const before10 = countApprovals();
   const failed = await postAi("CASE_FAIL hang please");
   assert(
     failed.status === 504 && failed.json.kind === "error",
     "Claude timeout fails closed with 504",
   );
-  assert(countApprovals() === before7, "failed invocation created zero approvals");
+  assert(countApprovals() === before10, "failed invocation created zero approvals");
 
-  // --- 8. Activity events present ---
+  // --- 11. Activity events present ---
   const events = new Set(
     (
       db.prepare("SELECT event_type FROM activity_log").all() as {
@@ -211,6 +320,10 @@ async function main(): Promise<void> {
   assert(events.has("ai.command.proposed"), "activity has ai.command.proposed");
   assert(events.has("ai.command.rejected"), "activity has ai.command.rejected");
   assert(events.has("ai.command.failed"), "activity has ai.command.failed");
+  assert(
+    events.has("ai.command.clarification"),
+    "activity has ai.command.clarification",
+  );
 
   await app.close();
   closeDb();
