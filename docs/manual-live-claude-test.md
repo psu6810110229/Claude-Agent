@@ -21,6 +21,33 @@ $env:CLAUDE_AGENT_AI_ENABLED = "1"
 The variable only affects that session. Leaving it unset (or `"0"`) keeps Claude
 disabled, and AI commands return **503 / "Claude is disabled."**
 
+### Windows: point the backend at a real `claude.exe`
+
+On Windows the `claude` on `PATH` is usually a **`.cmd` shim** (e.g.
+`...\nodejs\claude.cmd`). The backend invokes the binary with Node's `execFile`
+**without a shell** (a deliberate command-injection safeguard), and Node refuses
+to run `.cmd`/`.bat` files that way — so the bare name resolves but fails with
+**502 / "Claude binary not found"**.
+
+Fix: override the binary with the full path to a real `.exe` via
+`CLAUDE_AGENT_CLAUDE_BIN`, in the **same** backend session:
+
+```powershell
+$env:CLAUDE_AGENT_CLAUDE_BIN = "C:\Users\<you>\.local\bin\claude.exe"
+```
+
+Find your `.exe` if unsure:
+
+```powershell
+# native install (preferred):
+Get-ChildItem "$env:USERPROFILE\.local\bin\claude.exe"
+# or the .exe the npm shim itself calls:
+(Get-Content (Get-Command claude).Source | Select-String '\.exe').Matches.Value
+```
+
+Verify it runs: `& $env:CLAUDE_AGENT_CLAUDE_BIN --version`. macOS/Linux users can
+skip this — `claude` on `PATH` is a real executable there.
+
 ## 2. Run the backend and dashboard
 
 In the backend session (with the env var set):

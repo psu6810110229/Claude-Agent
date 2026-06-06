@@ -14,7 +14,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>
+      {/* suppressHydrationWarning: browser extensions (e.g. Grammarly) inject
+          attributes onto <body> before React hydrates, which otherwise trips a
+          dev-only hydration mismatch. This suppresses only this element's
+          attribute diff, not its children. */}
+      <body suppressHydrationWarning>
         <div className="layout">
           <aside className="sidebar">
             <h1>Claude_Agent</h1>
