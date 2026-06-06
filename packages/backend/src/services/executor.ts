@@ -3,6 +3,7 @@ import {
   type ActionType,
 } from "../schemas/approval.js";
 import type { MemoryWritePayload } from "../schemas/memory.js";
+import type { CreateGoogleEventPayload } from "../schemas/googleCalendar.js";
 import { createTask, updateTask, archiveTask } from "../db/repositories/taskRepo.js";
 import { writeMemory } from "./memoryStore.js";
 import { upsertMemoryEntry } from "../db/repositories/memoryRepo.js";
@@ -16,6 +17,10 @@ import {
   updateReminder,
   archiveReminder,
 } from "../db/repositories/reminderRepo.js";
+import {
+  createGoogleCalendarEvent,
+  GoogleCalendarError,
+} from "./googleCalendar.js";
 
 /** Thrown when an approval cannot be executed (bad payload or unknown target). */
 export class ExecutorError extends Error {}
@@ -30,10 +35,10 @@ export interface ExecutionResult {
  * the action types in `actionPayloadSchemas` can run, and each payload is
  * re-validated here before touching the DB. No outward/destructive actions.
  */
-export function executeAction(
+export async function executeAction(
   actionType: ActionType,
   payload: unknown,
-): ExecutionResult {
+): Promise<ExecutionResult> {
   const parsed = actionPayloadSchemas[actionType].safeParse(payload);
   if (!parsed.success) {
     throw new ExecutorError(
@@ -129,6 +134,18 @@ export function executeAction(
       const reminder = archiveReminder(data.id);
       if (!reminder) throw new ExecutorError(`reminder #${data.id} not found`);
       return { summary: `archived reminder #${reminder.id}` };
+    }
+    case "google_event.create": {
+      const data = parsed.data as CreateGoogleEventPayload;
+      try {
+        const event = await createGoogleCalendarEvent(data);
+        return { summary: `created Google Calendar event ${event.id}` };
+      } catch (err) {
+        if (err instanceof GoogleCalendarError) {
+          throw new ExecutorError(err.message);
+        }
+        throw err;
+      }
     }
   }
 }
