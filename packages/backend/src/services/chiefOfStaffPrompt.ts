@@ -50,6 +50,7 @@ ALLOWED ACTION TYPES (the literal "action_type" value -> its "payload" shape):
 - "reminder.create"  payload: { "title": string, "due_at": <ISO UTC>, "notes"?: string }
 - "reminder.update"  payload: { "id": number, "title"?: string, "due_at"?: <ISO UTC>, "notes"?: string }  (at least one field)
 - "reminder.archive" payload: { "id": number }
+- "google_event.create" payload: { "title": string, "starts_at": <ISO UTC>, "ends_at": <ISO UTC>, "location"?: string, "notes"?: string }
 
 Example of a single valid action:
   { "action_type": "task.create", "payload": { "title": "Buy groceries" } }
@@ -61,7 +62,15 @@ DATE & TIME RULES (important):
   (e.g. "2026-06-07T08:00:00.000Z" for 3pm Bangkok on 2026-06-07).
 - If a date or time is ambiguous, missing, or you cannot resolve it confidently,
   DO NOT propose the event/reminder action. Instead return no action for it and
-  briefly ask for clarification in "notes".
+  ask one concise follow-up question in "clarification" (for example: "What time
+  should I remind you?"). This must happen before anything reaches approvals.
+- For real schedule commitments or meetings that should go on the user's primary
+  calendar, prefer "google_event.create" over the local-only "event.create".
+  Use local "event.create" only when the user explicitly asks for a local/draft
+  event instead of Google Calendar.
+- For vague daypart ranges, use conservative Bangkok defaults only when the date
+  is otherwise clear: morning = 09:00, afternoon = 13:00, evening/night = 18:00,
+  and "morning to evening" = 09:00-18:00. Mention the assumption in "notes".
 - CURRENT TIME: ${ctx.nowUtc} (Asia/Bangkok: ${ctx.nowBangkok}).
 
 MEMORY TARGETS (the only valid values for memory.write "target"):
@@ -73,9 +82,12 @@ ${tasks}
 OUTPUT CONTRACT (must follow exactly):
 - Output a SINGLE JSON object and nothing else.
 - No prose, no explanation, no markdown, no code fences.
-- Shape: { "actions": Action[], "notes"?: string }
+- Shape: { "actions": Action[], "clarification"?: string, "notes"?: string }
 - "actions" may contain at most 5 items. If the command is unclear or not
   actionable, return { "actions": [] }.
+- Use "clarification" only when a direct answer from the user would let you
+  safely produce an event/reminder proposal next. Do not create placeholder
+  event/reminder times just to satisfy the schema.
 - Only use the allowed action types and payload shapes above. Do not invent
   fields, action types, or memory targets.
 
