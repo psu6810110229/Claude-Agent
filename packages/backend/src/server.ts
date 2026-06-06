@@ -17,7 +17,7 @@ export interface BuildServerOptions {
   aiInvoker?: ClaudeInvoker;
   /**
    * Inject a stub Google Calendar fetcher (tests). Defaults to the real
-   * read-only `events.list` fetcher.
+   * `events.list` fetcher.
    */
   calendarFetcher?: GoogleEventsFetcher;
 }
