@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Claude_Agent is a local-first Personal Agent OS / personal AI secretary for a Windows PC. The project is being built incrementally, with the smallest usable foundation first, to support tasks, schedule, reminders, memory, projects, notes, approved local files, and a read-only Google Calendar view.
+Claude_Agent is a local-first Personal Agent OS / personal AI secretary for a Windows PC. The project is being built incrementally, with the smallest usable foundation first, to support tasks, schedule, reminders, memory, projects, notes, approved local files, and Google Calendar as the primary schedule source.
 
 Future connectors or capabilities must be added only when explicitly requested.
 
@@ -14,7 +14,7 @@ Future connectors or capabilities must be added only when explicitly requested.
 - Backend and dashboard are separate packages in one npm workspace.
 - The backend binds to `127.0.0.1` only.
 - The dashboard uses same-origin `/api/*`; Next.js rewrites requests to the backend on `127.0.0.1:8787`.
-- Google Calendar is a read-only connector and the primary schedule source. Local events/reminders are secondary unless the user says otherwise.
+- Google Calendar is the primary schedule source. It supports read routes and approval-gated create-only writes; local events/reminders are secondary unless the user says otherwise.
 
 ## Stack
 
@@ -33,7 +33,7 @@ Run commands only when they are relevant to the current request and approved by 
 
 - `npm install` - install workspace dependencies; do not run unless explicitly asked.
 - `npm run smoke` - backend smoke test.
-- `npm run smoke:step10` - Google Calendar read-only smoke test with stubbed fetcher; no real network/API call.
+- `npm run smoke:step10` - Google Calendar read/create smoke test with stubbed fetcher; no real network/API call.
 - `npm run ai-smoke` - AI proposal smoke test with stubbed invoker.
 - `npm run brief-smoke` - Daily Brief smoke test.
 - `npm run db:init` - initialize the SQLite database.
@@ -41,7 +41,7 @@ Run commands only when they are relevant to the current request and approved by 
 - `npm run dev:dashboard` - run dashboard on `:3000`; backend must also be running.
 - `npm run build` - build the workspace.
 - `npm run build:dashboard` - production build of the dashboard.
-- `npm run google-auth` - one-time Google Calendar read-only OAuth setup.
+- `npm run google-auth` - one-time Google Calendar OAuth setup for Calendar event access.
 
 ## Safety Rules
 
@@ -53,8 +53,9 @@ Run commands only when they are relevant to the current request and approved by 
 - Preserve the approval-gated architecture.
 - AI/Claude must propose only; the backend executes only approved actions.
 - Do not bypass the approval queue or add direct write routes for approved-action domains.
-- Keep Google Calendar read-only. Do not add calendar create/update/delete actions.
-- Do not add write access to Google Calendar.
+- Keep Google Calendar writes create-only and approval-gated.
+- Do not add Google Calendar update/delete actions.
+- Do not bypass the approval queue for Google Calendar writes.
 - Do not read or modify secrets, tokens, `.env`, `data/`, or Google credential files unless the user explicitly requests it.
 - Do not install packages unless the user explicitly asks.
 - Prefer small, reversible, verifiable changes.
@@ -77,7 +78,7 @@ Run commands only when they are relevant to the current request and approved by 
 - Step 6 is complete: proposal-only Claude runtime, strict JSON/Zod validation, approval creation, action allowlist, and stubbed AI smoke test.
 - Step 7 is complete: dashboard Deterministic/AI command mode toggle, AI result states, approval links, and manual live-Claude test documentation.
 - Step 9 is complete: local events/reminders, approval-gated event/reminder actions, Bangkok-aware agenda bucketing, read-only routes, Today/Upcoming dashboard display, and smoke coverage.
-- Step 10 is complete: Google Calendar read-only connector, read-only calendar routes, Google events in Daily Brief and dashboard, OAuth helper, and stubbed smoke coverage.
+- Step 10 is complete: Google Calendar connector, read-only calendar routes, approval-gated create-only Google event action, Google events in Daily Brief and dashboard, OAuth helper, and stubbed smoke coverage.
 
 ## Out of Scope
 
@@ -90,10 +91,10 @@ Do not add these without explicit user approval:
 - Voice
 - Scheduler
 - Local filesystem scanning
-- External connectors beyond the existing Google Calendar read-only connector
-- Google Calendar write access
-- Calendar write action types
-- Authentication beyond minimal Google Calendar read-only OAuth
+- External connectors beyond the existing Google Calendar connector
+- Google Calendar update/delete access
+- Calendar update/delete action types
+- Authentication beyond minimal Google Calendar event OAuth
 - Dashboard or backend scope not requested for the current task
 
 ## Testing Rules
