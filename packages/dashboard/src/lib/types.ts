@@ -29,7 +29,8 @@ export type ActionType =
   | "event.archive"
   | "reminder.create"
   | "reminder.update"
-  | "reminder.archive";
+  | "reminder.archive"
+  | "google_event.create";
 
 // --- Events & reminders (Step 9) ------------------------------------------
 
@@ -47,7 +48,7 @@ export interface CalendarEvent {
   updated_at: string;
 }
 
-// --- Google Calendar (Step 10, read-only, PRIMARY schedule) ---------------
+// --- Google Calendar (Step 10, PRIMARY schedule) --------------------------
 
 /**
  * Normalized Google Calendar event. Read-only projection mirrored from the
@@ -151,12 +152,19 @@ export type CommandMode = "deterministic" | "ai";
  *                AI mode: zero-or-more queued approvals (`approvals`). The two
  *                paths use different field names, so both are optional here and
  *                the consumer reads whichever is present.
+ * - `clarification` — AI mode needs one follow-up answer before queueing.
  * - `none`     — AI mode produced valid output but no actionable proposals.
  */
 export type CommandResult =
   | { kind: "help"; examples: string[] }
-  | { kind: "proposal"; approval?: Approval; approvals?: Approval[] }
-  | { kind: "none"; message: string };
+  | { kind: "proposal"; approval?: Approval; approvals?: Approval[]; notes?: string }
+  | {
+      kind: "clarification";
+      message: string;
+      question: string;
+      notes?: string;
+    }
+  | { kind: "none"; message: string; notes?: string };
 
 // --- Briefs ---------------------------------------------------------------
 
