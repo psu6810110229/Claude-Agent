@@ -79,11 +79,22 @@ export interface Activity {
 
 // --- Command bar ----------------------------------------------------------
 
+/** POST /api/command — which path the backend should take. */
+export type CommandMode = "deterministic" | "ai";
+
 /**
- * POST /api/command result. `help`/`proposal` arrive as 2xx; `error` arrives as
- * a 4xx and is surfaced via ApiError by the client, so callers handle it in a
- * catch block rather than as a returned value.
+ * POST /api/command result (2xx shapes). Error responses arrive as 4xx/5xx and
+ * are surfaced via ApiError by the client, so callers handle them in a catch
+ * block rather than as a returned value.
+ *
+ * - `help`     — deterministic mode help listing.
+ * - `proposal` — deterministic mode: exactly one queued approval (`approval`).
+ *                AI mode: zero-or-more queued approvals (`approvals`). The two
+ *                paths use different field names, so both are optional here and
+ *                the consumer reads whichever is present.
+ * - `none`     — AI mode produced valid output but no actionable proposals.
  */
 export type CommandResult =
   | { kind: "help"; examples: string[] }
-  | { kind: "proposal"; approval: Approval };
+  | { kind: "proposal"; approval?: Approval; approvals?: Approval[] }
+  | { kind: "none"; message: string };

@@ -5,6 +5,7 @@
 import type {
   Activity,
   Approval,
+  CommandMode,
   CommandResult,
   CreateMemoryProposalBody,
   MemoryContent,
@@ -128,13 +129,18 @@ export function createMemoryProposal(
 // --- Command bar ---------------------------------------------------------
 
 /**
- * Run a deterministic command. Returns `help` or `proposal` on success;
- * invalid commands come back as a 4xx and throw ApiError (carrying the
- * backend's error message), so handle those in a catch.
+ * Run a command. `mode` selects the deterministic parser (default) or the
+ * proposal-only AI path. Returns `help`/`proposal`/`none` on success; failures
+ * come back as 4xx/5xx and throw ApiError (carrying the backend's message and
+ * status), so handle those in a catch — the status distinguishes AI states:
+ * 503 disabled, 504 timeout, 502 spawn/empty failure, 400 invalid output.
  */
-export function runCommand(input: string): Promise<CommandResult> {
+export function runCommand(
+  input: string,
+  mode: CommandMode = "deterministic",
+): Promise<CommandResult> {
   return request<CommandResult>("/api/command", {
     method: "POST",
-    body: JSON.stringify({ input }),
+    body: JSON.stringify({ input, mode }),
   });
 }

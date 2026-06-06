@@ -95,6 +95,29 @@ Google Drive later. It is built incrementally, smallest usable foundation first.
   **stubbed** invoker (the real binary is never called in tests).
 - Dashboard AI toggle is intentionally deferred to a small follow-up step.
 
+## Step 7 scope (done) — dashboard AI mode + manual live-Claude test
+
+- Dashboard command bar gained a **Deterministic / AI** mode toggle
+  (`CommandBar.tsx`); Deterministic is the default. AI mode sends
+  `mode: "ai"` to `POST /api/command`.
+- All result states are surfaced distinctly: proposal(s) created (with approval
+  IDs linking to the Approvals page), no action suggested (`none`), rejected
+  invalid output (400), Claude disabled (503), Claude timeout (504), Claude
+  failure (502). Mapping keys off `ApiError.status` from the typed client.
+- A UI note states AI mode only **proposes** actions and never executes.
+- **Backend logic, schemas, and the allowlist are unchanged.** AI remains
+  proposal-only and approval-gated; the allowlist stays `task.create`,
+  `task.update`, `task.archive`, `memory.write`.
+- Client changes only: `lib/api.ts` (`runCommand(input, mode)`), `lib/types.ts`
+  (`CommandMode`, extended `CommandResult` with AI `approvals[]` and `none`),
+  `components/CommandBar.tsx`.
+- `docs/manual-live-claude-test.md` documents enabling
+  `CLAUDE_AGENT_AI_ENABLED=1`, running backend + dashboard, submitting a safe
+  AI command, and verifying an approval was created but **not** executed.
+- No new dependencies and no dashboard test runner introduced; verification is
+  `npm run build:dashboard` plus the manual doc. The live `claude` binary is
+  never called from any smoke test.
+
 ## Out of scope (must NOT be added without explicit approval)
 
 The following remain **out of scope** and must not be introduced silently:
