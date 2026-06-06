@@ -11,11 +11,13 @@ import {
   updateReminderPayloadSchema,
   archiveReminderPayloadSchema,
 } from "./reminder.js";
+import { createGoogleEventPayloadSchema } from "./googleCalendar.js";
 
 /**
- * The ONLY action types the executor will run for now. All are safe, internal,
+ * The ONLY action types the executor will run for now. Most are internal,
  * non-destructive operations against the local DB or the whitelisted memory
- * files. Outward/destructive actions are deliberately absent.
+ * files. The one outward action (`google_event.create`) is approval-gated and
+ * create-only; Google update/delete actions are deliberately absent.
  */
 export const actionTypeSchema = z.enum([
   "task.create",
@@ -28,6 +30,7 @@ export const actionTypeSchema = z.enum([
   "reminder.create",
   "reminder.update",
   "reminder.archive",
+  "google_event.create",
 ]);
 export type ActionType = z.infer<typeof actionTypeSchema>;
 
@@ -56,6 +59,7 @@ export const actionPayloadSchemas = {
   "reminder.create": createReminderPayloadSchema,
   "reminder.update": updateReminderPayloadSchema,
   "reminder.archive": archiveReminderPayloadSchema,
+  "google_event.create": createGoogleEventPayloadSchema,
 } as const;
 
 export const approvalStatusSchema = z.enum(["pending", "approved", "rejected"]);
