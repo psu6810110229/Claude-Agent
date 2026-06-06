@@ -8,6 +8,8 @@
   ],
   "scripts": {
     "dev": "npm run dev -w @claude-agent/backend",
+    "dev:dashboard": "npm run dev -w @claude-agent/dashboard",
+    "build:dashboard": "npm run build -w @claude-agent/dashboard",
     "smoke": "npm run smoke -w @claude-agent/backend",
     "smoke:step2": "npm run smoke:step2 -w @claude-agent/backend",
     "db:init": "npm run db:init -w @claude-agent/backend",

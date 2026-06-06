@@ -2,6 +2,10 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Next.js (dashboard)
+.next/
+next-env.d.ts
+
 # SQLite data
 packages/backend/data/
 *.db

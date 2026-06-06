@@ -63,11 +63,22 @@ Google Drive later. It is built incrementally, smallest usable foundation first.
 - Smoke test verifying: backend starts, health endpoint, DB exists, four tables exist
 - Restrictive defaults (bind 127.0.0.1)
 
+## Step 3 scope (done)
+
+- `packages/dashboard` — Next.js + TypeScript (App Router) dashboard shell
+- Pages: Today, Tasks, Approvals, Activity + shared layout/nav
+- Typed API client (`src/lib/api.ts`) over existing backend routes; no backend
+  or schema changes
+- Browser talks to same-origin `/api/*`; Next `rewrites()` proxies to the
+  backend on `127.0.0.1:8787` (no CORS, no auth) — see `next.config.js`
+- Client-side rendering with basic loading/error states
+- Types hand-mirrored from backend Zod (`src/lib/types.ts`); a shared types
+  package remains a later step
+
 ## Out of scope (must NOT be added without explicit approval)
 
-The following remain **out of Step 1** and must not be introduced silently:
+The following remain **out of scope** and must not be introduced silently:
 
-- Dashboard
 - Command bar
 - Claude spawn logic (`claude -p`)
 - MCP
@@ -105,6 +116,12 @@ Claude_Agent/
         schemas/health.ts # Zod
       scripts/smoke-test.ts
       data/               # SQLite file (gitignored)
+    dashboard/            # @claude-agent/dashboard (Next.js + TS)
+      next.config.js      # rewrites() proxy /api/* -> backend 127.0.0.1:8787
+      src/
+        lib/              # api.ts (typed client), types.ts, useResource.ts, format.ts
+        components/       # Nav, States
+        app/              # layout + pages: / (Today), tasks, approvals, activity
 ```
 
 ## Key commands
@@ -112,4 +129,7 @@ Claude_Agent/
 - `npm install` — install workspace dependencies
 - `npm run smoke` — run backend smoke test
 - `npm run db:init` — initialize the SQLite database
-- `npm run dev` — run backend in watch mode
+- `npm run dev` — run backend in watch mode (127.0.0.1:8787)
+- `npm run dev:dashboard` — run the dashboard (Next.js, :3000); requires the
+  backend running for `/api/*` to resolve
+- `npm run build:dashboard` — production build of the dashboard
