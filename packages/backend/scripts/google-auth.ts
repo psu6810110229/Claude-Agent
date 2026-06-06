@@ -13,9 +13,12 @@ import { extractClientConfig } from "../src/services/googleCalendar.js";
  * One-time Google OAuth setup (Step 10). Runs the loopback (127.0.0.1) consent
  * flow and stores ONLY the refresh token to the gitignored token file.
  *
- * READ-ONLY: requests only `calendar.readonly` (GOOGLE_CALENDAR_SCOPES). Secrets
- * and tokens are never logged — we print the consent URL and a success path
- * only. Run with: `npm run google-auth -w @claude-agent/backend`.
+ * Requests the narrow Calendar events scope (GOOGLE_CALENDAR_SCOPES), enough to
+ * write events through Google APIs. This app only exposes approval-gated create.
+ * Secrets and tokens are never logged; we print the consent URL and a success
+ * path only.
+ *
+ * Run with: `npm run google-auth -w @claude-agent/backend`.
  */
 async function main(): Promise<void> {
   let secretRaw: string;
@@ -93,7 +96,7 @@ function waitForCode(authUrl: string, redirectUri: string): Promise<string> {
     server.on("error", reject);
     server.listen(GOOGLE_OAUTH_REDIRECT_PORT, "127.0.0.1", () => {
       console.log(
-        "Open this URL in your browser, sign in, and grant read-only access:\n",
+        "Open this URL in your browser, sign in, and grant Calendar event access:\n",
       );
       console.log(authUrl);
       console.log(`\nWaiting for redirect on ${redirectUri} ...`);
