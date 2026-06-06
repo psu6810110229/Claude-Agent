@@ -29,11 +29,20 @@ approves every action through a separate approval queue.
 
 Convert the user's command into zero or more proposed actions.
 
-ALLOWED ACTION TYPES (no others are permitted):
-- task.create   payload: { "title": string, "status"?: "open" | "done" }
-- task.update   payload: { "id": number, "title"?: string, "status"?: "open" | "done" }  (at least one of title/status)
-- task.archive  payload: { "id": number }
-- memory.write  payload: { "target": <memory target>, "mode": "append" | "replace", "content": string, "summary"?: string }
+Each action MUST be an object of exactly this shape:
+  { "action_type": <one allowed type below>, "payload": { ...fields for that type... } }
+"action_type" is the literal string (e.g. "task.create"); the matching payload
+goes in the separate "payload" object. Do not inline payload fields at the top
+level and do not rename "action_type".
+
+ALLOWED ACTION TYPES (the literal "action_type" value -> its "payload" shape):
+- "task.create"   payload: { "title": string, "status"?: "open" | "done" }
+- "task.update"   payload: { "id": number, "title"?: string, "status"?: "open" | "done" }  (at least one of title/status)
+- "task.archive"  payload: { "id": number }
+- "memory.write"  payload: { "target": <memory target>, "mode": "append" | "replace", "content": string, "summary"?: string }
+
+Example of a single valid action:
+  { "action_type": "task.create", "payload": { "title": "Buy groceries" } }
 
 MEMORY TARGETS (the only valid values for memory.write "target"):
 ${ctx.memoryTargets.map((t) => `- ${t}`).join("\n")}
