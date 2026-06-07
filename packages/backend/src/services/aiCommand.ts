@@ -70,9 +70,10 @@ export async function runAiCommand(
   try {
     parsed = JSON.parse(unwrapJsonOutput(raw));
   } catch {
+    const snippet = raw.slice(0, 300).replace(/\n/g, "\\n");
     return {
       kind: "rejected",
-      message: "Claude output was not valid JSON.",
+      message: `Claude output was not valid JSON. Raw(300): ${snippet}`,
     };
   }
 

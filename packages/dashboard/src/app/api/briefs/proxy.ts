@@ -1,5 +1,10 @@
 const BACKEND_PORT = process.env.CLAUDE_AGENT_PORT ?? "8787";
 const BACKEND_ORIGIN = `http://127.0.0.1:${BACKEND_PORT}`;
+
+// Brief generation can legitimately take longer than the dashboard rewrite
+// proxy waits. Keep these long-running POSTs behind explicit route handlers so
+// the backend can finish and return any queued approvals instead of the browser
+// seeing a 500 after the approval was already created.
 const BRIEF_PROXY_TIMEOUT_MS = Number(
   process.env.CLAUDE_AGENT_BRIEF_PROXY_TIMEOUT_MS ?? 120_000,
 );

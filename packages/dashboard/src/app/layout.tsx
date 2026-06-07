@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Nav } from "@/components/Nav";
+import { NotificationCenter } from "@/components/NotificationCenter";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -25,10 +26,11 @@ export default function RootLayout({
               <div className="brand-mark" aria-hidden="true">
                 CA
               </div>
-              <div>
+              <div style={{ flex: 1 }}>
                 <h1>Claude_Agent</h1>
                 <p>Personal Agent OS</p>
               </div>
+              <NotificationCenter />
             </div>
             <Nav />
           </aside>

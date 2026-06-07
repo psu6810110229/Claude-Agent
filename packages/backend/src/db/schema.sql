@@ -60,3 +60,19 @@ CREATE TABLE IF NOT EXISTS reminder (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+-- Step 11 — scheduler-fired notifications. Each (kind, source_id) pair fires
+-- at most once (UNIQUE index → INSERT OR IGNORE dedup). status: 'unread'→'read'.
+-- updated_at maintained in app code (per project convention).
+CREATE TABLE IF NOT EXISTS notification (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind       TEXT NOT NULL,
+  source_id  INTEGER NOT NULL,
+  title      TEXT NOT NULL,
+  body       TEXT,
+  fire_at    TEXT NOT NULL,
+  status     TEXT NOT NULL DEFAULT 'unread',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_source ON notification (kind, source_id);

@@ -12,8 +12,12 @@ export const PORT = Number(process.env.CLAUDE_AGENT_PORT ?? 8787);
 /** packages/backend/data (src/ -> ../data) */
 export const DATA_DIR = path.resolve(__dirname, "..", "data");
 
-/** SQLite database file path. */
-export const DB_PATH = path.join(DATA_DIR, "claude_agent.db");
+/**
+ * SQLite database file path. Overridable via env so smoke tests can target a
+ * throwaway temp file instead of the real data/claude_agent.db.
+ */
+export const DB_PATH =
+  process.env.CLAUDE_AGENT_DB_PATH ?? path.join(DATA_DIR, "claude_agent.db");
 
 /**
  * Repo-root memory/ directory (src/ -> ../../../memory). Memory is durable,
@@ -145,6 +149,39 @@ export const GOOGLE_OAUTH_REDIRECT_PORT = Number(
 
 /** Cap on events fetched per Google Calendar query. */
 export const GOOGLE_CALENDAR_MAX_RESULTS = 50;
+
+/**
+ * Step 11 — Background scheduler (reminder/event firing + notifications).
+ *
+ * Scheduler is OFF unless explicitly enabled. When on, it ticks on a fixed
+ * interval, detects newly-due reminders and soon-starting events, writes
+ * dedup'd notification rows to the DB, logs activity, and optionally fires a
+ * Windows desktop toast. No Claude, no approval queue, no calendar writes.
+ */
+
+/** Background scheduler is OFF unless explicitly enabled. */
+export const SCHEDULER_ENABLED = /^(1|true)$/i.test(
+  process.env.CLAUDE_AGENT_SCHEDULER_ENABLED ?? "",
+);
+
+/** How often the scheduler ticks (ms). Overridable for tests/speed. */
+export const SCHEDULER_INTERVAL_MS = Number(
+  process.env.CLAUDE_AGENT_SCHEDULER_INTERVAL_MS ?? 60_000,
+);
+
+/**
+ * How far ahead to look for events "starting soon" (ms). Events whose
+ * `starts_at` is within [now, now + lead) trigger a notification.
+ * Default: 15 minutes.
+ */
+export const SCHEDULER_EVENT_LEAD_MS = Number(
+  process.env.CLAUDE_AGENT_SCHEDULER_EVENT_LEAD_MS ?? 15 * 60_000,
+);
+
+/** Desktop OS toast notifications are OFF unless explicitly enabled. */
+export const DESKTOP_NOTIFICATIONS_ENABLED = /^(1|true)$/i.test(
+  process.env.CLAUDE_AGENT_DESKTOP_NOTIFICATIONS_ENABLED ?? "",
+);
 
 /** Single source of truth for UTC ISO 8601 timestamps. */
 export function nowIso(): string {

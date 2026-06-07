@@ -79,7 +79,7 @@ export const realClaudeInvoker: ClaudeInvoker = (prompt, opts) =>
 
     execFile(
       CLAUDE_BIN,
-      ["--model", CLAUDE_MODEL, "-p", prompt],
+      ["--model", CLAUDE_MODEL, "--output-format", "json", "-p", prompt],
       {
         timeout: timeoutMs,
         maxBuffer: 1024 * 1024,
@@ -112,12 +112,29 @@ export const realClaudeInvoker: ClaudeInvoker = (prompt, opts) =>
           );
           return;
         }
-        const out = stdout?.toString() ?? "";
-        if (out.trim() === "") {
+        const raw = stdout?.toString() ?? "";
+        if (raw.trim() === "") {
           reject(new ClaudeError("empty", "claude -p returned empty output."));
           return;
         }
-        resolve(out);
+        // --output-format json wraps Claude's text in a JSON envelope.
+        // Extract .result so downstream parsing sees only Claude's actual output.
+        try {
+          const envelope = JSON.parse(raw) as { result?: string; is_error?: boolean };
+          if (envelope.is_error) {
+            reject(new ClaudeError("nonzero-exit", `claude -p reported error in output envelope.`));
+            return;
+          }
+          const result = envelope.result ?? "";
+          if (result.trim() === "") {
+            reject(new ClaudeError("empty", "claude -p returned empty result in envelope."));
+            return;
+          }
+          resolve(result);
+        } catch {
+          // Envelope parse failed — fall back to raw output for backward compat.
+          resolve(raw);
+        }
       },
     );
   });

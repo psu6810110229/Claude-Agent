@@ -14,6 +14,7 @@ import type {
   MemoryContent,
   MemoryEntry,
   MemoryTarget,
+  Notification,
   Reminder,
   Task,
   UpdateTaskBody,
@@ -176,6 +177,28 @@ export function runCommand(
   return request<CommandResult>("/api/command", {
     method: "POST",
     body: JSON.stringify({ input, mode }),
+  });
+}
+
+// --- Notifications (Step 11) ---------------------------------------------
+
+export async function listNotifications(): Promise<Notification[]> {
+  const data = await request<{ notifications: Notification[] }>(
+    "/api/notifications",
+  );
+  return data.notifications;
+}
+
+export async function listUnreadNotifications(): Promise<Notification[]> {
+  const data = await request<{ notifications: Notification[] }>(
+    "/api/notifications/unread",
+  );
+  return data.notifications;
+}
+
+export function markNotificationRead(id: number): Promise<Notification> {
+  return request<Notification>(`/api/notifications/${id}/read`, {
+    method: "POST",
   });
 }
 

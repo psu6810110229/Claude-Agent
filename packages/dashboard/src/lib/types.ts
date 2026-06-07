@@ -166,6 +166,23 @@ export type CommandResult =
     }
   | { kind: "none"; message: string; notes?: string };
 
+// --- Notifications (Step 11) ---------------------------------------------
+
+export type NotificationKind = "reminder.due" | "event.soon";
+export type NotificationStatus = "unread" | "read";
+
+export interface Notification {
+  id: number;
+  kind: NotificationKind;
+  source_id: number;
+  title: string;
+  body: string | null;
+  fire_at: string;
+  status: NotificationStatus;
+  created_at: string;
+  updated_at: string;
+}
+
 // --- Briefs ---------------------------------------------------------------
 
 /** Daily Brief vs Evening Review. */

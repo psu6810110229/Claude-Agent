@@ -8,7 +8,7 @@
 
 ## Approved architecture
 
-- **Deterministic local backend is system of record.** Owns DB, approval queue, logs, scheduler hooks (later), connector boundaries (later).
+- **Deterministic local backend is system of record.** Owns DB, approval queue, logs, scheduler (Step 11), connector boundaries.
 - **Claude Code = reasoning runtime only** — later via controlled `claude -p` calls. **Claude proposes; backend executes only approved actions.**
 - Claude Code is **not** persistent always-running process.
 - Dashboard and backend are **separate packages in same repo**.
@@ -106,12 +106,24 @@
 - AI **may summarize/recommend**, never executes; nothing bypasses approval queue. Live `claude` and real Google API never called in smoke tests.
 - Verification: `npm run build`, `npm run smoke:step10` (stubbed fetcher: create-only allowlist, fail-closed-when-disabled, read routes, all-day normalization, brief includes Google events, error → `available:false`), `npm run smoke`, `npm run ai-smoke`, `npm run brief-smoke`, `npm run build:dashboard`.
 
+## Step 11 scope (done) — Scheduler + reminder/event firing + notifications
+
+- Background scheduler (gated **off** by default) ticks on a configurable interval (default 60 s), detects newly-due reminders and soon-starting events, writes dedup'd `notification` rows (7th table), logs activity, and fires Windows desktop toasts. **No Claude, no approval queue, no calendar writes** — pure date math, reuses `bucketReminders` / `listEvents`.
+- `notification` table: `(kind, source_id)` UNIQUE index → each reminder/event fires at most one notification regardless of tick count. `status`: `'unread'` → `'read'`. Soft-archived never hard-deleted.
+- `services/scheduler.ts` — `runSchedulerTick(now, notifier)` (testable pure fn) + `startScheduler(notifier)` (lifecycle: `setInterval`, `handle.unref()`, try/catch per tick). Hooked into `index.ts:main()` after `buildServer()`; `shutdown` clears the handle. Stays **outside** `buildServer` so all HTTP tests unaffected.
+- `services/desktopNotifier.ts` — `DesktopNotifier` interface (injectable), `StubDesktopNotifier` (smoke tests), `RealDesktopNotifier` (dynamic import of `node-notifier`; fails soft; gated by `DESKTOP_NOTIFICATIONS_ENABLED`).
+- `db/repositories/notificationRepo.ts`, `schemas/notification.ts`, `routes/notifications.ts` (`GET /api/notifications`, `GET /api/notifications/unread`, `POST /api/notifications/:id/read`).
+- Dashboard `components/NotificationCenter.tsx` — global bell in sidebar (layout.tsx), polls `/api/notifications/unread` every 30 s, browser `Notification` API toasts for new ids, mark-as-read dropdown. First polling added to dashboard.
+- Config flags (all off by default): `CLAUDE_AGENT_SCHEDULER_ENABLED`, `CLAUDE_AGENT_SCHEDULER_INTERVAL_MS` (60000), `CLAUDE_AGENT_SCHEDULER_EVENT_LEAD_MS` (900000 = 15 min), `CLAUDE_AGENT_DESKTOP_NOTIFICATIONS_ENABLED`. DB path now also overridable: `CLAUDE_AGENT_DB_PATH`.
+- `npm run smoke:step11` (stubbed notifier; temp DB; dedup; HTTP routes; no Claude/approval).
+- Auto-morning-brief (timer-driven Claude call), AI natural-language query, drag-and-drop card UI — deferred to future steps.
+
 ## Out of scope (must NOT add without explicit approval)
 
 - MCP
 - External connectors **other than Step 10 Google Calendar connector**
 - **Google Calendar update/delete access**; Google writes stay create-only, approval-gated
-- Scheduler
+- Auto-morning-brief scheduler (timer-driven Claude invocation — Step 11 scheduler does **not** call Claude)
 - Voice
 - Notion, Gmail, Google Drive
 - Local filesystem scanning
@@ -156,6 +168,7 @@ Claude_Agent/
 - `npm install` — install workspace dependencies
 - `npm run smoke` — run backend smoke test
 - `npm run smoke:step10` — Step 10 Google Calendar smoke (stubbed; no network)
+- `npm run smoke:step11` — Step 11 scheduler smoke (stubbed notifier + temp DB; no real toast)
 - `npm run google-auth` — one-time Google Calendar OAuth setup
 - `npm run db:init` — initialize the SQLite database
 - `npm run dev` — run backend in watch mode (127.0.0.1:8787)

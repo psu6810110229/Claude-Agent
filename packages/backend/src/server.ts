@@ -9,6 +9,7 @@ import { reminderRoutes } from "./routes/reminders.js";
 import { commandRoutes } from "./routes/command.js";
 import { briefRoutes } from "./routes/briefs.js";
 import { calendarRoutes } from "./routes/calendar.js";
+import { notificationRoutes } from "./routes/notifications.js";
 import type { ClaudeInvoker } from "./services/claudeClient.js";
 import type { GoogleEventsFetcher } from "./services/googleCalendar.js";
 
@@ -38,5 +39,6 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     calendarFetcher: options.calendarFetcher,
   });
   app.register(calendarRoutes, { calendarFetcher: options.calendarFetcher });
+  app.register(notificationRoutes);
   return app;
 }
