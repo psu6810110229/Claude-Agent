@@ -1,6 +1,5 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { chatRequestSchema, chatHistoryQuerySchema } from "../schemas/chat.js";
-import { approvalSchema } from "../schemas/approval.js";
 import { logActivity } from "../db/repositories/activityRepo.js";
 import { archiveActiveMessages, listRecentMessages } from "../db/repositories/chatRepo.js";
 import { runChat } from "../services/chat.js";
@@ -101,7 +100,7 @@ async function handleChat(
   return reply.code(201).send({
     kind: "chat",
     reply: result.reply,
-    approvals: result.approvals.map((a) => approvalSchema.parse(a)),
+    approvals: result.approvals,
     clarification: result.clarification,
     notes: result.notes,
   });

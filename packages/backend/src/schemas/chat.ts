@@ -27,7 +27,7 @@ export const chatHistoryQuerySchema = z.object({
 export const chatOutputSchema = z
   .object({
     reply: z.string().trim().min(1).max(4000),
-    actions: z.array(aiActionSchema).max(CLAUDE_MAX_ACTIONS),
+    actions: z.array(aiActionSchema).max(CLAUDE_MAX_ACTIONS).default([]),
     clarification: z.string().trim().min(1).max(500).nullish().transform(v => v ?? undefined),
     notes: z.string().max(2000).nullish().transform(v => v ?? undefined),
   })

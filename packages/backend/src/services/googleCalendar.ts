@@ -7,6 +7,7 @@ import {
   GOOGLE_TOKEN_PATH,
   GOOGLE_CALENDAR_MAX_RESULTS,
 } from "../config.js";
+import { getConfigBool } from "../db/repositories/configRepo.js";
 import {
   googleEventSchema,
   type CreateGoogleEventPayload,
@@ -54,8 +55,13 @@ export interface CreatedGoogleEvent {
   htmlLink: string | null;
 }
 
-/** Whether the connector is enabled (env flag). */
+/**
+ * Whether the connector is enabled. DB config overrides the env-var so the
+ * dashboard can toggle at runtime without a restart.
+ */
 export function isGoogleCalendarEnabled(): boolean {
+  const dbValue = getConfigBool("google_calendar_enabled");
+  if (dbValue !== null) return dbValue;
   return GOOGLE_CALENDAR_ENABLED;
 }
 
@@ -161,7 +167,7 @@ export const realGoogleEventsFetcher: GoogleEventsFetcher = async (
   timeMinIso,
   timeMaxIso,
 ) => {
-  if (!GOOGLE_CALENDAR_ENABLED) {
+  if (!isGoogleCalendarEnabled()) {
     throw new GoogleCalendarError("disabled", "Google Calendar is disabled.");
   }
   const auth = buildOAuthClient();
@@ -199,7 +205,7 @@ export const realGoogleEventsFetcher: GoogleEventsFetcher = async (
 export async function createGoogleCalendarEvent(
   payload: CreateGoogleEventPayload,
 ): Promise<CreatedGoogleEvent> {
-  if (!GOOGLE_CALENDAR_ENABLED) {
+  if (!isGoogleCalendarEnabled()) {
     throw new GoogleCalendarError("disabled", "Google Calendar is disabled.");
   }
 

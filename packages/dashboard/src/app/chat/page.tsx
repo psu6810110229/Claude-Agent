@@ -17,6 +17,7 @@ export default function ChatPage() {
   const [sendError, setSendError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<ChatResult | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -38,17 +39,12 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  async function onSend(e: React.FormEvent) {
-    e.preventDefault();
-    const text = input.trim();
-    if (!text || sending) return;
-
-    setInput("");
+  async function doSend(text: string) {
     setSending(true);
     setSendError(null);
     setLastResult(null);
+    setLastFailedMessage(null);
 
-    // Optimistic: add user bubble immediately.
     const optimisticUser: ChatMessage = {
       id: -Date.now(),
       role: "user",
@@ -63,17 +59,28 @@ export default function ChatPage() {
     try {
       const result = await sendChat(text);
       setLastResult(result);
-
-      // Replace optimistic with real history from server.
       const updated = await getChatHistory(100);
       setMessages(updated);
     } catch (err) {
-      // Remove optimistic message on failure.
       setMessages((prev) => prev.filter((m) => m.id !== optimisticUser.id));
       setSendError(err instanceof ApiError ? err.message : String(err));
+      setLastFailedMessage(text);
     } finally {
       setSending(false);
     }
+  }
+
+  async function onSend(e: React.FormEvent) {
+    e.preventDefault();
+    const text = input.trim();
+    if (!text || sending) return;
+    setInput("");
+    await doSend(text);
+  }
+
+  async function onRetry() {
+    if (!lastFailedMessage || sending) return;
+    await doSend(lastFailedMessage);
   }
 
   async function onNewSession() {
@@ -154,7 +161,7 @@ export default function ChatPage() {
         )}
 
         {sendError && (
-          <ErrorBanner message={sendError} onRetry={() => setSendError(null)} />
+          <ErrorBanner message={sendError} onRetry={onRetry} />
         )}
 
         <form className="composer chat-composer" onSubmit={onSend}>

@@ -11,6 +11,7 @@ const LINKS = [
   { href: "/approvals", label: "Approvals" },
   { href: "/memory", label: "Memory" },
   { href: "/activity", label: "Activity" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export function Nav() {

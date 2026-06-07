@@ -56,7 +56,7 @@ async function main(): Promise<void> {
 
   initDb();
 
-  // --- 0. Eight tables exist (chat_message is new) ---
+  // --- 0. Nine tables exist (config added for runtime feature flags) ---
   const db = getDb();
   const tables: string[] = (
     db
@@ -67,6 +67,7 @@ async function main(): Promise<void> {
     "activity_log",
     "approval",
     "chat_message",
+    "config",
     "event",
     "memory_index",
     "notification",
@@ -75,7 +76,7 @@ async function main(): Promise<void> {
   ];
   assert(
     expected.every((t) => tables.includes(t)),
-    `8 tables exist: ${expected.join(", ")}`,
+    `9 tables exist: ${expected.join(", ")}`,
   );
 
   // --- Single server with a dynamic stub invoker ---

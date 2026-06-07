@@ -11,6 +11,7 @@ import { briefRoutes } from "./routes/briefs.js";
 import { calendarRoutes } from "./routes/calendar.js";
 import { notificationRoutes } from "./routes/notifications.js";
 import { chatRoutes } from "./routes/chat.js";
+import { settingsRoutes } from "./routes/settings.js";
 import type { ClaudeInvoker } from "./services/claudeClient.js";
 import type { GoogleEventsFetcher } from "./services/googleCalendar.js";
 
@@ -45,5 +46,6 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     aiInvoker: options.aiInvoker,
     calendarFetcher: options.calendarFetcher,
   });
+  app.register(settingsRoutes);
   return app;
 }

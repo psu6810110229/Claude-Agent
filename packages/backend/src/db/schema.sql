@@ -77,6 +77,15 @@ CREATE TABLE IF NOT EXISTS notification (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_source ON notification (kind, source_id);
 
+-- Runtime feature flags. key is a short slug (e.g. 'google_calendar_enabled').
+-- value is '1' (true) or '0' (false). When a key is absent the env-var default
+-- applies. updated_at app-maintained per project convention.
+CREATE TABLE IF NOT EXISTS config (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 -- Step 12 — conversational chat agent. Single ongoing thread, persisted across
 -- restarts. role: 'user'|'assistant'. actions_json: serialised proposed action
 -- ids+types for assistant turns (null for user turns). status: 'active'→

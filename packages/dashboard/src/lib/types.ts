@@ -211,6 +211,20 @@ export interface ChatResult {
   notes?: string;
 }
 
+// --- Settings -------------------------------------------------------------
+
+export interface Setting {
+  key: string;
+  label: string;
+  enabled: boolean;
+  configured: boolean;
+  description: string;
+}
+
+export interface SettingsResponse {
+  settings: Setting[];
+}
+
 // --- Briefs ---------------------------------------------------------------
 
 /** Daily Brief vs Evening Review. */

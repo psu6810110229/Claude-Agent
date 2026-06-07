@@ -1,12 +1,15 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import {
   getCalendarToday,
+  getSettings,
   listActivity,
   listEvents,
   listReminders,
   listTasks,
+  updateSetting,
 } from "@/lib/api";
 import { useResource } from "@/lib/useResource";
 import { formatTs } from "@/lib/format";
@@ -20,6 +23,7 @@ import type {
   CalendarEvent,
   GoogleEventListResponse,
   Reminder,
+  Setting,
   Task,
 } from "@/lib/types";
 
@@ -29,15 +33,17 @@ async function loadToday(): Promise<{
   calendar: GoogleEventListResponse;
   events: CalendarEvent[];
   reminders: Reminder[];
+  settings: Setting[];
 }> {
-  const [tasks, activity, calendar, events, reminders] = await Promise.all([
+  const [tasks, activity, calendar, events, reminders, settings] = await Promise.all([
     listTasks(),
     listActivity(10),
     getCalendarToday(),
     listEvents(),
     listReminders(),
+    getSettings(),
   ]);
-  return { tasks, activity, calendar, events, reminders };
+  return { tasks, activity, calendar, events, reminders, settings };
 }
 
 export default function TodayPage() {
@@ -75,6 +81,8 @@ export default function TodayPage() {
                 calendar={data.calendar}
                 events={data.events}
                 reminders={data.reminders}
+                gcalSetting={data.settings.find((s) => s.key === "google_calendar")}
+                onCalendarToggled={reload}
               />
             </>
           )}
@@ -114,10 +122,14 @@ function TodayAgenda({
   calendar,
   events,
   reminders,
+  gcalSetting,
+  onCalendarToggled,
 }: {
   calendar: GoogleEventListResponse;
   events: CalendarEvent[];
   reminders: Reminder[];
+  gcalSetting?: Setting;
+  onCalendarToggled: () => void;
 }) {
   const ev = bucketEvents(events);
   const rem = bucketReminders(reminders);
@@ -132,7 +144,12 @@ function TodayAgenda({
       )}
 
       <section className="section">
-        <h3>Today's schedule (Google Calendar)</h3>
+        <div className="section-header">
+          <h3>Today's schedule (Google Calendar)</h3>
+          {!calendar.available && gcalSetting && (
+            <CalendarEnableButton setting={gcalSetting} onToggled={onCalendarToggled} />
+          )}
+        </div>
         {calendar.available ? (
           <GoogleEventList events={calendar.events} />
         ) : (
@@ -155,6 +172,41 @@ function TodayAgenda({
         <ReminderList reminders={rem.today} />
       </section>
     </div>
+  );
+}
+
+function CalendarEnableButton({
+  setting,
+  onToggled,
+}: {
+  setting: Setting;
+  onToggled: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  if (!setting.configured) {
+    return (
+      <Link href="/settings" className="section-link" title={setting.description}>
+        Setup required
+      </Link>
+    );
+  }
+
+  async function enable() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await updateSetting("google_calendar", true);
+      onToggled();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <button className="primary" onClick={enable} disabled={busy} style={{ fontSize: "0.8rem", padding: "0.2rem 0.6rem" }}>
+      {busy ? "Enabling…" : "Enable"}
+    </button>
   );
 }
 

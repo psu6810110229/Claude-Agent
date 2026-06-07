@@ -18,6 +18,8 @@ import type {
   MemoryTarget,
   Notification,
   Reminder,
+  Setting,
+  SettingsResponse,
   Task,
   UpdateTaskBody,
 } from "./types";
@@ -229,6 +231,23 @@ export async function getChatHistory(limit = 50): Promise<ChatMessage[]> {
     `/api/chat/history?limit=${limit}`,
   );
   return data.messages;
+}
+
+// --- Settings ------------------------------------------------------------
+
+export async function getSettings(): Promise<Setting[]> {
+  const data = await request<SettingsResponse>("/api/settings");
+  return data.settings;
+}
+
+export function updateSetting(
+  key: string,
+  enabled: boolean,
+): Promise<{ key: string; enabled: boolean }> {
+  return request(`/api/settings/${key}`, {
+    method: "POST",
+    body: JSON.stringify({ enabled }),
+  });
 }
 
 // --- Briefs --------------------------------------------------------------
