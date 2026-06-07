@@ -118,6 +118,18 @@
 - `npm run smoke:step11` (stubbed notifier; temp DB; dedup; HTTP routes; no Claude/approval).
 - Auto-morning-brief (timer-driven Claude call), AI natural-language query, drag-and-drop card UI — deferred to future steps.
 
+## Step 12 scope (done) — Conversational chat agent (multi-turn + recall)
+
+- **8th SQLite table `chat_message`**: `(id, role, content, actions_json, status, created_at, updated_at)`. Single ongoing thread, persisted across restarts. Soft-archived, never hard-deleted. `updated_at` app-maintained.
+- **`db/repositories/chatRepo.ts`**: `appendMessage(role, content, actionsJson?)`, `listRecentMessages(limit)` (active only, chronological).
+- **`schemas/chat.ts`**: request `{ message: string (1..4000) }` + strict output `{ reply: string (required), actions: AiAction[], clarification?, notes? }`. `reply` required (vs aiOutput which has none).
+- **`services/chatPrompt.ts`**: like chiefOfStaffPrompt but with recall context (same as brief: real tasks/events/reminders/Google + memory **summaries only** — never file contents) + conversation history (last N turns). Required `reply` in output contract.
+- **`services/chat.ts`**: `runChat(message, invoke, fetchGoogle)` — builds context, invokes Claude, validates strictly, persists both messages on success only (failed/rejected → nothing written to DB), routes actions through `createApproval`. Fails closed.
+- **`routes/chat.ts`**: `POST /api/chat` (chat turn), `GET /api/chat/history?limit=` (recent messages). Both `aiInvoker` and `calendarFetcher` injectable.
+- **Config**: `CHAT_HISTORY_LIMIT` (default 20). Reuses `CLAUDE_AI_ENABLED`, `CLAUDE_BRIEF_TIMEOUT_MS`, `CLAUDE_MAX_ACTIONS`.
+- **Dashboard**: `app/chat/page.tsx` (chat bubbles + composer), nav entry "Chat" in `components/Nav.tsx`.
+- **Verification**: `npm run build`, `npm run smoke` (8 tables), `npm run smoke:step12` (stubbed; 7 assertions), `npm run build:dashboard`.
+
 ## Out of scope (must NOT add without explicit approval)
 
 - MCP
@@ -169,6 +181,7 @@ Claude_Agent/
 - `npm run smoke` — run backend smoke test
 - `npm run smoke:step10` — Step 10 Google Calendar smoke (stubbed; no network)
 - `npm run smoke:step11` — Step 11 scheduler smoke (stubbed notifier + temp DB; no real toast)
+- `npm run smoke:step12` — Step 12 chat smoke (stubbed invoker + temp DB; real `claude` never called)
 - `npm run google-auth` — one-time Google Calendar OAuth setup
 - `npm run db:init` — initialize the SQLite database
 - `npm run dev` — run backend in watch mode (127.0.0.1:8787)

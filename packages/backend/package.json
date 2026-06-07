@@ -17,6 +17,7 @@
     "smoke:step9": "tsx scripts/step9-smoke-test.ts",
     "smoke:step10": "tsx scripts/step10-smoke-test.ts",
     "smoke:step11": "tsx scripts/step11-smoke-test.ts",
+    "smoke:step12": "tsx scripts/smoke-step12.ts",
     "google-auth": "tsx scripts/google-auth.ts"
   },
   "dependencies": {

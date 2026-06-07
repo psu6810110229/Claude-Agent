@@ -7,6 +7,8 @@ import type {
   Approval,
   BriefResult,
   CalendarEvent,
+  ChatMessage,
+  ChatResult,
   CommandMode,
   CommandResult,
   CreateMemoryProposalBody,
@@ -200,6 +202,28 @@ export function markNotificationRead(id: number): Promise<Notification> {
   return request<Notification>(`/api/notifications/${id}/read`, {
     method: "POST",
   });
+}
+
+// --- Chat (Step 12) -------------------------------------------------------
+
+/**
+ * Send a chat message. Returns the assistant reply + any queued approvals.
+ * AI failures throw ApiError (503 disabled, 504 timeout, 502 failure, 400
+ * invalid output).
+ */
+export function sendChat(message: string): Promise<ChatResult> {
+  return request<ChatResult>("/api/chat", {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+}
+
+/** Fetch recent chat history (oldest first). */
+export async function getChatHistory(limit = 50): Promise<ChatMessage[]> {
+  const data = await request<{ messages: ChatMessage[] }>(
+    `/api/chat/history?limit=${limit}`,
+  );
+  return data.messages;
 }
 
 // --- Briefs --------------------------------------------------------------

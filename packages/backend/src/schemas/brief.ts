@@ -20,7 +20,7 @@ export const briefOutputSchema = z
   .object({
     summary: z.string().trim().min(1).max(4000),
     actions: z.array(aiActionSchema).max(CLAUDE_MAX_ACTIONS).default([]),
-    notes: z.string().max(2000).optional(),
+    notes: z.string().max(2000).nullish().transform(v => v ?? undefined),
   })
   .strict();
 export type BriefOutput = z.infer<typeof briefOutputSchema>;

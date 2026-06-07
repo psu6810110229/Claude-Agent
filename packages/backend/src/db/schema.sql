@@ -76,3 +76,17 @@ CREATE TABLE IF NOT EXISTS notification (
   updated_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_source ON notification (kind, source_id);
+
+-- Step 12 — conversational chat agent. Single ongoing thread, persisted across
+-- restarts. role: 'user'|'assistant'. actions_json: serialised proposed action
+-- ids+types for assistant turns (null for user turns). status: 'active'→
+-- 'archived' (soft-archive, never hard-deleted). updated_at app-maintained.
+CREATE TABLE IF NOT EXISTS chat_message (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  role         TEXT NOT NULL,
+  content      TEXT NOT NULL,
+  actions_json TEXT,
+  status       TEXT NOT NULL DEFAULT 'active',
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);

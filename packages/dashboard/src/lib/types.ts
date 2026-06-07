@@ -183,6 +183,34 @@ export interface Notification {
   updated_at: string;
 }
 
+// --- Chat (Step 12) -------------------------------------------------------
+
+export type ChatRole = "user" | "assistant";
+export type ChatMessageStatus = "active" | "archived";
+
+export interface ChatMessage {
+  id: number;
+  role: ChatRole;
+  content: string;
+  actions_json: string | null;
+  status: ChatMessageStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * POST /api/chat success shape (201). `reply` is the conversational response;
+ * `approvals` are any pending write proposals queued by this turn (may be
+ * empty). Failures arrive as 4xx/5xx via ApiError.
+ */
+export interface ChatResult {
+  kind: "chat";
+  reply: string;
+  approvals: Approval[];
+  clarification?: string;
+  notes?: string;
+}
+
 // --- Briefs ---------------------------------------------------------------
 
 /** Daily Brief vs Evening Review. */

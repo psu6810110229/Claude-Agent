@@ -10,6 +10,7 @@ import { commandRoutes } from "./routes/command.js";
 import { briefRoutes } from "./routes/briefs.js";
 import { calendarRoutes } from "./routes/calendar.js";
 import { notificationRoutes } from "./routes/notifications.js";
+import { chatRoutes } from "./routes/chat.js";
 import type { ClaudeInvoker } from "./services/claudeClient.js";
 import type { GoogleEventsFetcher } from "./services/googleCalendar.js";
 
@@ -40,5 +41,9 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   });
   app.register(calendarRoutes, { calendarFetcher: options.calendarFetcher });
   app.register(notificationRoutes);
+  app.register(chatRoutes, {
+    aiInvoker: options.aiInvoker,
+    calendarFetcher: options.calendarFetcher,
+  });
   return app;
 }

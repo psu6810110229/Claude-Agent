@@ -46,7 +46,7 @@ export const CLAUDE_BIN = process.env.CLAUDE_AGENT_CLAUDE_BIN ?? "claude";
  * coding. Overridable via env.
  */
 export const CLAUDE_MODEL =
-  process.env.CLAUDE_AGENT_CLAUDE_MODEL ?? "claude-sonnet-4-6";
+  process.env.CLAUDE_AGENT_CLAUDE_MODEL ?? "claude-haiku-4-5-20251001";
 
 /** Hard timeout for a single command-mode `claude -p` invocation (ms). */
 export const CLAUDE_TIMEOUT_MS = Number(
@@ -73,7 +73,7 @@ export const CLAUDE_AI_ENABLED = /^(1|true)$/i.test(
 );
 
 /** Max proposed actions accepted from a single AI command (anything more is rejected). */
-export const CLAUDE_MAX_ACTIONS = 5;
+export const CLAUDE_MAX_ACTIONS = 10;
 
 /** Cap on open tasks included in the compact context snapshot passed to Claude. */
 export const CLAUDE_CONTEXT_TASK_CAP = 20;
@@ -181,6 +181,16 @@ export const SCHEDULER_EVENT_LEAD_MS = Number(
 /** Desktop OS toast notifications are OFF unless explicitly enabled. */
 export const DESKTOP_NOTIFICATIONS_ENABLED = /^(1|true)$/i.test(
   process.env.CLAUDE_AGENT_DESKTOP_NOTIFICATIONS_ENABLED ?? "",
+);
+
+/**
+ * Step 12 — Conversational chat agent.
+ *
+ * Number of recent chat messages fed back into the prompt as conversation
+ * history. Older messages are excluded to keep the context compact.
+ */
+export const CHAT_HISTORY_LIMIT = Number(
+  process.env.CLAUDE_AGENT_CHAT_HISTORY_LIMIT ?? 20,
 );
 
 /** Single source of truth for UTC ISO 8601 timestamps. */

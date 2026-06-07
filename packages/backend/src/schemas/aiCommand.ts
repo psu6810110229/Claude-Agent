@@ -69,8 +69,8 @@ export type AiAction = z.infer<typeof aiActionSchema>;
 export const aiOutputSchema = z
   .object({
     actions: z.array(aiActionSchema).max(CLAUDE_MAX_ACTIONS),
-    clarification: z.string().trim().min(1).max(500).optional(),
-    notes: z.string().max(2000).optional(),
+    clarification: z.string().trim().min(1).max(500).nullish().transform(v => v ?? undefined),
+    notes: z.string().max(2000).nullish().transform(v => v ?? undefined),
   })
   .strict();
 export type AiOutput = z.infer<typeof aiOutputSchema>;

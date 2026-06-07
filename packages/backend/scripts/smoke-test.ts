@@ -13,6 +13,8 @@ const REQUIRED_TABLES = [
   "activity_log",
   "event",
   "reminder",
+  "notification",
+  "chat_message",
 ];
 
 function assert(cond: unknown, msg: string): void {
