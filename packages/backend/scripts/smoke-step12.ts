@@ -238,6 +238,40 @@ async function main(): Promise<void> {
     "disabled AI: no messages persisted",
   );
 
+  // --- 8. POST /api/chat/reset → archives all active messages, history empty ---
+  const histBeforeReset = await getJson("/api/chat/history?limit=100");
+  const activeCountBefore: number = histBeforeReset.json.messages.length;
+  assert(activeCountBefore > 0, "history has active messages before reset");
+
+  const resetRes = await postJson("/api/chat/reset");
+  assert(
+    resetRes.status === 200 && resetRes.json.kind === "reset",
+    "POST /api/chat/reset returns 200 + kind:'reset'",
+  );
+  assert(
+    resetRes.json.archived === activeCountBefore,
+    `reset archived all ${activeCountBefore} active message(s)`,
+  );
+
+  const histAfterReset = await getJson("/api/chat/history?limit=100");
+  assert(
+    histAfterReset.json.messages.length === 0,
+    "history empty after reset (zero history tokens for next turn)",
+  );
+
+  // Next chat turn after reset: no prior history sent (context window starts fresh).
+  currentInvoker = stubOk("Fresh start!");
+  const chatAfterReset = await postJson("/api/chat", { message: "hello new session" });
+  assert(
+    chatAfterReset.status === 201 && chatAfterReset.json.reply === "Fresh start!",
+    "chat works normally after reset",
+  );
+  const histFresh = await getJson("/api/chat/history?limit=100");
+  assert(
+    histFresh.json.messages.length === 2,
+    "new session starts with only 2 messages (current exchange)",
+  );
+
   // Cleanup
   await app.close();
   closeDb();

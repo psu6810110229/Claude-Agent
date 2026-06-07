@@ -218,6 +218,11 @@ export function sendChat(message: string): Promise<ChatResult> {
   });
 }
 
+/** Archive the current chat thread. Next message starts a fresh session with zero history tokens. */
+export function resetChat(): Promise<{ kind: "reset"; archived: number }> {
+  return request("/api/chat/reset", { method: "POST" });
+}
+
 /** Fetch recent chat history (oldest first). */
 export async function getChatHistory(limit = 50): Promise<ChatMessage[]> {
   const data = await request<{ messages: ChatMessage[] }>(

@@ -36,6 +36,20 @@ export function appendMessage(
 }
 
 /**
+ * Soft-archive all active chat messages. Returns count archived. New chat
+ * turns then start with empty history (zero recall tokens).
+ */
+export function archiveActiveMessages(): number {
+  const info = getDb()
+    .prepare(
+      `UPDATE chat_message SET status = 'archived', updated_at = ?
+       WHERE status = 'active'`,
+    )
+    .run(nowIso());
+  return info.changes as number;
+}
+
+/**
  * Return the N most recent active messages in chronological order (oldest
  * first), suitable for feeding directly into a prompt as conversation history.
  */

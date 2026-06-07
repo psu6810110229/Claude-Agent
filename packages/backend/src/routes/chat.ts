@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { chatRequestSchema, chatHistoryQuerySchema } from "../schemas/chat.js";
 import { approvalSchema } from "../schemas/approval.js";
 import { logActivity } from "../db/repositories/activityRepo.js";
-import { listRecentMessages } from "../db/repositories/chatRepo.js";
+import { archiveActiveMessages, listRecentMessages } from "../db/repositories/chatRepo.js";
 import { runChat } from "../services/chat.js";
 import {
   realClaudeInvoker,
@@ -36,6 +36,12 @@ export async function chatRoutes(
   const fetchGoogle = opts.calendarFetcher ?? realGoogleEventsFetcher;
 
   app.post("/api/chat", async (req, reply) => handleChat(req, invoke, fetchGoogle, reply));
+
+  app.post("/api/chat/reset", async (_req, reply) => {
+    const archived = archiveActiveMessages();
+    logActivity("chat.session.reset", `${archived} message(s) archived`);
+    return reply.code(200).send({ kind: "reset", archived });
+  });
 
   app.get("/api/chat/history", async (req, reply) => {
     const q = chatHistoryQuerySchema.safeParse(

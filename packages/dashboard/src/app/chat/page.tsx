@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ApiError, getChatHistory, sendChat } from "@/lib/api";
+import { ApiError, getChatHistory, resetChat, sendChat } from "@/lib/api";
 import { formatTs } from "@/lib/format";
 import { ErrorBanner, Loading } from "@/components/States";
 import type { ChatMessage, ChatResult } from "@/lib/types";
@@ -16,6 +16,7 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<ChatResult | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -75,6 +76,22 @@ export default function ChatPage() {
     }
   }
 
+  async function onNewSession() {
+    if (sending || resetting) return;
+    if (!window.confirm("Archive this session and start fresh? Old messages are kept in the DB but won't appear in chat or be sent to Claude.")) return;
+    setResetting(true);
+    try {
+      await resetChat();
+      setMessages([]);
+      setLastResult(null);
+      setSendError(null);
+    } catch (err) {
+      setSendError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setResetting(false);
+    }
+  }
+
   return (
     <>
       <header className="page-header">
@@ -86,6 +103,14 @@ export default function ChatPage() {
             Writes require approval before executing.
           </p>
         </div>
+        <button
+          className="secondary"
+          onClick={onNewSession}
+          disabled={sending || resetting}
+          title="Archive this session — old messages stay in DB but won't be sent to Claude"
+        >
+          {resetting ? "Resetting…" : "New session"}
+        </button>
       </header>
 
       <div className="chat-layout">
