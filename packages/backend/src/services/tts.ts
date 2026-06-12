@@ -1,0 +1,131 @@
+import os from "node:os";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { readFile, unlink, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
+import ffmpegPath from "ffmpeg-static";
+import { logActivity } from "../db/repositories/activityRepo.js";
+import { TTS_ENABLED, TTS_PRESET } from "../config.js";
+import type { TtsPreset } from "../schemas/tts.js";
+
+const VOICE = "en-AU-WilliamMultilingualNeural";
+const DEFAULT_PRESET: TtsPreset = "warm";
+
+// FX building blocks (matching POC output)
+const HP = "highpass=f=70";
+const COMP = "acompressor=threshold=-18dB:ratio=3:attack=15:release=200";
+const COMP_TIGHT = "acompressor=threshold=-20dB:ratio=4:attack=8:release=150";
+const NORM = "loudnorm=I=-16:TP=-1.5:LRA=11";
+const lowBoost4 = "equalizer=f=120:width_type=o:width=1.5:g=4";
+const lowBoost5 = "equalizer=f=120:width_type=o:width=1.5:g=5";
+const body = "equalizer=f=300:width_type=o:width=1:g=2";
+const tameHigh3 = "equalizer=f=5500:width_type=o:width=1.5:g=-3";
+const tameHigh2 = "equalizer=f=5500:width_type=o:width=1.5:g=-2";
+
+interface PresetConfig {
+  prosody: { pitch: string; rate: string; volume?: string };
+  fx: string[];
+}
+
+const PRESETS: Record<TtsPreset, PresetConfig> = {
+  warm: {
+    prosody: { pitch: "-8%", rate: "-6%", volume: "+0%" },
+    fx: [HP, lowBoost4, body, tameHigh3, COMP, "aecho=0.85:0.82:55:0.18", NORM],
+  },
+  intimate: {
+    prosody: { pitch: "-10%", rate: "-6%" },
+    fx: [HP, lowBoost5, body, tameHigh2, COMP_TIGHT, "aecho=0.9:0.75:25:0.06", NORM],
+  },
+};
+
+export interface TtsSynthesizer {
+  /** Returns WAV buffer, or null when disabled/unavailable. Never throws. */
+  synthesize(text: string, preset?: TtsPreset): Promise<Buffer | null>;
+}
+
+export class StubTtsSynthesizer implements TtsSynthesizer {
+  readonly calls: Array<{ text: string; preset: TtsPreset }> = [];
+  constructor(private readonly out: Buffer | null = Buffer.from("RIFFstubWAVE")) {}
+  async synthesize(text: string, preset: TtsPreset = DEFAULT_PRESET): Promise<Buffer | null> {
+    this.calls.push({ text, preset });
+    return this.out;
+  }
+}
+
+function ttsOnce(text: string, prosody: PresetConfig["prosody"]): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    void (async () => {
+      try {
+        const tts = new MsEdgeTTS();
+        await tts.setMetadata(VOICE, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
+        const { audioStream } = tts.toStream(text, prosody);
+        const chunks: Buffer[] = [];
+        audioStream.on("data", (c: Buffer) => chunks.push(c));
+        audioStream.on("end", () => resolve(Buffer.concat(chunks)));
+        audioStream.on("error", reject);
+      } catch (e) {
+        reject(e);
+      }
+    })();
+  });
+}
+
+async function ttsToBuffer(text: string, prosody: PresetConfig["prosody"]): Promise<Buffer> {
+  let last: Error = new Error("no attempt");
+  for (let i = 0; i < 4; i++) {
+    try {
+      const b = await ttsOnce(text, prosody);
+      if (b.length > 1000) return b;
+      last = new Error(`empty stream (${b.length} bytes)`);
+    } catch (e) {
+      last = e instanceof Error ? e : new Error(String(e));
+    }
+  }
+  throw last;
+}
+
+function applyFx(inFile: string, outFile: string, fx: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const bin = ffmpegPath as string;
+    const args = ["-y", "-i", inFile, "-af", fx.join(","), "-ar", "24000", "-ac", "1", outFile];
+    const p = spawn(bin, args, { stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
+    let errOut = "";
+    (p.stderr as NodeJS.ReadableStream).on("data", (d: Buffer) => { errOut += d.toString(); });
+    p.on("close", (code) =>
+      code === 0 ? resolve() : reject(new Error(`ffmpeg exit ${code}\n${errOut.slice(-500)}`)),
+    );
+    p.on("error", reject);
+  });
+}
+
+class RealTtsSynthesizer implements TtsSynthesizer {
+  async synthesize(text: string, preset?: TtsPreset): Promise<Buffer | null> {
+    if (!TTS_ENABLED) return null;
+
+    const resolvedPreset: TtsPreset =
+      (preset ?? (PRESETS[TTS_PRESET as TtsPreset] ? (TTS_PRESET as TtsPreset) : DEFAULT_PRESET));
+    const config = PRESETS[resolvedPreset];
+
+    const id = randomUUID();
+    const mp3Path = path.join(os.tmpdir(), `jarvis-tts-${id}.mp3`);
+    const wavPath = path.join(os.tmpdir(), `jarvis-tts-${id}.wav`);
+
+    try {
+      const mp3 = await ttsToBuffer(text, config.prosody);
+      await writeFile(mp3Path, mp3);
+      await applyFx(mp3Path, wavPath, config.fx);
+      const wav = await readFile(wavPath);
+      logActivity("tts.served", `${wav.length} bytes preset=${resolvedPreset}`);
+      return wav;
+    } catch (e) {
+      logActivity("tts.synth_failed", e instanceof Error ? e.message : String(e));
+      return null;
+    } finally {
+      await unlink(mp3Path).catch(() => {});
+      await unlink(wavPath).catch(() => {});
+    }
+  }
+}
+
+export const realTtsSynthesizer: TtsSynthesizer = new RealTtsSynthesizer();

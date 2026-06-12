@@ -271,6 +271,56 @@ export function updateSetting(
   });
 }
 
+// --- TTS (Step 13.1) -----------------------------------------------------
+
+/** Single module-level audio element for sequential, non-overlapping playback. */
+let _audio: HTMLAudioElement | null = null;
+let _currentUrl: string | null = null;
+
+/**
+ * Speak text via the backend TTS endpoint. Fire-and-forget — never throws.
+ * Returns immediately; audio plays in the background.
+ * No-op when the server returns 204 (TTS disabled / offline).
+ */
+export async function speak(text: string, preset?: string): Promise<void> {
+  try {
+    const body: Record<string, string> = { text };
+    if (preset) body.preset = preset;
+
+    const res = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (res.status === 204 || !res.ok) return;
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+
+    // Stop + revoke any previous playback.
+    if (_audio) {
+      _audio.pause();
+      _audio.src = "";
+    }
+    if (_currentUrl) {
+      URL.revokeObjectURL(_currentUrl);
+    }
+
+    _currentUrl = url;
+    _audio = new Audio(url);
+    _audio.onended = () => {
+      if (_currentUrl === url) {
+        URL.revokeObjectURL(url);
+        _currentUrl = null;
+      }
+    };
+    void _audio.play();
+  } catch {
+    // Fail silently — text is already shown.
+  }
+}
+
 // --- Briefs --------------------------------------------------------------
 
 /**

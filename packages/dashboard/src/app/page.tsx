@@ -8,6 +8,8 @@ import {
   Clock3,
   Database,
   MessageCircle,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import {
   ApiError,
@@ -19,6 +21,7 @@ import {
   rejectApproval,
   resetChat,
   sendChat,
+  speak,
 } from "@/lib/api";
 import { formatTs } from "@/lib/format";
 import { actionQuestion, isActionType } from "@/lib/actionDisplay";
@@ -88,7 +91,13 @@ export default function HomePage() {
   );
   const [activeClarification, setActiveClarification] =
     useState<ClarificationPrompt | null>(null);
+  const [muted, setMuted] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Hydrate muted from localStorage after mount (avoid SSR mismatch).
+  useEffect(() => {
+    setMuted(localStorage.getItem("jarvis.muted") === "true");
+  }, []);
 
   const hasConversation = messages.length > 0 || sending || briefBusy !== null;
 
@@ -161,6 +170,7 @@ export default function HomePage() {
           ...prev,
           [freshAssistant.id]: result.provider,
         }));
+        if (!muted) void speak(result.reply);
       }
       setActiveClarification(
         buildClarificationPrompt(updated, result.clarification, result.clarification_choices),
@@ -441,6 +451,26 @@ export default function HomePage() {
             )
           }
         />
+        <button
+          type="button"
+          className="jarvis-mute-btn"
+          onClick={() =>
+            setMuted((prev) => {
+              const next = !prev;
+              localStorage.setItem("jarvis.muted", String(next));
+              return next;
+            })
+          }
+          title={muted ? "Unmute voice" : "Mute voice"}
+          aria-label={muted ? "Unmute voice" : "Mute voice"}
+          aria-pressed={muted}
+        >
+          {muted ? (
+            <VolumeX strokeWidth={1.8} aria-hidden="true" />
+          ) : (
+            <Volume2 strokeWidth={1.8} aria-hidden="true" />
+          )}
+        </button>
       </motion.div>
 
       {confirmingReset && (

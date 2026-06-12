@@ -217,6 +217,19 @@ export const CHAT_HISTORY_LIMIT = Number(
   process.env.CLAUDE_AGENT_CHAT_HISTORY_LIMIT ?? 20,
 );
 
+/**
+ * Step 13 — Voice output (TTS). All flags off by default; fail-soft to text.
+ * Real Edge endpoint is cloud (outbound to Microsoft only, no API key).
+ */
+
+/** TTS synthesis is OFF unless explicitly enabled. */
+export const TTS_ENABLED = /^(1|true)$/i.test(
+  process.env.CLAUDE_AGENT_TTS_ENABLED ?? "",
+);
+
+/** Default TTS preset. Validated to TtsPreset in tts.ts. */
+export const TTS_PRESET = process.env.CLAUDE_AGENT_TTS_PRESET ?? "warm";
+
 /** Single source of truth for UTC ISO 8601 timestamps. */
 export function nowIso(): string {
   return new Date().toISOString();
