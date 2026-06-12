@@ -273,12 +273,17 @@ Smallest safe target:
 
 Only after Phase 1 is stable should the dashboard/provider selector be added.
 
-## Open Questions
+## Decisions And Remaining Questions
 
-- Which Gemini model should be the first configured default: Flash for routine work, or Pro for parity testing?
-- Should provider choice live on each chat request first, or on a longer session preference?
-- How much provider metadata should appear in the main chat versus activity/debug details?
-- Should Auto mode ask before fallback on any error, or only on provider change after partial progress?
+Decided:
+
+- First Gemini default: Gemini 3.5 Flash.
+- Provider choice should live on each chat request first. A longer session preference can be added later after the UX feels right.
+
+Still UX-led:
+
+- How much provider metadata should appear in the main chat versus activity/debug details? Start from the user experience: show enough to make Manual/Auto choices trustworthy, but do not clutter every message.
+- Should Auto mode ask before fallback on any error, or only on provider change after partial progress? Prioritize UX first: fallback must never be silent, but the exact ask-vs-notify behavior should be designed in the UI flow.
 
 ## Build Before Commit
 
