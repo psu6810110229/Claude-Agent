@@ -130,13 +130,40 @@
 - **Dashboard**: `app/chat/page.tsx` (chat bubbles + composer), nav entry "Chat" in `components/Nav.tsx`.
 - **Verification**: `npm run build`, `npm run smoke` (8 tables), `npm run smoke:step12` (stubbed; 7 assertions), `npm run build:dashboard`.
 
+## Step 13 scope (PLANNED — not yet implemented) — Voice output (TTS), JARVIS speaks
+
+> Brings **Voice output only** in-scope. **Voice input (STT, mic, wake word) stays out of scope.** Validated by `experiments/jarvis-tts-poc/` (committed `c358e40`). Phased; each phase is a small, verifiable step, gated **off** by default, **fail-soft to text**. **Detailed implementation blueprint: `docs/step13-voice-output-plan.md` — read before coding any phase.**
+
+**Voice + stack (decided via POC):**
+- Voice: **`en-AU-WilliamMultilingualNeural`** (Microsoft Edge neural, multilingual — speaks Thai + English code-switch in one consistent character).
+- Stack: Node-only — `msedge-tts` (free Edge endpoint, **no API key**) → SSML prosody (pitch/rate down) → `ffmpeg-static` FX chain (warm EQ, compressor, subtle reverb, loudnorm). No Python, no system ffmpeg, no GPU. Voice cloning ruled out (needs GPU).
+- Default preset: **warm** (`william_v1_warm`: pitch -8% / rate -6%, room reverb). Second preset available: `intimate` (`william_v5_intimate`).
+- **Local-first tradeoff (accepted):** Edge endpoint is cloud (needs internet). All TTS is **fail-soft**: disabled / offline / endpoint error → silently degrade to existing text behavior. Fallback option if endpoint breaks: Azure TTS free tier (same voices, official).
+
+**Two playback contexts (architecturally distinct):**
+1. **Browser playback** (dashboard open) — chat replies, daily brief. `<audio>` plays wav fetched from backend.
+2. **Backend speaker playback** (headless, no browser needed) — scheduler reminders/events + proactive approval nag. Backend plays wav on PC speakers via Windows PowerShell `System.Media.SoundPlayer`. This is new capability beyond Step 11 (which only toasts).
+
+**Phases:**
+- **13.1 — core TTS + browser playback.** `services/tts.ts` (`synthesize(text, preset) -> wav`; wraps msedge-tts + ffmpeg-static; gated `CLAUDE_AGENT_TTS_ENABLED` default off; fail-soft → null). `POST /api/tts` (`{ text }` → `audio/wav`, or 204/text-fallback when disabled). Dashboard chat plays reply audio + **mute toggle** (persisted client-side). Spoken text = the chat `reply` string (no extra Claude call).
+- **13.2 — backend speaker + scheduler speaks due items.** `services/audioPlayer.ts` (`play(wavPath)`; injectable + `StubAudioPlayer` for tests; `RealAudioPlayer` via PowerShell SoundPlayer; gated `CLAUDE_AGENT_TTS_SPEAKER_ENABLED`). Scheduler tick (Step 11) additionally **synthesizes + plays** a templated line for newly-due reminders / soon-starting events. **Templated text, deterministic — no Claude call** (keeps Step 11's no-Claude rule).
+- **13.3 — proactive approval nag.** Pending `approval` rows older than `CLAUDE_AGENT_TTS_APPROVAL_NAG_DELAY_MS` (default 120000 = 2 min) → backend speaks a templated reminder. **Repeats every `CLAUDE_AGENT_TTS_APPROVAL_NAG_INTERVAL_MS` (default 120000) until the approval is actioned.** Per-approval last-spoken time tracked in-memory in scheduler (resets on restart — acceptable). Templated text, no Claude.
+- **13.4 — daily brief spoken.** Brief text read aloud (browser and/or backend speaker). Lowest priority.
+
+**Explicitly NOT in Step 13:** voice input / STT / microphone / wake word; quiet hours (user opted for none — speak any time); Claude-generated spoken lines for scheduler/nag (those stay templated/deterministic).
+
+**Planned config flags (all off by default):** `CLAUDE_AGENT_TTS_ENABLED`, `CLAUDE_AGENT_TTS_SPEAKER_ENABLED`, `CLAUDE_AGENT_TTS_PRESET` (default `warm`), `CLAUDE_AGENT_TTS_APPROVAL_NAG_DELAY_MS` (120000), `CLAUDE_AGENT_TTS_APPROVAL_NAG_INTERVAL_MS` (120000).
+
+**Planned verification:** `npm run smoke:step13` (stubbed `MsEdgeTTS` invoker + `StubAudioPlayer` + temp DB; real Edge endpoint and real audio never used in tests; assert fail-soft when disabled, nag dedup/repeat timing, templated text, route degrades when off), plus existing `npm run build`, `npm run smoke`, `npm run build:dashboard`.
+
 ## Out of scope (must NOT add without explicit approval)
 
 - MCP
 - External connectors **other than Step 10 Google Calendar connector**
 - **Google Calendar update/delete access**; Google writes stay create-only, approval-gated
 - Auto-morning-brief scheduler (timer-driven Claude invocation — Step 11 scheduler does **not** call Claude)
-- Voice
+- **Voice input** (STT, microphone, wake word) — voice **output** (TTS) is in-scope via Step 13; input stays out
+- Claude-generated spoken lines for scheduler/approval-nag (Step 13 keeps these templated/deterministic — no Claude)
 - Notion, Gmail, Google Drive
 - Local filesystem scanning
 - Authentication **beyond minimal OAuth for Google Calendar event access**
