@@ -7,15 +7,24 @@
 // Set env before any imports so config picks it up.
 process.env.CLAUDE_AGENT_DB_PATH = ":memory:";
 process.env.CLAUDE_AGENT_TTS_ENABLED = "0"; // default: off
+// Short nag timings so tests don't have to wait.
+process.env.CLAUDE_AGENT_TTS_APPROVAL_NAG_DELAY_MS = "0";  // any pending approval qualifies
+process.env.CLAUDE_AGENT_TTS_APPROVAL_NAG_INTERVAL_MS = "1"; // 1 ms — re-nag after 1 ms advance
 
 import { buildServer } from "../src/server.js";
 import { initDb } from "../src/db/init.js";
 import { StubTtsSynthesizer } from "../src/services/tts.js";
 import { StubAudioPlayer } from "../src/services/audioPlayer.js";
 import { reminderDueLine, eventSoonLine, approvalNagLine } from "../src/services/voiceLines.js";
-import { runSchedulerTick } from "../src/services/scheduler.js";
+import { runSchedulerTick, createNagState } from "../src/services/scheduler.js";
 import { StubDesktopNotifier } from "../src/services/desktopNotifier.js";
 import { createReminder } from "../src/db/repositories/reminderRepo.js";
+import {
+  createApproval,
+  listPendingApprovals,
+  setApprovalStatus,
+} from "../src/db/repositories/approvalRepo.js";
+import { TTS_APPROVAL_NAG_INTERVAL_MS } from "../src/config.js";
 
 let passed = 0;
 let failed = 0;
@@ -195,6 +204,65 @@ console.log("\nStep 13.2 — voiceLines + scheduler voice\n");
   await new Promise<void>((r) => setTimeout(r, 50));
 
   assert(synth.calls.length === 1, "scheduler: no duplicate voice call on second tick (dedup)");
+}
+
+// ------------------------------------------------------------------
+// 13.3 — approval nag timing (uses injected stubs; real audio never played)
+//
+// Tick times are derived from the imported config value so the test is
+// correct whether or not the env override is picked up by the module cache.
+//   tFirst  = t0                              → first nag (lastNagAt undefined)
+//   tMid    = t0 + floor(interval / 2)        → before threshold: no re-nag
+//   tRenag  = t0 + interval + 1               → past threshold: re-nag
+// ------------------------------------------------------------------
+console.log("\nStep 13.3 — approval nag\n");
+
+{
+  const created = createApproval("task.create", { title: "Nag smoke task" });
+
+  const nagSynth = new StubTtsSynthesizer(Buffer.from("RIFFnag"));
+  const nagPlayer = new StubAudioPlayer();
+  const nagVoice = { synthesizer: nagSynth, player: nagPlayer };
+  const nagNotifier = new StubDesktopNotifier();
+  const nag = createNagState();
+
+  const t0 = new Date();
+  const tMid = new Date(t0.getTime() + Math.floor(TTS_APPROVAL_NAG_INTERVAL_MS / 2));
+  const tRenag = new Date(t0.getTime() + TTS_APPROVAL_NAG_INTERVAL_MS + 1);
+
+  // First tick: lastNagAt undefined → should nag.
+  runSchedulerTick(t0, nagNotifier, nagVoice, nag);
+  await new Promise<void>((r) => setTimeout(r, 50));
+  assert(nagSynth.calls.length === 1, "nag: first tick speaks once");
+  assert(nagSynth.calls[0].text.includes("1"), "nag: spoken text mentions count");
+
+  // Mid-interval tick: interval not elapsed → should NOT re-nag.
+  runSchedulerTick(tMid, nagNotifier, nagVoice, nag);
+  await new Promise<void>((r) => setTimeout(r, 50));
+  assert(nagSynth.calls.length === 1, "nag: mid-interval tick does not re-nag");
+
+  // Post-interval tick: interval elapsed → should nag again.
+  runSchedulerTick(tRenag, nagNotifier, nagVoice, nag);
+  await new Promise<void>((r) => setTimeout(r, 50));
+  assert(nagSynth.calls.length === 2, "nag: post-interval tick re-nags");
+
+  // --- Cleanup test: approve the pending approval then tick ---
+  // Approve ALL pending approvals so no stale state from earlier tests interferes.
+  for (const a of listPendingApprovals()) {
+    setApprovalStatus(a.id, "approved");
+  }
+
+  const nagSynth2 = new StubTtsSynthesizer(Buffer.from("RIFFnag2"));
+  const nagVoice2 = { synthesizer: nagSynth2, player: new StubAudioPlayer() };
+  const nag2 = createNagState();
+
+  runSchedulerTick(new Date(), new StubDesktopNotifier(), nagVoice2, nag2);
+  await new Promise<void>((r) => setTimeout(r, 50));
+  assert(nagSynth2.calls.length === 0, "nag: stops after approval actioned");
+  assert(nag2.lastNagAtMs.size === 0, "nag: lastNagAtMs clean after no due approvals");
+
+  // Suppress unused-var warning from TypeScript.
+  void created;
 }
 
 // ------------------------------------------------------------------

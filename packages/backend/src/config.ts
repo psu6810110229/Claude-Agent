@@ -235,6 +235,16 @@ export const TTS_SPEAKER_ENABLED = /^(1|true)$/i.test(
   process.env.CLAUDE_AGENT_TTS_SPEAKER_ENABLED ?? "",
 );
 
+/** How long a pending approval must be unactioned before the first nag (ms). */
+export const TTS_APPROVAL_NAG_DELAY_MS = Number(
+  process.env.CLAUDE_AGENT_TTS_APPROVAL_NAG_DELAY_MS ?? 120_000,
+);
+
+/** Minimum gap between repeated nag announcements for the same pending set (ms). */
+export const TTS_APPROVAL_NAG_INTERVAL_MS = Number(
+  process.env.CLAUDE_AGENT_TTS_APPROVAL_NAG_INTERVAL_MS ?? 120_000,
+);
+
 /** Single source of truth for UTC ISO 8601 timestamps. */
 export function nowIso(): string {
   return new Date().toISOString();

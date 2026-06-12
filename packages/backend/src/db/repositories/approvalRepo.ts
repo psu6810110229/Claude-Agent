@@ -29,6 +29,19 @@ function hydrate(row: ApprovalRow): Approval {
   };
 }
 
+export function listPendingApprovals(): Approval[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT id, action_type, payload, status, execution_status, executed_at,
+        execution_error, result_summary, created_at, updated_at
+       FROM approval
+       WHERE status = 'pending'
+       ORDER BY id ASC`,
+    )
+    .all() as ApprovalRow[];
+  return rows.map(hydrate);
+}
+
 export function listApprovals(): Approval[] {
   const rows = getDb()
     .prepare(
