@@ -4,6 +4,7 @@
  */
 import type {
   Activity,
+  ProviderChoice,
   Approval,
   BriefResult,
   CalendarEvent,
@@ -29,6 +30,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** Parsed error body, when present — e.g. Auto-mode `fallbackProvider`. */
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "ApiError";
@@ -54,13 +57,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
+    let details: Record<string, unknown> | undefined;
     try {
-      const body = (await res.json()) as { error?: string };
+      const body = (await res.json()) as { error?: string } & Record<
+        string,
+        unknown
+      >;
       if (body?.error) message = body.error;
+      details = body;
     } catch {
       // non-JSON error body — keep the generic message
     }
-    throw new ApiError(message, res.status);
+    throw new ApiError(message, res.status, details);
   }
 
   if (res.status === 204) return undefined as T;
@@ -209,14 +217,27 @@ export function markNotificationRead(id: number): Promise<Notification> {
 // --- Chat (Step 12) -------------------------------------------------------
 
 /**
- * Send a chat message. Returns the assistant reply + any queued approvals.
- * AI failures throw ApiError (503 disabled, 504 timeout, 502 failure, 400
- * invalid output).
+ * Send a chat message. `choice` is the user's provider pick:
+ * - `"auto"` -> backend routes transparently (`mode: "auto"`).
+ * - `"claude" | "gemini"` -> manual provider (`provider: <id>`).
+ * Omitted uses the backend default (Claude, manual). Returns the assistant
+ * reply + any queued approvals. AI failures throw ApiError (503 disabled/
+ * provider-unconfigured, 504 timeout, 502 failure, 400 invalid output);
+ * Auto-mode failures carry `details.fallbackProvider` for an explicit retry.
  */
-export function sendChat(message: string): Promise<ChatResult> {
+export function sendChat(
+  message: string,
+  choice?: ProviderChoice,
+): Promise<ChatResult> {
+  const body =
+    choice === "auto"
+      ? { message, mode: "auto" }
+      : choice
+        ? { message, provider: choice }
+        : { message };
   return request<ChatResult>("/api/chat", {
     method: "POST",
-    body: JSON.stringify({ message }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -248,6 +269,70 @@ export function updateSetting(
     method: "POST",
     body: JSON.stringify({ enabled }),
   });
+}
+
+// --- TTS (Step 13.1) -----------------------------------------------------
+
+/** Single module-level audio element for sequential, non-overlapping playback. */
+let _audio: HTMLAudioElement | null = null;
+let _currentUrl: string | null = null;
+
+/**
+ * Speak text via the backend TTS endpoint. Fire-and-forget — never throws.
+ * Returns immediately; audio plays in the background.
+ * No-op when the server returns 204 (TTS disabled / offline).
+ */
+export async function speak(text: string, preset?: string): Promise<void> {
+  try {
+    const body: Record<string, string> = { text };
+    if (preset) body.preset = preset;
+
+    const res = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (res.status === 204 || !res.ok) return;
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+
+    // Stop + revoke any previous playback.
+    if (_audio) {
+      _audio.pause();
+      _audio.src = "";
+    }
+    if (_currentUrl) {
+      URL.revokeObjectURL(_currentUrl);
+    }
+
+    _currentUrl = url;
+    const audio = new Audio();
+    _audio = audio;
+    audio.preload = "auto";
+    audio.onended = () => {
+      if (_currentUrl === url) {
+        URL.revokeObjectURL(url);
+        _currentUrl = null;
+      }
+    };
+    // Start only once enough is buffered to play through, so the browser never
+    // begins mid-decode and clips the first word. Fall back to a plain play()
+    // if the event hasn't fired shortly after load.
+    let started = false;
+    const start = () => {
+      if (started || _audio !== audio) return;
+      started = true;
+      void audio.play();
+    };
+    audio.oncanplaythrough = start;
+    audio.src = url;
+    audio.load();
+    setTimeout(start, 600);
+  } catch {
+    // Fail silently — text is already shown.
+  }
 }
 
 // --- Briefs --------------------------------------------------------------

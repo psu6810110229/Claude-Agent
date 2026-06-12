@@ -106,6 +106,20 @@ export const UPCOMING_WINDOW_DAYS = 7;
 /** Cap on events included in a brief's compact context. */
 export const BRIEF_EVENT_CAP = 20;
 
+/**
+ * Chat recall uses a WIDER Google Calendar window than the 7-day agenda so the
+ * model can see (and therefore target by real id) semester-scale events months
+ * out. Without this, update/delete proposals for far-future events have no real
+ * id in context and the model is tempted to fabricate one. Capped to bound the
+ * prompt size.
+ */
+export const CHAT_GOOGLE_WINDOW_DAYS = Number(
+  process.env.CLAUDE_AGENT_CHAT_GOOGLE_WINDOW_DAYS ?? 120,
+);
+export const CHAT_GOOGLE_EVENT_CAP = Number(
+  process.env.CLAUDE_AGENT_CHAT_GOOGLE_EVENT_CAP ?? 50,
+);
+
 /** Cap on reminders included in a brief's compact context. */
 export const BRIEF_REMINDER_CAP = 20;
 
@@ -114,9 +128,9 @@ export const BRIEF_REMINDER_CAP = 20;
  *
  * Google Calendar is the PRIMARY schedule source; local events/reminders
  * (Step 9) remain secondary. Reads are available through dashboard/brief routes.
- * Writes are create-only and approval-gated via `google_event.create`; there
- * are no Google update/delete action types. Disabled by default; real Google
- * calls fail closed when off or unconfigured.
+ * Writes are approval-gated via `google_event.create|update|delete` (Step 14);
+ * delete is additionally always confirm-gated and never auto-executed. Disabled
+ * by default; real Google calls fail closed when off or unconfigured.
  */
 
 /** Google Calendar integration is OFF unless explicitly enabled. */
@@ -184,6 +198,30 @@ export const DESKTOP_NOTIFICATIONS_ENABLED = /^(1|true)$/i.test(
 );
 
 /**
+ * Roadmap 11 Phase 3 — Gemini provider.
+ *
+ * Gemini is OFF unless both GEMINI_ENABLED=1 and GEMINI_API_KEY are set.
+ * Missing either disables Gemini cleanly; the backend never logs the key.
+ */
+
+/** Gemini integration is OFF unless explicitly enabled. */
+export const GEMINI_ENABLED = /^(1|true)$/i.test(
+  process.env.GEMINI_ENABLED ?? "",
+);
+
+/** Gemini API key. Gitignored; never logged. Empty string = not configured. */
+export const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? "";
+
+/** Gemini model to use for proposal calls. */
+export const GEMINI_MODEL =
+  process.env.GEMINI_MODEL ?? "gemini-3.1-flash-lite";
+
+/** Hard timeout for a single Gemini API call (ms). */
+export const GEMINI_TIMEOUT_MS = Number(
+  process.env.GEMINI_TIMEOUT_MS ?? 60_000,
+);
+
+/**
  * Step 12 — Conversational chat agent.
  *
  * Number of recent chat messages fed back into the prompt as conversation
@@ -191,6 +229,58 @@ export const DESKTOP_NOTIFICATIONS_ENABLED = /^(1|true)$/i.test(
  */
 export const CHAT_HISTORY_LIMIT = Number(
   process.env.CLAUDE_AGENT_CHAT_HISTORY_LIMIT ?? 20,
+);
+
+/**
+ * Step 13 — Voice output (TTS). All flags off by default; fail-soft to text.
+ * Real Edge endpoint is cloud (outbound to Microsoft only, no API key).
+ */
+
+/** TTS synthesis is OFF unless explicitly enabled. */
+export const TTS_ENABLED = /^(1|true)$/i.test(
+  process.env.CLAUDE_AGENT_TTS_ENABLED ?? "",
+);
+
+/** Default TTS preset. Validated to TtsPreset in tts.ts. */
+export const TTS_PRESET = process.env.CLAUDE_AGENT_TTS_PRESET ?? "warm";
+
+/** Backend speaker playback is OFF unless explicitly enabled. */
+export const TTS_SPEAKER_ENABLED = /^(1|true)$/i.test(
+  process.env.CLAUDE_AGENT_TTS_SPEAKER_ENABLED ?? "",
+);
+
+/** How long a pending approval must be unactioned before the first nag (ms). */
+export const TTS_APPROVAL_NAG_DELAY_MS = Number(
+  process.env.CLAUDE_AGENT_TTS_APPROVAL_NAG_DELAY_MS ?? 120_000,
+);
+
+/** Minimum gap between repeated nag announcements for the same pending set (ms). */
+export const TTS_APPROVAL_NAG_INTERVAL_MS = Number(
+  process.env.CLAUDE_AGENT_TTS_APPROVAL_NAG_INTERVAL_MS ?? 120_000,
+);
+
+/**
+ * Step 14 — Auto-execute engine.
+ *
+ * When ON, proposed actions that are reversible/non-destructive are executed
+ * immediately (no manual approve click) and the REAL executor outcome is
+ * reported. Destructive actions (Google delete, *.archive, memory replace) are
+ * NEVER auto-executed — they stay pending and require an explicit confirm.
+ * OFF by default: every action stays pending exactly as before.
+ */
+export const AUTO_EXECUTE_ENABLED = /^(1|true)$/i.test(
+  process.env.CLAUDE_AGENT_AUTO_EXECUTE_ENABLED ?? "",
+);
+
+/**
+ * Step 14 follow-up — allow RECOVERABLE destructive actions (currently only
+ * `google_event.delete`, which snapshots the prior event into `undo_json`) to
+ * auto-execute without a confirm click. OFF by default so destructive auto-exec
+ * stays opt-in even when AUTO_EXECUTE is on. Archive + memory-replace remain
+ * confirm-gated regardless of this flag.
+ */
+export const AUTO_EXECUTE_DESTRUCTIVE_ENABLED = /^(1|true)$/i.test(
+  process.env.CLAUDE_AGENT_AUTO_EXECUTE_DESTRUCTIVE_ENABLED ?? "",
 );
 
 /** Single source of truth for UTC ISO 8601 timestamps. */

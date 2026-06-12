@@ -7,7 +7,7 @@ import {
   getMemoryContent,
   listMemory,
 } from "@/lib/api";
-import { useResource } from "@/lib/useResource";
+import { useData } from "@/lib/useData";
 import { formatTs } from "@/lib/format";
 import { ErrorBanner, Loading, Empty } from "@/components/States";
 import type {
@@ -24,8 +24,27 @@ const TARGETS: MemoryTarget[] = [
   "decisions",
 ];
 
+function EntriesSkeleton() {
+  return (
+    <div className="panel">
+      {[1, 2, 3].map((i) => (
+        <div className="row entry-row" key={i}>
+          <span className="grow">
+            <span className="entry-head">
+              <span className="skel" style={{ display: "inline-block", width: 110, height: 15 }} />
+              <span className="skel" style={{ display: "inline-block", width: 48, height: 12, marginLeft: 8 }} />
+            </span>
+            <span className="skel" style={{ display: "block", width: "68%", height: 12, marginTop: 5 }} />
+            <span className="skel" style={{ display: "block", width: "48%", height: 12, marginTop: 3 }} />
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function MemoryPage() {
-  const { data: entries, loading, error, reload } = useResource(listMemory);
+  const { data: entries, loading, error, reload } = useData("/api/memory", listMemory);
 
   const [target, setTarget] = useState<MemoryTarget>("preferences");
   const [content, setContent] = useState<MemoryContent | null>(null);
@@ -100,7 +119,7 @@ export default function MemoryPage() {
         <div className="stack">
           <section className="section">
             <h3>Entries</h3>
-            {loading && <Loading />}
+            {loading && <EntriesSkeleton />}
             {error && <ErrorBanner message={error} onRetry={reload} />}
             {entries && entries.length === 0 && (
               <Empty label="No memory written yet." />
@@ -108,15 +127,17 @@ export default function MemoryPage() {
             {entries && entries.length > 0 && (
               <div className="panel">
                 {entries.map((entry: MemoryEntry) => (
-                  <div className="row" key={entry.id}>
+                  <div className="row entry-row" key={entry.id}>
                     <span className="grow">
-                      <strong className="item-title">{entry.slug}</strong>
-                      <span className="item-meta">{entry.path}</span>
+                      <span className="entry-head">
+                        <strong className="item-title">{entry.slug}</strong>
+                        <span className="ts">{formatTs(entry.updated_at)}</span>
+                      </span>
                       {entry.summary && (
-                        <span className="item-meta">{entry.summary}</span>
+                        <span className="entry-sub">{entry.summary}</span>
                       )}
+                      <span className="entry-sub entry-path">{entry.path}</span>
                     </span>
-                    <span className="ts">{formatTs(entry.updated_at)}</span>
                   </div>
                 ))}
               </div>
@@ -175,21 +196,56 @@ export default function MemoryPage() {
               />
             )}
             <form onSubmit={onPropose}>
-              <div className="form-row">
-                <label htmlFor="memory-mode">Mode</label>
-                <select
-                  id="memory-mode"
-                  value={mode}
-                  onChange={(e) => setMode(e.target.value as MemoryWriteMode)}
-                  disabled={busy}
-                >
-                  <option value="append">append</option>
-                  <option value="replace">replace</option>
-                </select>
+              <div className="field-grid">
+                <div className="field">
+                  <label htmlFor="propose-target">Target</label>
+                  <select
+                    id="propose-target"
+                    value={target}
+                    onChange={(e) => setTarget(e.target.value as MemoryTarget)}
+                    disabled={busy}
+                  >
+                    {TARGETS.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="field">
+                  <label id="memory-mode-label">Mode</label>
+                  <div
+                    className="segmented"
+                    role="radiogroup"
+                    aria-labelledby="memory-mode-label"
+                  >
+                    {(["append", "replace"] as const).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        role="radio"
+                        aria-checked={mode === m}
+                        className={`segment${mode === m ? " active" : ""}`}
+                        onClick={() => setMode(m)}
+                        disabled={busy}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <div className="form-row">
+
+              <div className="field">
+                <label htmlFor="propose-content">Content</label>
                 <textarea
-                  placeholder={`New content for "${target}" (${mode})...`}
+                  id="propose-content"
+                  placeholder={
+                    mode === "append"
+                      ? `Lines to add to "${target}"...`
+                      : `Replacement content for "${target}"...`
+                  }
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   rows={6}
@@ -197,20 +253,30 @@ export default function MemoryPage() {
                   disabled={busy}
                 />
               </div>
-              <div className="form-row">
+
+              <div className="field">
+                <label htmlFor="propose-summary">Summary (optional)</label>
                 <input
-                  placeholder="Short summary (optional)"
+                  id="propose-summary"
+                  placeholder="Why this change?"
                   value={summary}
                   onChange={(e) => setSummary(e.target.value)}
                   maxLength={200}
                   disabled={busy}
                 />
+              </div>
+
+              <div className="card-footer">
+                <span className="muted">
+                  Queued as a pending approval — nothing is written until you
+                  approve it.
+                </span>
                 <button
                   type="submit"
                   className="primary"
                   disabled={busy || draft.trim() === ""}
                 >
-                  Send to approvals
+                  {busy ? "Sending…" : "Send to approvals"}
                 </button>
               </div>
             </form>

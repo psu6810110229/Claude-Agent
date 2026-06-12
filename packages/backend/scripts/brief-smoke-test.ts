@@ -44,6 +44,7 @@ async function main(): Promise<void> {
   const { getDb, closeDb } = await import("../src/db/connection.js");
   const { ClaudeError } = await import("../src/services/claudeClient.js");
   const { isBriefRelevantEvent } = await import("../src/services/brief.js");
+  const { CLAUDE_MAX_ACTIONS } = await import("../src/config.js");
 
   // --- 0. Activity allowlist predicate: genuine changes in, runtime noise out ---
   for (const ev of [
@@ -175,12 +176,13 @@ async function main(): Promise<void> {
   );
   assert(countApprovals() === before5, "missing summary created zero approvals");
 
-  // --- 6. More than 5 actions is rejected ---
+  // --- 6. More than CLAUDE_MAX_ACTIONS actions is rejected ---
   const before6 = countApprovals();
   behavior = async () =>
     JSON.stringify({
       summary: SUMMARY_TEXT,
-      actions: Array.from({ length: 6 }, (_, i) => ({
+      // One over the configured cap so the over-limit rejection always fires.
+      actions: Array.from({ length: CLAUDE_MAX_ACTIONS + 1 }, (_, i) => ({
         action_type: "task.create",
         payload: { title: `t${i}` },
       })),
@@ -188,7 +190,7 @@ async function main(): Promise<void> {
   const tooMany = await postBrief("daily");
   assert(
     tooMany.status === 400 && tooMany.json.kind === "error",
-    "more than 5 actions is rejected",
+    "more than CLAUDE_MAX_ACTIONS actions is rejected",
   );
   assert(countApprovals() === before6, "over-cap response created zero approvals");
 

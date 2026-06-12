@@ -6,7 +6,12 @@ import {
   appendMessage,
   listRecentMessages,
 } from "../db/repositories/chatRepo.js";
-import { createApproval } from "../db/repositories/approvalRepo.js";
+import { listRecentApprovalOutcomes } from "../db/repositories/approvalRepo.js";
+import {
+  dispatchProposedAction,
+  isAutoExecuteEnabled,
+  isAutoExecuteDestructiveEnabled,
+} from "./actionDispatcher.js";
 import { chatOutputSchema } from "../schemas/chat.js";
 import type { AiAction } from "../schemas/aiCommand.js";
 import { buildChatPrompt, type ChatContext } from "./chatPrompt.js";
@@ -18,6 +23,7 @@ import {
 } from "./agenda.js";
 import { unwrapJsonOutput } from "./jsonOutput.js";
 import { ClaudeError, type ClaudeInvoker } from "./claudeClient.js";
+import { GeminiError } from "./geminiClient.js";
 import {
   realGoogleEventsFetcher,
   type GoogleEventsFetcher,
@@ -28,6 +34,8 @@ import {
   CLAUDE_CONTEXT_TASK_CAP,
   BRIEF_EVENT_CAP,
   BRIEF_REMINDER_CAP,
+  CHAT_GOOGLE_WINDOW_DAYS,
+  CHAT_GOOGLE_EVENT_CAP,
   CHAT_HISTORY_LIMIT,
   nowIso,
 } from "../config.js";
@@ -47,12 +55,30 @@ export type ChatResult =
   | {
       kind: "replied";
       reply: string;
+      spoken?: string;
       approvals: Approval[];
       clarification?: string;
+      clarificationChoices?: string[];
       notes?: string;
     }
-  | { kind: "rejected"; message: string }
-  | { kind: "failed"; reason: string; message: string };
+  | { kind: "rejected"; message: string; detail?: string }
+  | { kind: "failed"; reason: string; message: string; userMessage: string };
+
+function chatFailureMessage(reason: string): string {
+  if (reason === "disabled") {
+    return "ผมยังช่วยคิดด้วย AI ไม่ได้ครับ โหมด AI ยังไม่พร้อมใช้งาน เปิดใช้งานแล้วลองใหม่ได้";
+  }
+  if (reason === "timeout") {
+    return "ผมยังตอบรายการนี้ไม่สำเร็จครับ ระบบใช้เวลานานเกินไป ลองส่งใหม่แบบสั้นลงได้";
+  }
+  if (reason === "rate-limit") {
+    return "Gemini ใช้โควต้าครบชั่วคราวครับ ลองใหม่ภายหลังหรือสลับไปใช้ Claude ได้";
+  }
+  return "ผมยังตอบข้อความนี้ไม่สำเร็จครับ ลองส่งใหม่อีกครั้งได้";
+}
+
+const invalidOutputMessage =
+  "ผมยังตอบข้อความนี้ให้ครบไม่ได้ครับ รูปแบบคำตอบไม่พร้อมใช้งาน ลองส่งใหม่อีกครั้งได้";
 
 /** Build compact recall context for a chat turn. */
 async function buildChatContext(
@@ -93,19 +119,36 @@ async function buildChatContext(
       bucket,
     }));
 
-  const { todayStartUtc, todayEndUtc, upcomingEndUtc } = agendaBounds(now);
+  const approvalOutcomes = listRecentApprovalOutcomes(10).map((a) => ({
+    id: a.id,
+    action_type: a.action_type,
+    status: a.status,
+    execution_status: a.execution_status,
+    summary: a.result_summary,
+    error: a.execution_error,
+    updated_at: a.updated_at,
+  }));
+
+  // Google recall uses a WIDE window so the model can target far-future events
+  // (e.g. semester dates months out) by their REAL id instead of fabricating one.
+  const { todayStartUtc, todayEndUtc } = agendaBounds(now);
+  const { upcomingEndUtc: wideEndUtc } = agendaBounds(
+    now,
+    CHAT_GOOGLE_WINDOW_DAYS,
+  );
   let googleEvents: ChatContext["googleEvents"] = [];
   try {
     const [gToday, gUpcoming] = await Promise.all([
       fetchGoogle(todayStartUtc, todayEndUtc),
-      fetchGoogle(todayEndUtc, upcomingEndUtc),
+      fetchGoogle(todayEndUtc, wideEndUtc),
     ]);
     googleEvents = [
       ...gToday.map((e) => ({ e, bucket: "today" as const })),
       ...gUpcoming.map((e) => ({ e, bucket: "upcoming" as const })),
     ]
-      .slice(0, BRIEF_EVENT_CAP)
+      .slice(0, CHAT_GOOGLE_EVENT_CAP)
       .map(({ e, bucket }) => ({
+        id: e.id,
         start: e.start,
         title: e.title.slice(0, 120),
         allDay: e.allDay,
@@ -132,7 +175,10 @@ async function buildChatContext(
     googleEvents,
     events,
     reminders,
+    approvalOutcomes,
     history,
+    autoExecute: isAutoExecuteEnabled(),
+    autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
   };
 }
 
@@ -151,11 +197,21 @@ export async function runChat(
       timeoutMs: CLAUDE_BRIEF_TIMEOUT_MS,
     });
   } catch (err) {
-    if (err instanceof ClaudeError) {
-      return { kind: "failed", reason: err.reason, message: err.message };
+    if (err instanceof ClaudeError || err instanceof GeminiError) {
+      return {
+        kind: "failed",
+        reason: err.reason,
+        message: err.message,
+        userMessage: chatFailureMessage(err.reason),
+      };
     }
     const msg = err instanceof Error ? err.message : String(err);
-    return { kind: "failed", reason: "spawn", message: msg };
+    return {
+      kind: "failed",
+      reason: "spawn",
+      message: msg,
+      userMessage: chatFailureMessage("spawn"),
+    };
   }
 
   // 3. Normalize + strict JSON parse. No repair; prose still fails.
@@ -166,7 +222,8 @@ export async function runChat(
     const snippet = raw.slice(0, 300).replace(/\n/g, "\\n");
     return {
       kind: "rejected",
-      message: `Claude output was not valid JSON. Raw(300): ${snippet}`,
+      message: invalidOutputMessage,
+      detail: `Claude output was not valid JSON. Raw(300): ${snippet}`,
     };
   }
 
@@ -178,14 +235,19 @@ export async function runChat(
       .join("; ");
     return {
       kind: "rejected",
-      message: `Claude output failed validation: ${detail}`,
+      message: invalidOutputMessage,
+      detail: `Claude output failed validation: ${detail}`,
     };
   }
 
-  // 5. Valid: each action becomes a pending approval.
-  const approvals: Approval[] = check.data.actions.map((action: AiAction) =>
-    createApproval(action.action_type, action.payload),
+  // 5. Valid: each action is dispatched — auto-executed when eligible, else a
+  //    pending approval. The stored approval row carries the real outcome.
+  const dispatched = await Promise.all(
+    check.data.actions.map((action: AiAction) =>
+      dispatchProposedAction(action.action_type, action.payload, "chat"),
+    ),
   );
+  const approvals: Approval[] = dispatched.map((d) => d.approval);
 
   // 6. Persist the exchange (user + assistant). Only reaches here on success,
   //    so history never contains failed/rejected attempts.
@@ -201,8 +263,10 @@ export async function runChat(
   return {
     kind: "replied",
     reply: check.data.reply,
+    spoken: check.data.spoken,
     approvals,
     clarification: check.data.clarification,
+    clarificationChoices: check.data.clarification_choices,
     notes: check.data.notes,
   };
 }

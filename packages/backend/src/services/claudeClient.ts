@@ -1,10 +1,13 @@
 import { execFile } from "node:child_process";
+import { accessSync, constants } from "node:fs";
+import path from "node:path";
 import {
   CLAUDE_BIN,
   CLAUDE_MODEL,
   CLAUDE_TIMEOUT_MS,
   CLAUDE_AI_ENABLED,
 } from "../config.js";
+import { getConfigBool } from "../db/repositories/configRepo.js";
 
 /**
  * Controlled wrapper around `claude -p` (Step 6).
@@ -62,14 +65,63 @@ function sanitizedEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-/** Real invoker: spawns the Claude CLI. Gated by CLAUDE_AI_ENABLED. */
+function canExecute(filePath: string): boolean {
+  try {
+    accessSync(filePath, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveWindowsClaudeBin(bin: string): string {
+  const hasPathPart = bin.includes("/") || bin.includes("\\");
+  if (hasPathPart) return bin;
+
+  const pathDirs = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  for (const dir of pathDirs) {
+    const directExe = path.join(dir, `${bin}.exe`);
+    if (canExecute(directExe)) return directExe;
+
+    // npm's Windows shim is usually claude.cmd/claude.ps1, but execFile keeps
+    // shell execution disabled. Prefer the real Claude Code executable instead.
+    const npmClaudeExe = path.join(
+      dir,
+      "node_modules",
+      "@anthropic-ai",
+      "claude-code",
+      "bin",
+      `${bin}.exe`,
+    );
+    if (canExecute(npmClaudeExe)) return npmClaudeExe;
+  }
+
+  return bin;
+}
+
+function resolveClaudeBin(bin: string): string {
+  if (process.platform !== "win32") return bin;
+  return resolveWindowsClaudeBin(bin);
+}
+
+/**
+ * Runtime gate for the Claude reasoning runtime. A DB config override (set via
+ * the Settings page, key `claude_ai_enabled`) wins; otherwise falls back to
+ * the CLAUDE_AGENT_AI_ENABLED env flag. Mirrors isGoogleCalendarEnabled().
+ */
+export function isClaudeAiEnabled(): boolean {
+  const dbValue = getConfigBool("claude_ai_enabled");
+  return dbValue ?? CLAUDE_AI_ENABLED;
+}
+
+/** Real invoker: spawns the Claude CLI. Gated by isClaudeAiEnabled(). */
 export const realClaudeInvoker: ClaudeInvoker = (prompt, opts) =>
   new Promise<string>((resolve, reject) => {
-    if (!CLAUDE_AI_ENABLED) {
+    if (!isClaudeAiEnabled()) {
       reject(
         new ClaudeError(
           "disabled",
-          "AI command mode is disabled. Set CLAUDE_AGENT_AI_ENABLED=1 to enable.",
+          "Claude AI is disabled. Enable it in Settings or set CLAUDE_AGENT_AI_ENABLED=1.",
         ),
       );
       return;
@@ -77,8 +129,10 @@ export const realClaudeInvoker: ClaudeInvoker = (prompt, opts) =>
 
     const timeoutMs = opts?.timeoutMs ?? CLAUDE_TIMEOUT_MS;
 
+    const resolvedClaudeBin = resolveClaudeBin(CLAUDE_BIN);
+
     execFile(
-      CLAUDE_BIN,
+      resolvedClaudeBin,
       ["--model", CLAUDE_MODEL, "--output-format", "json", "-p", prompt],
       {
         timeout: timeoutMs,

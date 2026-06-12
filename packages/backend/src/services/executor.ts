@@ -3,7 +3,11 @@ import {
   type ActionType,
 } from "../schemas/approval.js";
 import type { MemoryWritePayload } from "../schemas/memory.js";
-import type { CreateGoogleEventPayload } from "../schemas/googleCalendar.js";
+import type {
+  CreateGoogleEventPayload,
+  UpdateGoogleEventPayload,
+  DeleteGoogleEventPayload,
+} from "../schemas/googleCalendar.js";
 import { createTask, updateTask, archiveTask } from "../db/repositories/taskRepo.js";
 import { writeMemory } from "./memoryStore.js";
 import { upsertMemoryEntry } from "../db/repositories/memoryRepo.js";
@@ -15,12 +19,16 @@ import {
 import {
   createReminder,
   updateReminder,
+  completeReminder,
   archiveReminder,
 } from "../db/repositories/reminderRepo.js";
 import {
   createGoogleCalendarEvent,
+  updateGoogleCalendarEvent,
+  deleteGoogleCalendarEvent,
   GoogleCalendarError,
 } from "./googleCalendar.js";
+import { getActionMeta } from "./actionRegistry.js";
 
 /** Thrown when an approval cannot be executed (bad payload or unknown target). */
 export class ExecutorError extends Error {}
@@ -28,6 +36,11 @@ export class ExecutorError extends Error {}
 export interface ExecutionResult {
   /** Human-readable summary for the activity log. */
   summary: string;
+  /**
+   * Prior-state JSON snapshot enabling undo, set only by reversible outward
+   * actions (Google update/delete). Persisted as the approval's undo_json.
+   */
+  undoJson?: string | null;
 }
 
 /**
@@ -39,6 +52,14 @@ export async function executeAction(
   actionType: ActionType,
   payload: unknown,
 ): Promise<ExecutionResult> {
+  const meta = getActionMeta(actionType);
+  if (
+    !meta.policies.includes("approval-required") ||
+    meta.policies.includes("disabled")
+  ) {
+    throw new ExecutorError(`Action ${actionType} is not executable`);
+  }
+
   const parsed = actionPayloadSchemas[actionType].safeParse(payload);
   if (!parsed.success) {
     throw new ExecutorError(
@@ -129,6 +150,12 @@ export async function executeAction(
       if (!reminder) throw new ExecutorError(`reminder #${id} not found`);
       return { summary: `updated reminder #${reminder.id}` };
     }
+    case "reminder.done": {
+      const data = parsed.data as { id: number };
+      const reminder = completeReminder(data.id);
+      if (!reminder) throw new ExecutorError(`reminder #${data.id} not found`);
+      return { summary: `completed reminder #${reminder.id}` };
+    }
     case "reminder.archive": {
       const data = parsed.data as { id: number };
       const reminder = archiveReminder(data.id);
@@ -140,6 +167,36 @@ export async function executeAction(
       try {
         const event = await createGoogleCalendarEvent(data);
         return { summary: `created Google Calendar event ${event.id}` };
+      } catch (err) {
+        if (err instanceof GoogleCalendarError) {
+          throw new ExecutorError(err.message);
+        }
+        throw err;
+      }
+    }
+    case "google_event.update": {
+      const data = parsed.data as UpdateGoogleEventPayload;
+      try {
+        const event = await updateGoogleCalendarEvent(data);
+        return {
+          summary: `updated Google Calendar event ${event.id}`,
+          undoJson: JSON.stringify(event.undoSnapshot),
+        };
+      } catch (err) {
+        if (err instanceof GoogleCalendarError) {
+          throw new ExecutorError(err.message);
+        }
+        throw err;
+      }
+    }
+    case "google_event.delete": {
+      const data = parsed.data as DeleteGoogleEventPayload;
+      try {
+        const event = await deleteGoogleCalendarEvent(data);
+        return {
+          summary: `deleted Google Calendar event ${event.id}`,
+          undoJson: JSON.stringify(event.undoSnapshot),
+        };
       } catch (err) {
         if (err instanceof GoogleCalendarError) {
           throw new ExecutorError(err.message);

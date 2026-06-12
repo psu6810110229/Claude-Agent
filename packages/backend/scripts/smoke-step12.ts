@@ -118,12 +118,27 @@ async function main(): Promise<void> {
       actions: [{ action_type: "hack.system", payload: {} }],
     });
 
+  const stubClarification: ClaudeInvoker = async () =>
+    JSON.stringify({
+      reply: "ผมไม่แน่ใจว่าหมายถึงนัดไหนครับ เลือกจากตัวเลือกนี้ก่อนได้ไหม",
+      actions: [],
+      clarification: "หมายถึงนัดไหนครับ",
+      clarification_choices: ["นัดวันนี้", "นัดพรุ่งนี้", "ข้ามก่อน"],
+    });
+
   const stubDisabled: ClaudeInvoker = async () => {
     throw new ClaudeError("disabled", "AI command mode is disabled.");
   };
 
   // --- 1. POST /api/chat: successful reply persists both messages ---
-  currentInvoker = stubOk("You have 3 open tasks. Anything I can help with?");
+  let readOnlyPrompt = "";
+  currentInvoker = async (prompt) => {
+    readOnlyPrompt = prompt;
+    return JSON.stringify({
+      reply: "You have 3 open tasks. Anything I can help with?",
+      actions: [],
+    });
+  };
 
   const chat1 = await postJson("/api/chat", { message: "What's on my plate?" });
   assert(
@@ -137,6 +152,34 @@ async function main(): Promise<void> {
   assert(
     Array.isArray(chat1.json.approvals) && chat1.json.approvals.length === 0,
     "no approvals queued for info-only reply",
+  );
+  assert(
+    readOnlyPrompt.includes("Read-only questions are valid chat") &&
+      readOnlyPrompt.includes('set "actions" to []'),
+    "prompt explicitly allows read-only chat answers without tool/action proposals",
+  );
+  assert(
+    readOnlyPrompt.includes("You are Jarvis") &&
+      readOnlyPrompt.includes("Never say you have no name") &&
+      readOnlyPrompt.includes('"ผม" and "ครับ"') &&
+      readOnlyPrompt.includes("chief-of-staff reasoning") &&
+      readOnlyPrompt.includes("Never expose internal implementation labels"),
+    "prompt pins Jarvis identity, Thai tone, and hides internal role labels",
+  );
+  assert(
+    readOnlyPrompt.includes("PERSONAL IDENTITY MEMORY RULES") &&
+      readOnlyPrompt.includes("ผมชื่อฟาน") &&
+      readOnlyPrompt.includes('"target": "preferences"') &&
+      readOnlyPrompt.includes("User's name is <name>.") &&
+      readOnlyPrompt.includes("EXECUTION POLICY"),
+    "prompt gives a concrete memory.write pattern for user-name statements",
+  );
+  assert(
+    readOnlyPrompt.includes("APPROVAL / ACTION AUDIT RULES") &&
+      readOnlyPrompt.includes("Approval payloads are intentionally omitted") &&
+      readOnlyPrompt.includes("Do not infer or") &&
+      readOnlyPrompt.includes("Activity detail UI"),
+    "prompt prevents guessing hidden approval payload details",
   );
 
   // --- 2. History persisted: GET /api/chat/history returns 2 rows ---
@@ -178,6 +221,13 @@ async function main(): Promise<void> {
     approved.status === 200 && approved.json.status === "approved",
     "approval can be approved via existing route",
   );
+  assert(
+    approved.json.execution_status === "succeeded" &&
+      typeof approved.json.executed_at === "string" &&
+      approved.json.result_summary === "created task #1" &&
+      approved.json.execution_error === null,
+    "approved action records succeeded execution metadata",
+  );
 
   const tasks = await getJson("/api/tasks");
   const found = (tasks.json.tasks as any[]).some(
@@ -202,6 +252,12 @@ async function main(): Promise<void> {
     badJsonRes.status === 400 && badJsonRes.json.kind === "error",
     "invalid JSON from Claude → 400 error",
   );
+  assert(
+    typeof badJsonRes.json.error === "string" &&
+      !badJsonRes.json.error.includes("Raw(") &&
+      !badJsonRes.json.error.includes("not json"),
+    "invalid JSON fallback is user-safe and does not expose raw output",
+  );
 
   const histAfterBad = await getJson("/api/chat/history?limit=100");
   assert(
@@ -209,7 +265,43 @@ async function main(): Promise<void> {
     "failed exchange not persisted in history",
   );
 
-  // --- 6. Unknown action type → 400 error, zero pending approvals ---
+  const activityAfterBadJson = await getJson("/api/activity?limit=10");
+  const badJsonActivity = (activityAfterBadJson.json.activity as any[]).find(
+    (a: any) => a.event_type === "chat.message.rejected",
+  );
+  assert(
+    badJsonActivity &&
+      !String(badJsonActivity.detail).includes("Raw(") &&
+      !String(badJsonActivity.detail).includes("not json"),
+    "invalid JSON activity avoids raw model output",
+  );
+
+  // --- 6. Clarification → 201 reply, zero approvals, compact choices ---
+  currentInvoker = stubClarification;
+
+  const clarification = await postJson("/api/chat", {
+    message: "เลื่อนนัดนี้ให้หน่อย",
+  });
+  assert(
+    clarification.status === 201 && clarification.json.kind === "chat",
+    "clarification response returns normal chat result",
+  );
+  assert(
+    clarification.json.clarification === "หมายถึงนัดไหนครับ",
+    "clarification question is returned",
+  );
+  assert(
+    Array.isArray(clarification.json.clarification_choices) &&
+      clarification.json.clarification_choices.length === 3,
+    "clarification choices are returned for quick UI buttons",
+  );
+  assert(
+    Array.isArray(clarification.json.approvals) &&
+      clarification.json.approvals.length === 0,
+    "clarification queues no approvals before the user answers",
+  );
+
+  // --- 7. Unknown action type → 400 error, zero pending approvals ---
   currentInvoker = stubBadAction;
 
   const badAction = await postJson("/api/chat", { message: "do bad thing" });
@@ -217,20 +309,86 @@ async function main(): Promise<void> {
     badAction.status === 400 && badAction.json.kind === "error",
     "unknown action type → 400 error, zero approvals",
   );
+  assert(
+    typeof badAction.json.error === "string" &&
+      !badAction.json.error.includes("hack.system"),
+    "bad action fallback does not expose raw invalid action details",
+  );
   const approvalsAfterBad = await getJson("/api/approvals");
   const pendingAfterBad = (approvalsAfterBad.json.approvals as any[]).filter(
     (a: any) => a.status === "pending",
   );
   assert(pendingAfterBad.length === 0, "no pending approvals after bad action type");
 
-  // --- 7. AI disabled → 503 fail closed, no messages persisted ---
+  // --- 8. Failed execution stays pending but records failed metadata ---
+  const failingApproval = await postJson("/api/approvals", {
+    action_type: "task.update",
+    payload: { id: 999, title: "Missing task" },
+  });
+  assert(
+    failingApproval.status === 201 &&
+      failingApproval.json.status === "pending" &&
+      failingApproval.json.execution_status === "not_started",
+    "new approval starts pending + not_started",
+  );
+
+  const failedExec = await postJson(
+    `/api/approvals/${failingApproval.json.id}/approve`,
+  );
+  assert(
+    failedExec.status === 422 && failedExec.json.approval.status === "pending",
+    "failed execution returns 422 and keeps approval pending for retry/reject",
+  );
+  assert(
+    failedExec.json.approval.execution_status === "failed" &&
+      failedExec.json.approval.execution_error === "task #999 not found" &&
+      typeof failedExec.json.approval.executed_at === "string",
+    "failed execution records failed metadata and error summary",
+  );
+
+  const activityAfterFailure = await getJson("/api/activity?limit=20");
+  const failureLogged = (activityAfterFailure.json.activity as any[]).some(
+    (a: any) =>
+      a.event_type === "approval.execute_failed" &&
+      String(a.detail).includes("task #999 not found"),
+  );
+  assert(failureLogged, "failed execution creates readable activity");
+
+  let capturedPrompt = "";
+  currentInvoker = async (prompt) => {
+    capturedPrompt = prompt;
+    return JSON.stringify({
+      reply: "I see the latest action outcomes.",
+      actions: [],
+    });
+  };
+  const outcomeChat = await postJson("/api/chat", {
+    message: "What happened with the last approvals?",
+  });
+  assert(
+    outcomeChat.status === 201,
+    "chat still replies after succeeded/failed approvals exist",
+  );
+  assert(
+    capturedPrompt.includes("RECENT APPROVAL / ACTION OUTCOMES") &&
+      capturedPrompt.includes("task.create: succeeded: created task #1") &&
+      capturedPrompt.includes("task.update: failed: task #999 not found"),
+    "chat context includes recent succeeded/failed action summaries",
+  );
+
+  // --- 9. AI disabled → 503 fail closed, no messages persisted ---
   currentInvoker = stubDisabled;
-  const histLenBefore = histAfterBad.json.messages.length;
+  const histBeforeDisabled = await getJson("/api/chat/history?limit=100");
+  const histLenBefore = histBeforeDisabled.json.messages.length;
 
   const disabledRes = await postJson("/api/chat", { message: "hello disabled" });
   assert(
     disabledRes.status === 503 && disabledRes.json.kind === "error",
     "disabled AI → 503 error",
+  );
+  assert(
+    disabledRes.json.error !== "AI command mode is disabled.",
+    "disabled AI returns a provider-neutral fallback message",
   );
 
   const histAfterDisabled = await getJson("/api/chat/history?limit=100");
@@ -239,7 +397,7 @@ async function main(): Promise<void> {
     "disabled AI: no messages persisted",
   );
 
-  // --- 8. POST /api/chat/reset → archives all active messages, history empty ---
+  // --- 10. POST /api/chat/reset → archives all active messages, history empty ---
   const histBeforeReset = await getJson("/api/chat/history?limit=100");
   const activeCountBefore: number = histBeforeReset.json.messages.length;
   assert(activeCountBefore > 0, "history has active messages before reset");
@@ -271,6 +429,66 @@ async function main(): Promise<void> {
   assert(
     histFresh.json.messages.length === 2,
     "new session starts with only 2 messages (current exchange)",
+  );
+
+  // --- 11. Roadmap 11 Phase 2: manual provider selection ---
+  // Explicit Claude -> normal 201 reply, response echoes selected provider.
+  currentInvoker = stubOk("Claude reporting in.");
+  const pClaude = await postJson("/api/chat", {
+    message: "hello claude",
+    provider: "claude",
+  });
+  assert(
+    pClaude.status === 201 && pClaude.json.kind === "chat",
+    "manual provider=claude returns normal 201 chat reply",
+  );
+  assert(
+    pClaude.json.provider === "claude" &&
+      pClaude.json.requestedProvider === "claude",
+    "response echoes selected + requested provider (UI never hides the choice)",
+  );
+
+  // Omitted provider -> default Claude, still echoed.
+  currentInvoker = stubOk("Default provider here.");
+  const pDefault = await postJson("/api/chat", { message: "no provider field" });
+  assert(
+    pDefault.status === 201 && pDefault.json.provider === "claude",
+    "omitted provider defaults to claude and is reported",
+  );
+
+  // Explicit Gemini WITHOUT config -> fail closed: no fake success, nothing
+  // persisted, requested provider still visible. (Gemini arrives in Phase 3.)
+  const histBeforeGemini = (await getJson("/api/chat/history?limit=100")).json
+    .messages.length;
+  const pendingBeforeGemini = (
+    (await getJson("/api/approvals")).json.approvals as any[]
+  ).filter((a: any) => a.status === "pending").length;
+
+  const pGemini = await postJson("/api/chat", {
+    message: "hello gemini",
+    provider: "gemini",
+  });
+  assert(
+    pGemini.status === 503 && pGemini.json.kind === "error",
+    "manual provider=gemini (unconfigured) does not pretend success (503)",
+  );
+  assert(
+    pGemini.json.requestedProvider === "gemini",
+    "gemini error response does not hide the requested provider",
+  );
+
+  const histAfterGemini = (await getJson("/api/chat/history?limit=100")).json
+    .messages.length;
+  assert(
+    histAfterGemini === histBeforeGemini,
+    "unconfigured gemini request persists no chat history",
+  );
+  const pendingAfterGemini = (
+    (await getJson("/api/approvals")).json.approvals as any[]
+  ).filter((a: any) => a.status === "pending").length;
+  assert(
+    pendingAfterGemini === pendingBeforeGemini,
+    "unconfigured gemini request creates no approvals (no false success)",
   );
 
   // Cleanup

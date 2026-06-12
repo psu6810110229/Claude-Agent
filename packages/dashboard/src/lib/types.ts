@@ -29,8 +29,11 @@ export type ActionType =
   | "event.archive"
   | "reminder.create"
   | "reminder.update"
+  | "reminder.done"
   | "reminder.archive"
-  | "google_event.create";
+  | "google_event.create"
+  | "google_event.update"
+  | "google_event.delete";
 
 // --- Events & reminders (Step 9) ------------------------------------------
 
@@ -73,7 +76,7 @@ export interface GoogleEventListResponse {
   available: boolean;
 }
 
-export type ReminderStatus = "active" | "archived";
+export type ReminderStatus = "active" | "done" | "archived";
 
 export interface Reminder {
   id: number;
@@ -120,19 +123,72 @@ export interface CreateMemoryProposalBody {
 }
 
 export type ApprovalStatus = "pending" | "approved" | "rejected";
+export type ExecutionStatus = "not_started" | "succeeded" | "failed";
 
 export interface Approval {
   id: number;
   action_type: ActionType;
   payload: unknown;
   status: ApprovalStatus;
+  execution_status: ExecutionStatus;
+  executed_at: string | null;
+  execution_error: string | null;
+  result_summary: string | null;
+  /** Prior-state JSON snapshot for reversible undo (Step 14); null otherwise. */
+  undo_json: string | null;
   created_at: string;
   updated_at: string;
 }
 
+export type ActivityEventType =
+  | "chat.message.received"
+  | "chat.message.replied"
+  | "chat.message.proposed"
+  | "chat.message.failed"
+  | "chat.message.rejected"
+  | "chat.session.reset"
+  | "command.received"
+  | "command.proposed"
+  | "command.rejected"
+  | "ai.command.received"
+  | "ai.command.proposed"
+  | "ai.command.failed"
+  | "ai.command.rejected"
+  | "ai.command.clarification"
+  | "brief.daily.requested"
+  | "brief.daily.generated"
+  | "brief.daily.proposed"
+  | "brief.daily.failed"
+  | "brief.daily.rejected"
+  | "brief.evening.requested"
+  | "brief.evening.generated"
+  | "brief.evening.proposed"
+  | "brief.evening.failed"
+  | "brief.evening.rejected"
+  | "approval.approve"
+  | "approval.create"
+  | "approval.reject"
+  | "approval.execute_succeeded"
+  | "approval.execute_failed"
+  | "notification.fired"
+  | "notification.desktop_failed"
+  | "scheduler.tick_error"
+  | "task.create"
+  | "task.update"
+  | "task.archive"
+  | "event.create"
+  | "event.update"
+  | "event.archive"
+  | "reminder.create"
+  | "reminder.update"
+  | "reminder.done"
+  | "reminder.archive"
+  | "memory.write"
+  | "google_event.create";
+
 export interface Activity {
   id: number;
-  event_type: string;
+  event_type: ActivityEventType | string;
   detail: string | null;
   created_at: string;
 }
@@ -203,11 +259,36 @@ export interface ChatMessage {
  * `approvals` are any pending write proposals queued by this turn (may be
  * empty). Failures arrive as 4xx/5xx via ApiError.
  */
+/** Manual AI provider choice carried per chat request (Roadmap 11 Phase 2). */
+export type AiProviderId = "claude" | "gemini";
+
+/** Provider routing mode (Roadmap 11 Phase 4). */
+export type AiProviderMode = "manual" | "auto";
+
+/**
+ * What the user picks in the UI: a specific provider (manual) or `"auto"`
+ * (backend routes transparently). Maps to either `{ provider }` or
+ * `{ mode: "auto" }` on the wire.
+ */
+export type ProviderChoice = AiProviderId | "auto";
+
 export interface ChatResult {
   kind: "chat";
   reply: string;
+  /** Short spoken summary of `reply` for TTS; null when the model omitted it. */
+  spoken?: string | null;
+  /** Routing mode the backend applied. */
+  mode: AiProviderMode;
+  /** Provider that actually produced this reply. */
+  provider: AiProviderId;
+  /** Model the selected provider used, when known. */
+  selectedModel?: string | null;
+  /** Provider the user explicitly requested, or null when defaulted/auto. */
+  requestedProvider: AiProviderId | null;
+  providerReason?: string;
   approvals: Approval[];
   clarification?: string;
+  clarification_choices?: string[];
   notes?: string;
 }
 

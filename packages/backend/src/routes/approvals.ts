@@ -10,6 +10,8 @@ import {
   getApprovalById,
   createApproval,
   setApprovalStatus,
+  markApprovalExecutionFailed,
+  markApprovalExecutionSucceeded,
 } from "../db/repositories/approvalRepo.js";
 import { logActivity } from "../db/repositories/activityRepo.js";
 import { executeAction, ExecutorError } from "../services/executor.js";
@@ -46,7 +48,11 @@ export async function approvalRoutes(app: FastifyInstance): Promise<void> {
     // be retried or rejected — it is NOT marked approved.
     try {
       const result = await executeAction(approval.action_type, approval.payload);
-      const updated = setApprovalStatus(approval.id, "approved");
+      const updated = markApprovalExecutionSucceeded(
+        approval.id,
+        result.summary,
+        result.undoJson ?? null,
+      );
       logActivity(
         "approval.approve",
         `approval #${approval.id}: ${result.summary}`,
@@ -54,11 +60,14 @@ export async function approvalRoutes(app: FastifyInstance): Promise<void> {
       return approvalSchema.parse(updated);
     } catch (err) {
       if (err instanceof ExecutorError) {
+        const updated = markApprovalExecutionFailed(approval.id, err.message);
         logActivity(
           "approval.execute_failed",
           `approval #${approval.id}: ${err.message}`,
         );
-        return reply.code(422).send({ error: err.message });
+        return reply
+          .code(422)
+          .send({ error: err.message, approval: approvalSchema.parse(updated) });
       }
       throw err;
     }

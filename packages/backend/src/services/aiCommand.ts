@@ -5,6 +5,7 @@ import { buildChiefOfStaffPrompt } from "./chiefOfStaffPrompt.js";
 import { bangkokWallClock } from "./agenda.js";
 import { unwrapJsonOutput } from "./jsonOutput.js";
 import { ClaudeError, type ClaudeInvoker } from "./claudeClient.js";
+import { GeminiError } from "./geminiClient.js";
 import { CLAUDE_CONTEXT_TASK_CAP, nowIso } from "../config.js";
 
 /**
@@ -57,7 +58,7 @@ export async function runAiCommand(
   try {
     raw = await invoke(prompt);
   } catch (err) {
-    if (err instanceof ClaudeError) {
+    if (err instanceof ClaudeError || err instanceof GeminiError) {
       return { kind: "failed", reason: err.reason, message: err.message };
     }
     const message = err instanceof Error ? err.message : String(err);

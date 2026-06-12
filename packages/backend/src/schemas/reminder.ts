@@ -8,7 +8,13 @@ import { isoUtcDateTime } from "./event.js";
  * or a brief asks for it. Reminders are soft-archived, never hard-deleted.
  */
 
-export const reminderStatusSchema = z.enum(["active", "archived"]);
+/**
+ * Reminder lifecycle (Sprint 1). `done` means the user completed it; `archived`
+ * means it was filed away without necessarily being done. Both leave the active
+ * views (Today/Upcoming/overdue), but they carry different meaning — Jarvis must
+ * not report an archived reminder as "done". `active` is the only live state.
+ */
+export const reminderStatusSchema = z.enum(["active", "done", "archived"]);
 export type ReminderStatus = z.infer<typeof reminderStatusSchema>;
 
 /** A persisted reminder row as returned by the API. */
@@ -47,6 +53,11 @@ export const updateReminderPayloadSchema = z
       v.title !== undefined || v.due_at !== undefined || v.notes !== undefined,
     { message: "At least one field to update must be provided" },
   );
+
+/** `reminder.done` approval payload. Marks a reminder completed. */
+export const doneReminderPayloadSchema = z.object({
+  id: z.number().int().positive(),
+});
 
 /** `reminder.archive` approval payload. */
 export const archiveReminderPayloadSchema = z.object({

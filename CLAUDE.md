@@ -130,13 +130,51 @@
 - **Dashboard**: `app/chat/page.tsx` (chat bubbles + composer), nav entry "Chat" in `components/Nav.tsx`.
 - **Verification**: `npm run build`, `npm run smoke` (8 tables), `npm run smoke:step12` (stubbed; 7 assertions), `npm run build:dashboard`.
 
+## Step 13 scope (PLANNED — not yet implemented) — Voice output (TTS), JARVIS speaks
+
+> Brings **Voice output only** in-scope. **Voice input (STT, mic, wake word) stays out of scope.** Validated by `experiments/jarvis-tts-poc/` (committed `c358e40`). Phased; each phase is a small, verifiable step, gated **off** by default, **fail-soft to text**. **Detailed implementation blueprint: `docs/step13-voice-output-plan.md` — read before coding any phase.**
+
+**Voice + stack (decided via POC):**
+- Voice: **`en-AU-WilliamMultilingualNeural`** (Microsoft Edge neural, multilingual — speaks Thai + English code-switch in one consistent character).
+- Stack: Node-only — `msedge-tts` (free Edge endpoint, **no API key**) → SSML prosody (pitch/rate down) → `ffmpeg-static` FX chain (warm EQ, compressor, subtle reverb, loudnorm). No Python, no system ffmpeg, no GPU. Voice cloning ruled out (needs GPU).
+- Default preset: **warm** (`william_v1_warm`: pitch -8% / rate -6%, room reverb). Second preset available: `intimate` (`william_v5_intimate`).
+- **Local-first tradeoff (accepted):** Edge endpoint is cloud (needs internet). All TTS is **fail-soft**: disabled / offline / endpoint error → silently degrade to existing text behavior. Fallback option if endpoint breaks: Azure TTS free tier (same voices, official).
+
+**Two playback contexts (architecturally distinct):**
+1. **Browser playback** (dashboard open) — chat replies, daily brief. `<audio>` plays wav fetched from backend.
+2. **Backend speaker playback** (headless, no browser needed) — scheduler reminders/events + proactive approval nag. Backend plays wav on PC speakers via Windows PowerShell `System.Media.SoundPlayer`. This is new capability beyond Step 11 (which only toasts).
+
+**Phases:**
+- **13.1 — core TTS + browser playback.** `services/tts.ts` (`synthesize(text, preset) -> wav`; wraps msedge-tts + ffmpeg-static; gated `CLAUDE_AGENT_TTS_ENABLED` default off; fail-soft → null). `POST /api/tts` (`{ text }` → `audio/wav`, or 204/text-fallback when disabled). Dashboard chat plays reply audio + **mute toggle** (persisted client-side). Spoken text = the chat `reply` string (no extra Claude call).
+- **13.2 — backend speaker + scheduler speaks due items.** `services/audioPlayer.ts` (`play(wavPath)`; injectable + `StubAudioPlayer` for tests; `RealAudioPlayer` via PowerShell SoundPlayer; gated `CLAUDE_AGENT_TTS_SPEAKER_ENABLED`). Scheduler tick (Step 11) additionally **synthesizes + plays** a templated line for newly-due reminders / soon-starting events. **Templated text, deterministic — no Claude call** (keeps Step 11's no-Claude rule).
+- **13.3 — proactive approval nag.** Pending `approval` rows older than `CLAUDE_AGENT_TTS_APPROVAL_NAG_DELAY_MS` (default 120000 = 2 min) → backend speaks a templated reminder. **Repeats every `CLAUDE_AGENT_TTS_APPROVAL_NAG_INTERVAL_MS` (default 120000) until the approval is actioned.** Per-approval last-spoken time tracked in-memory in scheduler (resets on restart — acceptable). Templated text, no Claude.
+- **13.4 — daily brief spoken.** Brief text read aloud (browser and/or backend speaker). Lowest priority.
+
+**Explicitly NOT in Step 13:** voice input / STT / microphone / wake word; quiet hours (user opted for none — speak any time); Claude-generated spoken lines for scheduler/nag (those stay templated/deterministic).
+
+**Planned config flags (all off by default):** `CLAUDE_AGENT_TTS_ENABLED`, `CLAUDE_AGENT_TTS_SPEAKER_ENABLED`, `CLAUDE_AGENT_TTS_PRESET` (default `warm`), `CLAUDE_AGENT_TTS_APPROVAL_NAG_DELAY_MS` (120000), `CLAUDE_AGENT_TTS_APPROVAL_NAG_INTERVAL_MS` (120000).
+
+**Planned verification:** `npm run smoke:step13` (stubbed `MsEdgeTTS` invoker + `StubAudioPlayer` + temp DB; real Edge endpoint and real audio never used in tests; assert fail-soft when disabled, nag dedup/repeat timing, templated text, route degrades when off), plus existing `npm run build`, `npm run smoke`, `npm run build:dashboard`.
+
+## Step 14 scope (done) — Google Calendar update/delete + auto-execute engine
+
+> User explicitly approved expanding the agent: full Google Calendar CRUD + optional auto-execute (no manual approve click), while keeping destructive actions confirm-gated and **truthful reporting** (report only the real executor outcome — never claim success that did not happen).
+
+- **14.1 — Google Calendar update/delete (done).** Two new approval-gated allowlist actions: `google_event.update` (`events.patch`) and `google_event.delete` (`events.delete`). Target an existing event by its string `id` (from the read routes). Both **snapshot the prior event state first** (via `events.get`), stored in the new `approval.undo_json` column so a change is recoverable. `delete` carries a new `destructive` policy. Connector still **fails closed** when disabled. Google OAuth scope unchanged (`calendar.events`). `npm run smoke:step14` (no network: schemas, registry, undo_json column, fail-closed).
+- **14.2 — Auto-execute engine (done).** Flag `CLAUDE_AGENT_AUTO_EXECUTE_ENABLED` (**default off**). `services/actionDispatcher.ts` is the single chokepoint every proposal site (command, ai, brief, chat, memory routes) now calls. When ON: reversible/non-destructive actions execute **immediately** through the existing executor and the **real** outcome is recorded (`succeeded`/`failed`); **destructive actions (`google_event.delete`, `*.archive`, `memory.write` mode `replace`) always stay pending and require explicit confirm.** Every action still writes an `approval` row (audit trail); a failed auto-exec stays pending for retry/reject. Activity events `action.auto_executed` / `action.auto_failed`. Executor remains the **single execution gate**; Claude still never executes directly. `npm run smoke:step14b` (auto on; classification, auto-exec success, confirm-pending, truthful failure).
+- **14.3 — Dashboard + truthful report (done).** Dashboard types/registry mirror the two new actions (string-id payloads, Thai confirm copy; delete prompt warns it deletes for real but is recoverable from snapshot). Approvals board routes auto-executed rows → "Approved / Done" and failed auto-exec → "Needs Attention"; succeeded rows with a snapshot show "undo available". The board reflects the **real** stored execution state, so the report is never faked.
+- **14.5 — AI can propose Google update/delete + opt-in destructive auto-exec (done).** Bugfix: `schemas/aiCommand.ts` `aiActionSchema` union was missing `google_event.update` / `google_event.delete`, so any AI/chat proposal to update or delete a Google event failed strict validation (chat → 400, "รูปแบบคำตอบไม่พร้อมใช้งาน"). Added both union members; chat context now also exposes each Google event's string `id` (chat.ts + chatPrompt.ts) so the model can target the right event. **User then explicitly approved auto-executing recoverable destructive Google deletes** (snapshot → `undo_json` → restorable). New flag `CLAUDE_AGENT_AUTO_EXECUTE_DESTRUCTIVE_ENABLED` (**default off**) + runtime DB override `auto_execute_destructive_enabled` (Settings toggle "Auto-execute Google delete"). When BOTH auto-execute and this toggle are on, `dispatchProposedAction` lets `RECOVERABLE_DESTRUCTIVE_TYPES` (currently only `google_event.delete`) execute immediately; `*.archive` and `memory.write` `replace` **still always require confirm**. Executor remains the single gate; reporting still truthful. `npm run smoke:step14b` extended (toggle exempts only Google delete; archive/memory-replace stay gated).
+- **Still NOT in scope (Step 14):** local filesystem write/delete (deliberately excluded — too risky); Claude executing directly (executor is the only gate); auto-executing **non-recoverable** destructive actions (`*.archive`, memory `replace` stay confirm-gated).
+
 ## Out of scope (must NOT add without explicit approval)
 
 - MCP
 - External connectors **other than Step 10 Google Calendar connector**
-- **Google Calendar update/delete access**; Google writes stay create-only, approval-gated
+- **Local filesystem write/delete** (Step 14 expanded Google Calendar to full CRUD but deliberately did **not** grant local file mutation)
+- Auto-executing **non-recoverable destructive** actions (`*.archive` / memory `replace` stay confirm-gated even with auto-execute on). **Exception (Step 14.5, user-approved):** recoverable `google_event.delete` (snapshot → restorable) may auto-execute when the opt-in `CLAUDE_AGENT_AUTO_EXECUTE_DESTRUCTIVE_ENABLED` toggle is on.
 - Auto-morning-brief scheduler (timer-driven Claude invocation — Step 11 scheduler does **not** call Claude)
-- Voice
+- **Voice input** (STT, microphone, wake word) — voice **output** (TTS) is in-scope via Step 13; input stays out
+- Claude-generated spoken lines for scheduler/approval-nag (Step 13 keeps these templated/deterministic — no Claude)
 - Notion, Gmail, Google Drive
 - Local filesystem scanning
 - Authentication **beyond minimal OAuth for Google Calendar event access**

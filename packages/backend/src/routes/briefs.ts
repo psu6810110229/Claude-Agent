@@ -1,13 +1,11 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { approvalSchema } from "../schemas/approval.js";
 import type { BriefType } from "../schemas/brief.js";
-import { createApproval } from "../db/repositories/approvalRepo.js";
+import { dispatchProposedAction } from "../services/actionDispatcher.js";
 import { logActivity } from "../db/repositories/activityRepo.js";
 import { runBrief } from "../services/brief.js";
-import {
-  realClaudeInvoker,
-  type ClaudeInvoker,
-} from "../services/claudeClient.js";
+import type { ClaudeInvoker } from "../services/claudeClient.js";
+import { defaultInvoker } from "../services/aiProvider.js";
 import {
   realGoogleEventsFetcher,
   type GoogleEventsFetcher,
@@ -32,7 +30,7 @@ export async function briefRoutes(
   app: FastifyInstance,
   opts: BriefRouteOptions,
 ): Promise<void> {
-  const invoke = opts.aiInvoker ?? realClaudeInvoker;
+  const invoke = opts.aiInvoker ?? defaultInvoker();
   const fetchGoogle = opts.calendarFetcher ?? realGoogleEventsFetcher;
 
   app.post("/api/briefs/daily", (_req, reply) =>
@@ -75,13 +73,17 @@ async function handleBrief(
   // already validated against the strict brief schema, which reuses the
   // canonical action payload schemas). The brief text itself is returned only —
   // it is never persisted and never written to the activity log.
-  const approvals = result.actions.map((action) => {
-    const approval = createApproval(action.action_type, action.payload);
+  const dispatched = await Promise.all(
+    result.actions.map((action) =>
+      dispatchProposedAction(action.action_type, action.payload, "brief"),
+    ),
+  );
+  const approvals = dispatched.map((d) => {
     logActivity(
       `brief.${type}.proposed`,
-      `approval #${approval.id} (${approval.action_type}) from brief`,
+      `approval #${d.approval.id} (${d.approval.action_type}) from brief [${d.mode}]`,
     );
-    return approvalSchema.parse(approval);
+    return approvalSchema.parse(d.approval);
   });
 
   // Detail is a count only — never the summary text.

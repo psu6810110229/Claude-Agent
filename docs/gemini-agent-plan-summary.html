@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>JARVIS Gemini & Agent Plan</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fb;
+      --text: #17202f;
+      --muted: #5f6b7a;
+      --panel: #ffffff;
+      --line: #dce2ea;
+      --blue: #2563eb;
+      --green: #0f8a4b;
+      --amber: #a16207;
+      --red: #b42318;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", "Noto Sans Thai", sans-serif;
+      line-height: 1.65;
+    }
+
+    main {
+      width: min(980px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 40px 0 56px;
+    }
+
+    header {
+      margin-bottom: 24px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(32px, 5vw, 52px);
+      line-height: 1.08;
+      letter-spacing: -0.02em;
+    }
+
+    h2 {
+      margin: 0 0 10px;
+      font-size: 22px;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    section {
+      margin-top: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 20px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .box {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #fbfcfe;
+    }
+
+    .box strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .tag {
+      display: inline-block;
+      margin-bottom: 10px;
+      border-radius: 999px;
+      padding: 3px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #fff;
+      background: var(--blue);
+    }
+
+    .tag.green { background: var(--green); }
+    .tag.amber { background: var(--amber); }
+    .tag.red { background: var(--red); }
+
+    ol,
+    ul {
+      margin: 10px 0 0;
+      padding-left: 22px;
+      color: var(--muted);
+    }
+
+    li + li {
+      margin-top: 6px;
+    }
+
+    code {
+      border-radius: 5px;
+      background: #edf2f7;
+      padding: 1px 5px;
+      color: #243244;
+    }
+
+    .flow {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 130px 1fr;
+      gap: 12px;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+    }
+
+    .step:first-child {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    footer {
+      margin-top: 22px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 760px) {
+      .grid,
+      .step {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <span class="tag">Post-09 Plan</span>
+      <h1>แผนเพิ่ม Gemini และ Multi-Provider Agent ให้ JARVIS</h1>
+      <p>
+        เป้าหมายคือเพิ่ม Gemini เป็นตัวเลือกของระบบ โดยยังรักษาแนวคิดเดิม:
+        backend เป็นเจ้าของ state, AI เป็น proposal-only, และทุก write action ต้องผ่าน approval queue
+      </p>
+    </header>
+
+    <section>
+      <h2>สถานะตอนนี้</h2>
+      <div class="grid">
+        <div class="box">
+          <strong>พร้อมเริ่ม</strong>
+          <p>00-08 เสร็จแล้ว, manual test ผ่าน, และมี <code>capability-contract.md</code> เป็น safety contract</p>
+        </div>
+        <div class="box">
+          <strong>09 ไม่เป็น blocker</strong>
+          <p>ใช้เป็น regression checklist ไม่ใช่ sprint implementation ที่ต้องรอก่อน</p>
+        </div>
+        <div class="box">
+          <strong>เริ่มแบบปลอดภัย</strong>
+          <p>เริ่มจาก abstraction + stub ก่อน ยังไม่ใส่ secrets หรือยิง Gemini API จริงทันที</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>หลักการออกแบบ</h2>
+      <ul>
+        <li>Claude และ Gemini เป็น <strong>AI providers</strong> ไม่ใช่เจ้าของ state</li>
+        <li>Backend orchestrator เป็นเจ้าของ session, step, validation, guardrails, execution และ approval</li>
+        <li>Manual mode ต้องใช้ provider ที่ผู้ใช้เลือกเท่านั้น</li>
+        <li>Auto mode ต้องบอกผู้ใช้เสมอว่าเลือกหรือ fallback ไปใช้โมเดลไหน เพราะอะไร</li>
+        <li>ห้าม silent fallback และห้ามให้ AI execute write action โดยตรง</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Roadmap สั้น ๆ</h2>
+      <div class="flow">
+        <div class="step">
+          <strong>Phase 1</strong>
+          <p><span class="tag green">Provider Abstraction</span><br />ทำ interface กลางให้ Claude/Gemini คืน proposal schema เดียวกัน ใช้ stub test ก่อน</p>
+        </div>
+        <div class="step">
+          <strong>Phase 2</strong>
+          <p><span class="tag green">Manual Selection</span><br />ให้ผู้ใช้เลือก Claude หรือ Gemini ได้อย่างชัดเจน แต่ Gemini ยัง disabled ได้ถ้ายังไม่มี config</p>
+        </div>
+        <div class="step">
+          <strong>Phase 3</strong>
+          <p><span class="tag amber">Gemini Provider</span><br />ต่อ Gemini API ผ่าน env config, ไม่ commit secrets, validate output ด้วย schema เดิม</p>
+        </div>
+        <div class="step">
+          <strong>Phase 4</strong>
+          <p><span class="tag amber">Transparent Auto</span><br />เพิ่ม Auto selection พร้อม reason, trace, retry/fallback policy และ user-visible notice</p>
+        </div>
+        <div class="step">
+          <strong>Phase 5</strong>
+          <p><span class="tag">Agent Steps</span><br />เพิ่ม AgentRun/AgentStep เพื่อรองรับงานหลายขั้น เช่น monthly P0 review, analysis, recommendation</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Safeguards ที่ต้องมี</h2>
+      <div class="grid">
+        <div class="box">
+          <strong>Permission Guard</strong>
+          <p>แต่ละ step ต้องรู้ว่าทำได้แค่ read, analyze, propose หรือ approval-required</p>
+        </div>
+        <div class="box">
+          <strong>Step Budget</strong>
+          <p>จำกัดจำนวน step, AI call, retry, runtime และ context size เพื่อกัน loop ไหล</p>
+        </div>
+        <div class="box">
+          <strong>Visible Trace</strong>
+          <p>แสดง provider/model/reason เมื่อระบบเลือกหรือสลับโมเดล โดยเฉพาะใน Auto mode</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>สิ่งที่ยังไม่ทำตอนเริ่ม</h2>
+      <ul>
+        <li>ยังไม่เพิ่ม connector ใหม่ เช่น Gmail, Drive, Notion, filesystem scanning</li>
+        <li>ยังไม่เพิ่ม Google Calendar update/delete</li>
+        <li>ยังไม่ให้ Gemini หรือ Claude bypass approval queue</li>
+        <li>ยังไม่ทำ autonomous free-form agent loop ที่โมเดลสั่งต่อเองไม่จำกัด</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>คำตอบสั้นที่สุด</h2>
+      <p>
+        เราพร้อมเริ่ม Gemini แล้ว แต่ควรเริ่มจากฐานที่ไม่เสี่ยง:
+        <strong>provider abstraction + manual selection + stubbed tests</strong>
+        แล้วค่อยต่อ Gemini API และ Auto mode แบบโปร่งใสภายหลัง
+      </p>
+    </section>
+
+    <footer>
+      Documentation only. This summary does not change application behavior or add new external access.
+    </footer>
+  </main>
+</body>
+</html>

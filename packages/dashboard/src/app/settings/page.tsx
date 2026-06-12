@@ -2,12 +2,34 @@
 
 import { useState } from "react";
 import { ApiError, getSettings, updateSetting } from "@/lib/api";
-import { useResource } from "@/lib/useResource";
-import { Loading, ErrorBanner } from "@/components/States";
+import { useData } from "@/lib/useData";
+import { ErrorBanner } from "@/components/States";
+import { useToast } from "@/components/ToastProvider";
 import type { Setting } from "@/lib/types";
 
+function SettingsSkeleton() {
+  return (
+    <div className="panel">
+      {[1, 2, 3, 4].map((i) => (
+        <div
+          key={i}
+          className="row"
+          style={{ flexDirection: "column", alignItems: "flex-start", gap: "0.25rem", padding: "1rem 0" }}
+        >
+          <div style={{ display: "flex", width: "100%", alignItems: "center", gap: "0.75rem" }}>
+            <span className="skel" style={{ flex: 1, height: 18 }} />
+            <span className="skel" style={{ width: 72, height: 32, flexShrink: 0 }} />
+          </div>
+          <span className="skel" style={{ width: "58%", height: 13 }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
-  const { data, loading, error, reload } = useResource(getSettings);
+  const { notify } = useToast();
+  const { data, loading, error, reload } = useData("/api/settings", getSettings);
 
   return (
     <>
@@ -19,13 +41,13 @@ export default function SettingsPage() {
         </div>
       </header>
 
-      {loading && <Loading />}
+      {loading && <SettingsSkeleton />}
       {error && <ErrorBanner message={error} onRetry={reload} />}
 
       {data && (
         <div className="panel">
           {data.map((s) => (
-            <SettingRow key={s.key} setting={s} onChanged={reload} />
+            <SettingRow key={s.key} setting={s} onChanged={reload} notify={notify} />
           ))}
         </div>
       )}
@@ -36,9 +58,15 @@ export default function SettingsPage() {
 function SettingRow({
   setting,
   onChanged,
+  notify,
 }: {
   setting: Setting;
   onChanged: () => void;
+  notify: (toast: {
+    title: string;
+    description?: string;
+    kind?: "success" | "info" | "warning" | "error";
+  }) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -48,10 +76,21 @@ function SettingRow({
     setBusy(true);
     setErr(null);
     try {
-      await updateSetting(setting.key, !setting.enabled);
+      const nextEnabled = !setting.enabled;
+      await updateSetting(setting.key, nextEnabled);
       onChanged();
+      notify({
+        kind: "success",
+        title: nextEnabled ? "Enabled" : "Disabled",
+        description: setting.label,
+      });
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : String(e));
+      notify({
+        kind: "error",
+        title: "Setting failed",
+        description: e instanceof ApiError ? e.message : String(e),
+      });
     } finally {
       setBusy(false);
     }

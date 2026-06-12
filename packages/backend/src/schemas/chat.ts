@@ -1,12 +1,20 @@
 import { z } from "zod";
 import { aiActionSchema } from "./aiCommand.js";
+import { aiProviderIdSchema, aiProviderModeSchema } from "../services/aiProvider.js";
 import { CLAUDE_MAX_ACTIONS } from "../config.js";
 
 /**
- * Request schema for POST /api/chat (Step 12).
+ * Request schema for POST /api/chat (Step 12; Roadmap 11 Phase 2/4).
+ *
+ * `mode` selects manual vs auto provider routing (default `manual`). In manual
+ * mode `provider` is an optional explicit choice (`claude | gemini`); omitted ->
+ * backend default (Claude); manual never silently falls back. In auto mode the
+ * backend picks the provider transparently and `provider` is ignored.
  */
 export const chatRequestSchema = z.object({
   message: z.string().trim().min(1).max(4000),
+  mode: aiProviderModeSchema.optional(),
+  provider: aiProviderIdSchema.optional(),
 });
 
 /**
@@ -27,9 +35,34 @@ export const chatHistoryQuerySchema = z.object({
 export const chatOutputSchema = z
   .object({
     reply: z.string().trim().min(1).max(4000),
+    // Short spoken summary of `reply` (<=30 words) for TTS. Same Claude/Gemini
+    // call produces both — no extra round trip. Optional; on omission the
+    // frontend falls back to speaking `reply` (fail-soft, esp. for Gemini).
+    spoken: z
+      .string()
+      .trim()
+      .min(1)
+      .max(400)
+      .nullish()
+      .transform((v) => v ?? undefined),
     actions: z.array(aiActionSchema).max(CLAUDE_MAX_ACTIONS).default([]),
-    clarification: z.string().trim().min(1).max(500).nullish().transform(v => v ?? undefined),
-    notes: z.string().max(2000).nullish().transform(v => v ?? undefined),
+    clarification: z
+      .string()
+      .trim()
+      .min(1)
+      .max(500)
+      .nullish()
+      .transform((v) => v ?? undefined),
+    clarification_choices: z
+      .array(z.string().trim().min(1).max(120))
+      .max(4)
+      .nullish()
+      .transform((v) => v ?? undefined),
+    notes: z
+      .string()
+      .max(2000)
+      .nullish()
+      .transform((v) => v ?? undefined),
   })
   .strict();
 

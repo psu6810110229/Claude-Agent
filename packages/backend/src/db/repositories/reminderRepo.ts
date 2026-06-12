@@ -4,11 +4,15 @@ import type { Reminder } from "../../schemas/reminder.js";
 
 const COLS = "id, title, due_at, notes, status, created_at, updated_at";
 
-/** All non-archived (active) reminders, soonest due first. */
+/**
+ * All live (active) reminders, soonest due first. `done` and `archived` are both
+ * excluded — a completed or filed reminder must not resurface in Today/Upcoming
+ * or be counted as overdue.
+ */
 export function listReminders(): Reminder[] {
   return getDb()
     .prepare(
-      `SELECT ${COLS} FROM reminder WHERE status != 'archived' ORDER BY due_at ASC`,
+      `SELECT ${COLS} FROM reminder WHERE status = 'active' ORDER BY due_at ASC`,
     )
     .all() as Reminder[];
 }
@@ -65,6 +69,16 @@ export function updateReminder(
       "UPDATE reminder SET title = ?, due_at = ?, notes = ?, updated_at = ? WHERE id = ?",
     )
     .run(next.title, next.due_at, next.notes, next.updated_at, id);
+  return getReminderById(id);
+}
+
+/** Mark a reminder completed (status = 'done'); distinct from archiving. */
+export function completeReminder(id: number): Reminder | undefined {
+  const existing = getReminderById(id);
+  if (!existing) return undefined;
+  getDb()
+    .prepare("UPDATE reminder SET status = ?, updated_at = ? WHERE id = ?")
+    .run("done", nowIso(), id);
   return getReminderById(id);
 }
 

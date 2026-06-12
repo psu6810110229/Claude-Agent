@@ -9,15 +9,20 @@ import {
 import {
   createReminderPayloadSchema,
   updateReminderPayloadSchema,
+  doneReminderPayloadSchema,
   archiveReminderPayloadSchema,
 } from "./reminder.js";
-import { createGoogleEventPayloadSchema } from "./googleCalendar.js";
+import {
+  createGoogleEventPayloadSchema,
+  updateGoogleEventPayloadSchema,
+  deleteGoogleEventPayloadSchema,
+} from "./googleCalendar.js";
 
 /**
- * The ONLY action types the executor will run for now. Most are internal,
- * non-destructive operations against the local DB or the whitelisted memory
- * files. The one outward action (`google_event.create`) is approval-gated and
- * create-only; Google update/delete actions are deliberately absent.
+ * The ONLY action types the executor will run. Most are internal operations
+ * against the local DB or the whitelisted memory files. The outward Google
+ * Calendar actions (create/update/delete, Step 14) are approval-gated; delete
+ * is additionally always confirm-gated and never auto-executed.
  */
 export const actionTypeSchema = z.enum([
   "task.create",
@@ -29,8 +34,11 @@ export const actionTypeSchema = z.enum([
   "event.archive",
   "reminder.create",
   "reminder.update",
+  "reminder.done",
   "reminder.archive",
   "google_event.create",
+  "google_event.update",
+  "google_event.delete",
 ]);
 export type ActionType = z.infer<typeof actionTypeSchema>;
 
@@ -58,12 +66,22 @@ export const actionPayloadSchemas = {
   "event.archive": archiveEventPayloadSchema,
   "reminder.create": createReminderPayloadSchema,
   "reminder.update": updateReminderPayloadSchema,
+  "reminder.done": doneReminderPayloadSchema,
   "reminder.archive": archiveReminderPayloadSchema,
   "google_event.create": createGoogleEventPayloadSchema,
+  "google_event.update": updateGoogleEventPayloadSchema,
+  "google_event.delete": deleteGoogleEventPayloadSchema,
 } as const;
 
 export const approvalStatusSchema = z.enum(["pending", "approved", "rejected"]);
 export type ApprovalStatus = z.infer<typeof approvalStatusSchema>;
+
+export const executionStatusSchema = z.enum([
+  "not_started",
+  "succeeded",
+  "failed",
+]);
+export type ExecutionStatus = z.infer<typeof executionStatusSchema>;
 
 /** A persisted approval row as returned by the API (payload parsed to object). */
 export const approvalSchema = z.object({
@@ -71,6 +89,12 @@ export const approvalSchema = z.object({
   action_type: actionTypeSchema,
   payload: z.unknown().nullable(),
   status: approvalStatusSchema,
+  execution_status: executionStatusSchema,
+  executed_at: z.string().nullable(),
+  execution_error: z.string().nullable(),
+  result_summary: z.string().nullable(),
+  /** Prior-state JSON snapshot for reversible undo (Step 14). Null otherwise. */
+  undo_json: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
 });

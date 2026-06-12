@@ -12,8 +12,10 @@ import { calendarRoutes } from "./routes/calendar.js";
 import { notificationRoutes } from "./routes/notifications.js";
 import { chatRoutes } from "./routes/chat.js";
 import { settingsRoutes } from "./routes/settings.js";
+import { ttsRoutes } from "./routes/tts.js";
 import type { ClaudeInvoker } from "./services/claudeClient.js";
 import type { GoogleEventsFetcher } from "./services/googleCalendar.js";
+import type { TtsSynthesizer } from "./services/tts.js";
 
 export interface BuildServerOptions {
   /** Inject a stub Claude invoker (tests). Defaults to the real `claude -p`. */
@@ -23,6 +25,8 @@ export interface BuildServerOptions {
    * `events.list` fetcher.
    */
   calendarFetcher?: GoogleEventsFetcher;
+  /** Inject a stub TTS synthesizer (tests). Defaults to the real Edge synthesizer. */
+  ttsSynthesizer?: TtsSynthesizer;
 }
 
 /** Builds the Fastify instance (without listening) so it can be reused in tests. */
@@ -47,5 +51,6 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     calendarFetcher: options.calendarFetcher,
   });
   app.register(settingsRoutes);
+  app.register(ttsRoutes, { synthesizer: options.ttsSynthesizer });
   return app;
 }

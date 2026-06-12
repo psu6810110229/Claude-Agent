@@ -1,43 +1,108 @@
-import { SCHEDULER_INTERVAL_MS, SCHEDULER_EVENT_LEAD_MS } from "../config.js";
+import os from "node:os";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { writeFile, unlink } from "node:fs/promises";
+import {
+  SCHEDULER_INTERVAL_MS,
+  SCHEDULER_EVENT_LEAD_MS,
+  TTS_APPROVAL_NAG_DELAY_MS,
+  TTS_APPROVAL_NAG_INTERVAL_MS,
+} from "../config.js";
 import { listReminders } from "../db/repositories/reminderRepo.js";
 import { listEvents } from "../db/repositories/eventRepo.js";
+import { listPendingApprovals } from "../db/repositories/approvalRepo.js";
 import { insertNotificationIfNew } from "../db/repositories/notificationRepo.js";
 import { logActivity } from "../db/repositories/activityRepo.js";
 import { bucketReminders } from "./agenda.js";
 import type { DesktopNotifier } from "./desktopNotifier.js";
+import type { TtsSynthesizer } from "./tts.js";
+import type { AudioPlayer } from "./audioPlayer.js";
+import { reminderDueLine, eventSoonLine, approvalNagLine } from "./voiceLines.js";
 
 /**
- * Scheduler (Step 11). Ticks on a fixed interval, detects newly-due reminders
- * and soon-starting events, dedup-inserts notification rows, logs activity, and
- * fires desktop toasts for net-new notifications.
+ * Scheduler (Step 11 + 13.2). Ticks on a fixed interval, detects newly-due
+ * reminders and soon-starting events, dedup-inserts notification rows, logs
+ * activity, fires desktop toasts, and optionally speaks a voice line on the
+ * backend speaker.
  *
  * Design choices:
  * - Pure date math only — NO Claude, NO approval queue, NO calendar writes.
- * - Dedup is enforced by the DB UNIQUE(kind, source_id) index — every reminder
- *   or event fires at most one notification regardless of how many ticks pass.
+ * - Dedup enforced by DB UNIQUE(kind, source_id) — each reminder/event fires
+ *   at most one notification regardless of tick count.
+ * - Voice: `runSchedulerTick` calls voice.synthesizer/player whenever `voice`
+ *   is provided. Flag gating (TTS_ENABLED / TTS_SPEAKER_ENABLED) lives in
+ *   index.ts (real wiring), not here — so tests can inject stubs without
+ *   setting env flags.
  * - Bad ticks are caught and logged; the interval is never stopped on error.
- * - `runSchedulerTick` is exported separately so smoke tests can drive it
- *   directly with a stubbed notifier without starting the real interval.
  */
 
 export interface SchedulerHandle {
   stop(): void;
 }
 
+/** Voice bundle injected for 13.2 backend speaker. */
+export interface SchedulerVoice {
+  synthesizer: TtsSynthesizer;
+  player: AudioPlayer;
+}
+
 /**
- * One scheduler tick. Pure side-effects (DB reads + writes + log + toast).
+ * In-memory nag state for Phase 13.3 approval nag.
+ * Resets on process restart (accepted — first qualifying tick re-nags).
+ *
+ * Map keys:
+ *   0 = global last-spoken timestamp (ms)
+ *   approvalId = presence marker for cleanup (value = time last nagged)
+ */
+export interface NagState {
+  lastNagAtMs: Map<number, number>;
+}
+
+export function createNagState(): NagState {
+  return { lastNagAtMs: new Map() };
+}
+
+/**
+ * Fire-and-forget: synthesize `text` with `voice`, write to a temp wav,
+ * hand it to the player, then clean up after 60 s.
+ * Swallows all errors — voice is always best-effort.
+ */
+async function speakLine(text: string, voice: SchedulerVoice): Promise<void> {
+  try {
+    const wav = await voice.synthesizer.synthesize(text);
+    if (!wav) return;
+    const wavPath = path.join(os.tmpdir(), `jarvis-sched-${randomUUID()}.wav`);
+    await writeFile(wavPath, wav);
+    voice.player.play(wavPath);
+    // Clean up the temp file after the player has had time to read it.
+    setTimeout(() => { unlink(wavPath).catch(() => {}); }, 60_000);
+  } catch {
+    // fail soft — voice never breaks the scheduler
+  }
+}
+
+/**
+ * One scheduler tick. Pure side-effects (DB reads + writes + log + toast + voice).
  * Safe to call at any time; wrapped in try/catch by `startScheduler`.
+ *
+ * `voice` is optional — when omitted the scheduler behaves exactly as Step 11.
+ * `nag` drives Phase 13.3 approval nag; ignored when voice is absent.
+ *
+ * Flag gating (TTS_ENABLED / TTS_SPEAKER_ENABLED) lives in index.ts — not here.
+ * This function calls voice.synthesizer/player whenever `voice` is provided so
+ * tests can inject stubs without setting env flags.
  */
 export function runSchedulerTick(
   now: Date,
   notifier: DesktopNotifier,
+  voice?: SchedulerVoice,
+  nag?: NagState,
 ): void {
   const nowUtc = now.toISOString();
 
   // --- Reminders: fire any that are now overdue (due_at <= now) ---
   const reminders = listReminders();
   const { overdue, today: dueToday } = bucketReminders(reminders, now);
-  // Fire both overdue AND those due right now (today bucket, due_at <= nowUtc).
   const dueNow = [
     ...overdue,
     ...dueToday.filter((r) => r.due_at <= nowUtc),
@@ -56,6 +121,9 @@ export function runSchedulerTick(
         `reminder.due id=${r.id} title=${JSON.stringify(r.title)}`,
       );
       notifier.notify(r.title, r.notes ?? undefined);
+      if (voice) {
+        void speakLine(reminderDueLine(r.title), voice);
+      }
     }
   }
 
@@ -82,6 +150,45 @@ export function runSchedulerTick(
         `event.soon id=${e.id} title=${JSON.stringify(e.title)}`,
       );
       notifier.notify(e.title, body);
+      if (voice) {
+        void speakLine(eventSoonLine(e.title, e.location ?? undefined), voice);
+      }
+    }
+  }
+
+  // --- Approval nag (Phase 13.3) ---
+  // Only runs when both voice and nag state are injected. No env-flag check here;
+  // index.ts withholds `voice` when TTS_SPEAKER_ENABLED is off.
+  if (voice && nag) {
+    const pending = listPendingApprovals();
+    const nowMs = now.getTime();
+    const due = pending.filter(
+      (a) => nowMs - Date.parse(a.created_at) >= TTS_APPROVAL_NAG_DELAY_MS,
+    );
+
+    if (due.length > 0) {
+      const lastNagAt = nag.lastNagAtMs.get(0);
+      if (lastNagAt === undefined || nowMs - lastNagAt >= TTS_APPROVAL_NAG_INTERVAL_MS) {
+        void speakLine(approvalNagLine(due.length), voice);
+        nag.lastNagAtMs.set(0, nowMs);
+        for (const a of due) {
+          nag.lastNagAtMs.set(a.id, nowMs);
+        }
+        logActivity("tts.approval_nag", `count=${due.length}`);
+      }
+    }
+
+    // Cleanup: remove per-id entries for resolved approvals;
+    // clear global timer when no due items remain so the next qualifying approval
+    // nags immediately rather than waiting out the previous interval.
+    const pendingIds = new Set(pending.map((a) => a.id));
+    for (const [key] of [...nag.lastNagAtMs]) {
+      if (key !== 0 && !pendingIds.has(key)) {
+        nag.lastNagAtMs.delete(key);
+      }
+    }
+    if (due.length === 0) {
+      nag.lastNagAtMs.delete(0);
     }
   }
 }
@@ -90,10 +197,16 @@ export function runSchedulerTick(
  * Start the background scheduler. Runs one tick immediately, then every
  * `SCHEDULER_INTERVAL_MS`. Returns a handle whose `stop()` clears the timer.
  */
-export function startScheduler(notifier: DesktopNotifier): SchedulerHandle {
+export function startScheduler(
+  notifier: DesktopNotifier,
+  voice?: SchedulerVoice,
+): SchedulerHandle {
+  // Nag state lives here; resets on restart (accepted per design).
+  const nag = createNagState();
+
   function tick(): void {
     try {
-      runSchedulerTick(new Date(), notifier);
+      runSchedulerTick(new Date(), notifier, voice, nag);
     } catch (err: unknown) {
       const detail = err instanceof Error ? err.message : String(err);
       try {

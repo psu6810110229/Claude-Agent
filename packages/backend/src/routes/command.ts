@@ -2,13 +2,11 @@ import type { FastifyInstance } from "fastify";
 import { commandRequestSchema } from "../schemas/command.js";
 import { parseCommand, HELP_EXAMPLES } from "../services/commandParser.js";
 import { actionPayloadSchemas, approvalSchema } from "../schemas/approval.js";
-import { createApproval } from "../db/repositories/approvalRepo.js";
+import { dispatchProposedAction } from "../services/actionDispatcher.js";
 import { logActivity } from "../db/repositories/activityRepo.js";
 import { runAiCommand } from "../services/aiCommand.js";
-import {
-  realClaudeInvoker,
-  type ClaudeInvoker,
-} from "../services/claudeClient.js";
+import type { ClaudeInvoker } from "../services/claudeClient.js";
+import { defaultInvoker } from "../services/aiProvider.js";
 
 /** Plugin options. `aiInvoker` is injectable so tests can stub Claude. */
 export interface CommandRouteOptions {
@@ -30,7 +28,7 @@ export async function commandRoutes(
   app: FastifyInstance,
   opts: CommandRouteOptions,
 ): Promise<void> {
-  const invoke = opts.aiInvoker ?? realClaudeInvoker;
+  const invoke = opts.aiInvoker ?? defaultInvoker();
 
   app.post("/api/command", async (req, reply) => {
     const body = commandRequestSchema.safeParse(req.body);
@@ -71,10 +69,14 @@ export async function commandRoutes(
       return reply.code(400).send({ kind: "error", error: message });
     }
 
-    const approval = createApproval(parsed.actionType, check.data);
+    const { mode: dispatchMode, approval } = await dispatchProposedAction(
+      parsed.actionType,
+      check.data,
+      "command",
+    );
     logActivity(
       "command.proposed",
-      `approval #${approval.id} (${approval.action_type}) from command`,
+      `approval #${approval.id} (${approval.action_type}) from command [${dispatchMode}]`,
     );
     return reply
       .code(201)
@@ -136,14 +138,18 @@ async function handleAiCommand(
   // Valid actions: each becomes a pending approval. Output was already validated
   // by the strict AI schema (which reuses actionPayloadSchemas), so the queue
   // and executor remain the single source of truth.
-  const approvals = result.actions.map((action) => {
-    const approval = createApproval(action.action_type, action.payload);
+  const dispatched = await Promise.all(
+    result.actions.map((action) =>
+      dispatchProposedAction(action.action_type, action.payload, "ai"),
+    ),
+  );
+  for (const d of dispatched) {
     logActivity(
       "ai.command.proposed",
-      `approval #${approval.id} (${approval.action_type}) from ai`,
+      `approval #${d.approval.id} (${d.approval.action_type}) from ai [${d.mode}]`,
     );
-    return approval;
-  });
+  }
+  const approvals = dispatched.map((d) => d.approval);
 
   return reply.code(201).send({ kind: "proposal", approvals, notes: result.notes });
 }

@@ -21,12 +21,17 @@ CREATE TABLE IF NOT EXISTS memory_index (
 );
 
 CREATE TABLE IF NOT EXISTS approval (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  action_type TEXT NOT NULL,
-  payload     TEXT,
-  status      TEXT NOT NULL DEFAULT 'pending',
-  created_at  TEXT NOT NULL,
-  updated_at  TEXT NOT NULL
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  action_type      TEXT NOT NULL,
+  payload          TEXT,
+  status           TEXT NOT NULL DEFAULT 'pending',
+  execution_status TEXT NOT NULL DEFAULT 'not_started',
+  executed_at      TEXT,
+  execution_error  TEXT,
+  result_summary   TEXT,
+  undo_json        TEXT,
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS activity_log (
@@ -38,7 +43,9 @@ CREATE TABLE IF NOT EXISTS activity_log (
 
 -- Step 9 — local events & reminders. All datetimes are ISO 8601 UTC TEXT,
 -- generated/validated by the application layer (see schemas/event, schemas/reminder).
--- status is 'scheduled'/'active' until soft-archived ('archived'); never hard-deleted.
+-- event.status is 'scheduled' until soft-archived ('archived'); never hard-deleted.
+-- reminder.status is 'active' until 'done' (completed) or 'archived' (filed away);
+-- 'done' and 'archived' are distinct meanings and both leave the active views.
 CREATE TABLE IF NOT EXISTS event (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   title      TEXT NOT NULL,

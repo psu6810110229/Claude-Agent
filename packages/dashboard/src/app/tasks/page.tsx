@@ -8,26 +8,55 @@ import {
   listTasks,
   updateTask,
 } from "@/lib/api";
-import { useResource } from "@/lib/useResource";
+import { useData } from "@/lib/useData";
 import { formatTs } from "@/lib/format";
-import { ErrorBanner, Loading, Empty } from "@/components/States";
+import { ErrorBanner, Empty } from "@/components/States";
+import { CommandBar } from "@/components/CommandBar";
+import { useToast } from "@/components/ToastProvider";
 import type { Task } from "@/lib/types";
 
+type ToastSuccess = {
+  title: string;
+  description?: string;
+  kind?: "success" | "info" | "warning" | "error";
+};
+
+function TasksSkeleton() {
+  return (
+    <div className="panel">
+      {[80, 60, 75, 50].map((w, i) => (
+        <div className="row" key={i}>
+          <span className="skel" style={{ width: 52, height: 22, flexShrink: 0 }} />
+          <span className="skel" style={{ flex: 1, height: 15, margin: "0 8px" }} />
+          <span className="skel" style={{ width: `${w}px`, height: 13, flexShrink: 0 }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function TasksPage() {
-  const { data: tasks, loading, error, reload } = useResource(listTasks);
+  const { notify } = useToast();
+  const { data: tasks, loading, error, reload } = useData("/api/tasks", listTasks);
 
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  async function run(fn: () => Promise<unknown>) {
+  async function run(fn: () => Promise<unknown>, success?: ToastSuccess) {
     setBusy(true);
     setActionError(null);
     try {
       await fn();
       reload();
+      if (success) notify({ kind: "success", ...success });
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : String(err));
+      notify({
+        kind: "error",
+        title: "Action failed",
+        description: err instanceof ApiError ? err.message : String(err),
+      });
     } finally {
       setBusy(false);
     }
@@ -40,6 +69,18 @@ export default function TasksPage() {
     await run(async () => {
       await createTask(t);
       setTitle("");
+    }, {
+      title: "Created",
+      description: t,
+    });
+  }
+
+  function handleProposed() {
+    reload();
+    notify({
+      kind: "warning",
+      title: "มีงานรอ approve",
+      description: "ตรวจ proposal ก่อนให้ระบบทำงานต่อ",
     });
   }
 
@@ -52,6 +93,10 @@ export default function TasksPage() {
           <p className="lede">Open, complete, edit, and archive local tasks.</p>
         </div>
       </header>
+
+      <div className="section">
+        <CommandBar onProposed={handleProposed} />
+      </div>
 
       <form className="composer" onSubmit={onCreate}>
         <input
@@ -74,19 +119,60 @@ export default function TasksPage() {
       )}
 
       <div className="stack">
-        {loading && <Loading />}
+        {loading && <TasksSkeleton />}
         {error && <ErrorBanner message={error} onRetry={reload} />}
         {tasks && tasks.length === 0 && <Empty label="No tasks yet." />}
 
         {tasks && tasks.length > 0 && (
-          <div className="panel">
-            {tasks.map((task) => (
-              <TaskRow key={task.id} task={task} busy={busy} run={run} />
-            ))}
-          </div>
+          <>
+            <TaskGroup
+              label="Active"
+              tasks={tasks.filter((t) => t.status === "open")}
+              busy={busy}
+              run={run}
+            />
+            <TaskGroup
+              label="Done"
+              tasks={tasks.filter((t) => t.status === "done")}
+              busy={busy}
+              run={run}
+            />
+            <TaskGroup
+              label="Archived"
+              tasks={tasks.filter((t) => t.status === "archived")}
+              busy={busy}
+              run={run}
+            />
+          </>
         )}
       </div>
     </>
+  );
+}
+
+function TaskGroup({
+  label,
+  tasks,
+  busy,
+  run,
+}: {
+  label: string;
+  tasks: Task[];
+  busy: boolean;
+  run: (fn: () => Promise<unknown>, success?: ToastSuccess) => Promise<void>;
+}) {
+  if (tasks.length === 0) return null;
+  return (
+    <section className="section">
+      <p className="page-kicker">
+        {label} ({tasks.length})
+      </p>
+      <div className="panel">
+        {tasks.map((task) => (
+          <TaskRow key={task.id} task={task} busy={busy} run={run} />
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -97,7 +183,7 @@ function TaskRow({
 }: {
   task: Task;
   busy: boolean;
-  run: (fn: () => Promise<unknown>) => Promise<void>;
+  run: (fn: () => Promise<unknown>, success?: ToastSuccess) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(task.title);
@@ -109,13 +195,19 @@ function TaskRow({
       setEditing(false);
       return;
     }
-    await run(() => updateTask(task.id, { title: t }));
+    await run(() => updateTask(task.id, { title: t }), {
+      title: "Edited",
+      description: t,
+    });
     setEditing(false);
   }
 
   function toggleStatus() {
     const next = task.status === "done" ? "open" : "done";
-    return run(() => updateTask(task.id, { status: next }));
+    return run(() => updateTask(task.id, { status: next }), {
+      title: next === "done" ? "Done" : "Reopened",
+      description: task.title,
+    });
   }
 
   return (
@@ -158,7 +250,12 @@ function TaskRow({
           <button
             type="button"
             className="danger"
-            onClick={() => run(() => archiveTask(task.id))}
+            onClick={() =>
+              run(() => archiveTask(task.id), {
+                title: "Deleted",
+                description: task.title,
+              })
+            }
             disabled={busy}
           >
             Archive

@@ -2,13 +2,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-// Throwaway memory dir + AI/Google disabled BEFORE importing config-dependent
-// modules. We inject stub invokers/fetchers; the real Claude binary and the real
-// Google API are NEVER reached in this test.
-const TEST_MEMORY_DIR = fs.mkdtempSync(
-  path.join(os.tmpdir(), "claude-agent-step10-"),
-);
+// Throwaway memory dir + temp DB + AI/Google disabled BEFORE importing
+// config-dependent modules. We inject stub invokers/fetchers; the real Claude
+// binary and the real Google API are NEVER reached in this test. The temp DB
+// matters: runtime Settings toggles store config overrides in the real DB
+// (e.g. google_calendar_enabled) which would beat the env flags below.
+const TEST_TMP = fs.mkdtempSync(path.join(os.tmpdir(), "claude-agent-step10-"));
+const TEST_MEMORY_DIR = path.join(TEST_TMP, "memory");
+fs.mkdirSync(TEST_MEMORY_DIR, { recursive: true });
 process.env.CLAUDE_AGENT_MEMORY_DIR = TEST_MEMORY_DIR;
+process.env.CLAUDE_AGENT_DB_PATH = path.join(TEST_TMP, "test.db");
 process.env.CLAUDE_AGENT_AI_ENABLED = "";
 process.env.GOOGLE_CALENDAR_ENABLED = "";
 
@@ -39,7 +42,8 @@ async function main(): Promise<void> {
     "../src/services/googleCalendar.js"
   );
 
-  // --- 0. The allowlist contains only the create Google Calendar action ---
+  // --- 0. The allowlist has the Google Calendar write actions (Step 14 added
+  // update/delete); unrelated/legacy names stay absent. ---
   const actionTypes = (actionTypeSchema as any).options as string[];
   const forbidden = [
     "calendar.create",
@@ -47,14 +51,14 @@ async function main(): Promise<void> {
     "calendar.delete",
     "calendar.event.create",
     "gcal.create",
-    "google_event.update",
-    "google_event.delete",
     "google_event.archive",
   ];
   assert(
     actionTypes.includes("google_event.create") &&
+      actionTypes.includes("google_event.update") &&
+      actionTypes.includes("google_event.delete") &&
       forbidden.every((t) => !actionTypes.includes(t)),
-    "allowlist has create-only Google Calendar write action type",
+    "allowlist has Google Calendar create/update/delete write action types",
   );
   assert(
     GOOGLE_CALENDAR_SCOPES.length === 1 &&
@@ -62,6 +66,10 @@ async function main(): Promise<void> {
         "https://www.googleapis.com/auth/calendar.events",
     "Google OAuth scope is limited to Calendar events",
   );
+
+  // initDb() before the disabled-gate check: isGoogleCalendarEnabled() reads
+  // the config table (runtime Settings overrides), which must exist.
+  initDb();
 
   // --- 1. Disabled (real fetcher, flag off) fails closed with 'disabled' ---
   let disabledThrew = false;
@@ -75,8 +83,6 @@ async function main(): Promise<void> {
       err instanceof GoogleCalendarError && err.reason === "disabled";
   }
   assert(disabledThrew, "real fetcher fails closed when disabled");
-
-  initDb();
 
   // --- Stub Google fetcher returns one timed + one all-day event ---
   const stubEvents = [

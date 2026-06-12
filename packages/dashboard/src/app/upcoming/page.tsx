@@ -1,9 +1,9 @@
 "use client";
 
 import { getCalendarUpcoming, listEvents, listReminders } from "@/lib/api";
-import { useResource } from "@/lib/useResource";
+import { useData } from "@/lib/useData";
 import { bucketEvents, bucketReminders } from "@/lib/agenda";
-import { ErrorBanner, Loading } from "@/components/States";
+import { ErrorBanner } from "@/components/States";
 import { EventList, GoogleEventList, ReminderList } from "@/components/Agenda";
 import type {
   CalendarEvent,
@@ -24,8 +24,27 @@ async function loadUpcoming(): Promise<{
   return { calendar, events, reminders };
 }
 
+function UpcomingSkeleton() {
+  return (
+    <div className="stack">
+      {[3, 4, 3].map((rowCount, si) => (
+        <section className="section" key={si}>
+          <span className="skel" style={{ display: "block", width: 180, height: 19, marginBottom: 14 }} />
+          {Array.from({ length: rowCount }).map((_, i) => (
+            <div className="row" key={i} style={{ marginBottom: 8 }}>
+              <span className="skel" style={{ width: 65, height: 13, flexShrink: 0 }} />
+              <span className="skel" style={{ flex: 1, height: 13, margin: "0 8px" }} />
+              <span className="skel" style={{ width: 48, height: 13, flexShrink: 0 }} />
+            </div>
+          ))}
+        </section>
+      ))}
+    </div>
+  );
+}
+
 export default function UpcomingPage() {
-  const { data, loading, error, reload } = useResource(loadUpcoming);
+  const { data, loading, error, reload } = useData("/api/upcoming", loadUpcoming);
 
   return (
     <>
@@ -38,7 +57,7 @@ export default function UpcomingPage() {
       </header>
 
       <div className="stack">
-        {loading && <Loading />}
+        {loading && <UpcomingSkeleton />}
         {error && <ErrorBanner message={error} onRetry={reload} />}
 
         {data && (
