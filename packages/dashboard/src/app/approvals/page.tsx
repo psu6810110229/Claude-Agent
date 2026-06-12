@@ -10,6 +10,7 @@ import {
 import { useData } from "@/lib/useData";
 import { formatTs } from "@/lib/format";
 import { ErrorBanner, Empty } from "@/components/States";
+import { useToast } from "@/components/ToastProvider";
 import type { Approval } from "@/lib/types";
 
 function ApprovalsSkeleton() {
@@ -31,20 +32,34 @@ function ApprovalsSkeleton() {
 }
 
 export default function ApprovalsPage() {
+  const { notify } = useToast();
   const { data: approvals, loading, error, reload } =
     useData("/api/approvals", listApprovals);
 
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  async function run(fn: () => Promise<unknown>) {
+  async function run(fn: () => Promise<unknown>, success: "approve" | "reject") {
     setBusy(true);
     setActionError(null);
     try {
       await fn();
       reload();
+      notify({
+        kind: success === "approve" ? "success" : "info",
+        title: success === "approve" ? "Approved" : "Rejected",
+        description:
+          success === "approve"
+            ? "ดำเนินการที่อนุมัติแล้ว"
+            : "ยกเลิกงานที่รออนุมัติแล้ว",
+      });
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : String(err));
+      notify({
+        kind: "error",
+        title: "Approval failed",
+        description: err instanceof ApiError ? err.message : String(err),
+      });
     } finally {
       setBusy(false);
     }
@@ -86,7 +101,7 @@ function ApprovalCard({
 }: {
   approval: Approval;
   busy: boolean;
-  run: (fn: () => Promise<unknown>) => Promise<void>;
+  run: (fn: () => Promise<unknown>, success: "approve" | "reject") => Promise<void>;
 }) {
   const pending = approval.status === "pending";
   return (
@@ -103,7 +118,7 @@ function ApprovalCard({
             <button
               type="button"
               className="primary"
-              onClick={() => run(() => approveApproval(approval.id))}
+              onClick={() => run(() => approveApproval(approval.id), "approve")}
               disabled={busy}
             >
               Approve
@@ -111,7 +126,7 @@ function ApprovalCard({
             <button
               type="button"
               className="danger"
-              onClick={() => run(() => rejectApproval(approval.id))}
+              onClick={() => run(() => rejectApproval(approval.id), "reject")}
               disabled={busy}
             >
               Reject

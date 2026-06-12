@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ApiError, getSettings, updateSetting } from "@/lib/api";
 import { useData } from "@/lib/useData";
 import { ErrorBanner } from "@/components/States";
+import { useToast } from "@/components/ToastProvider";
 import type { Setting } from "@/lib/types";
 
 function SettingsSkeleton() {
@@ -27,6 +28,7 @@ function SettingsSkeleton() {
 }
 
 export default function SettingsPage() {
+  const { notify } = useToast();
   const { data, loading, error, reload } = useData("/api/settings", getSettings);
 
   return (
@@ -45,7 +47,7 @@ export default function SettingsPage() {
       {data && (
         <div className="panel">
           {data.map((s) => (
-            <SettingRow key={s.key} setting={s} onChanged={reload} />
+            <SettingRow key={s.key} setting={s} onChanged={reload} notify={notify} />
           ))}
         </div>
       )}
@@ -56,9 +58,15 @@ export default function SettingsPage() {
 function SettingRow({
   setting,
   onChanged,
+  notify,
 }: {
   setting: Setting;
   onChanged: () => void;
+  notify: (toast: {
+    title: string;
+    description?: string;
+    kind?: "success" | "info" | "warning" | "error";
+  }) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -68,10 +76,21 @@ function SettingRow({
     setBusy(true);
     setErr(null);
     try {
-      await updateSetting(setting.key, !setting.enabled);
+      const nextEnabled = !setting.enabled;
+      await updateSetting(setting.key, nextEnabled);
       onChanged();
+      notify({
+        kind: "success",
+        title: nextEnabled ? "Enabled" : "Disabled",
+        description: setting.label,
+      });
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : String(e));
+      notify({
+        kind: "error",
+        title: "Setting failed",
+        description: e instanceof ApiError ? e.message : String(e),
+      });
     } finally {
       setBusy(false);
     }

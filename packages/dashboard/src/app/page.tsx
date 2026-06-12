@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import {
   ApiError,
+  approveApproval,
   generateDailyBrief,
   generateEveningBrief,
   getChatHistory,
+  listApprovals,
+  rejectApproval,
   resetChat,
   sendChat,
 } from "@/lib/api";
@@ -15,7 +17,14 @@ import { formatTs } from "@/lib/format";
 import { ErrorBanner } from "@/components/States";
 import { Orb, type OrbState } from "@/components/Orb";
 import { JarvisInput } from "@/components/JarvisInput";
-import type { BriefResult, BriefType, ChatMessage, ChatResult } from "@/lib/types";
+import { useToast } from "@/components/ToastProvider";
+import type {
+  ActionType,
+  Approval,
+  BriefResult,
+  BriefType,
+  ChatMessage,
+} from "@/lib/types";
 
 /** Time-of-day greeting in the user's timezone (Asia/Bangkok). */
 function greetingNow(): string {
@@ -32,46 +41,61 @@ function greetingNow(): string {
   return "Good evening";
 }
 
+type ApprovalMap = Record<number, Approval>;
+
 export default function HomePage() {
+  const { notify } = useToast();
   const [greeting, setGreeting] = useState<string | null>(null);
   const [orbState, setOrbState] = useState<OrbState>("idle");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [approvalMap, setApprovalMap] = useState<ApprovalMap>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [briefBusy, setBriefBusy] = useState<BriefType | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [lastResult, setLastResult] = useState<ChatResult | BriefResult | null>(null);
+  const [approvalBusy, setApprovalBusy] = useState<number | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [confirmingReset, setConfirmingReset] = useState(false);
   const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const hasConversation = messages.length > 0 || sending || briefBusy !== null;
 
   useEffect(() => {
     setGreeting(greetingNow());
   }, []);
 
   useEffect(() => {
-    getChatHistory(100)
-      .then((msgs) => {
+    Promise.all([getChatHistory(100), listApprovals()])
+      .then(([msgs, approvals]) => {
         setMessages(msgs);
+        setApprovalMap(indexApprovals(approvals));
+        const pendingCount = approvals.filter((a) => a.status === "pending").length;
+        if (pendingCount > 0) {
+          notify({
+            kind: "warning",
+            title: "มีงานรอ approve",
+            description: `${pendingCount} รายการต้องตัดสินใจก่อนทำงานต่อ`,
+          });
+        }
         setLoading(false);
       })
       .catch((err) => {
         setLoadError(err instanceof ApiError ? err.message : String(err));
         setLoading(false);
       });
-  }, []);
+  }, [notify]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, sending]);
+  }, [messages, sending, briefBusy]);
 
   async function doSend(text: string) {
     if (briefBusy) return;
     setOrbState("thinking");
     setSending(true);
     setSendError(null);
-    setLastResult(null);
     setLastFailedMessage(null);
 
     const optimisticUser: ChatMessage = {
@@ -87,13 +111,21 @@ export default function HomePage() {
 
     try {
       const result = await sendChat(text);
-      setLastResult(result);
+      if (result.approvals.length > 0) {
+        mergeApprovals(result.approvals);
+        notifyPendingApprovals(result.approvals.length);
+      }
       const updated = await getChatHistory(100);
       setMessages(updated);
     } catch (err) {
       setMessages((prev) => prev.filter((m) => m.id !== optimisticUser.id));
       setSendError(err instanceof ApiError ? err.message : String(err));
       setLastFailedMessage(text);
+      notify({
+        kind: "error",
+        title: "ส่งข้อความไม่สำเร็จ",
+        description: err instanceof ApiError ? err.message : String(err),
+      });
     } finally {
       setSending(false);
       setOrbState("idle");
@@ -105,7 +137,6 @@ export default function HomePage() {
     setOrbState("thinking");
     setBriefBusy(type);
     setSendError(null);
-    setLastResult(null);
     setLastFailedMessage(null);
 
     try {
@@ -113,13 +144,63 @@ export default function HomePage() {
         type === "daily"
           ? await generateDailyBrief()
           : await generateEveningBrief();
-      setLastResult(result);
+      if (result.approvals.length > 0) {
+        mergeApprovals(result.approvals);
+        notifyPendingApprovals(result.approvals.length);
+      }
       setMessages((prev) => [...prev, briefToMessage(result)]);
     } catch (err) {
       setSendError(err instanceof ApiError ? err.message : String(err));
+      notify({
+        kind: "error",
+        title: "สร้าง brief ไม่สำเร็จ",
+        description: err instanceof ApiError ? err.message : String(err),
+      });
     } finally {
       setBriefBusy(null);
       setOrbState("idle");
+    }
+  }
+
+  function mergeApprovals(approvals: Approval[]) {
+    setApprovalMap((prev) => ({ ...prev, ...indexApprovals(approvals) }));
+  }
+
+  function notifyPendingApprovals(count: number) {
+    notify({
+      kind: "warning",
+      title: "มีงานรอ approve",
+      description: `${count} รายการพร้อมให้ตรวจและตัดสินใจ`,
+    });
+  }
+
+  async function runApproval(id: number, decision: "approve" | "reject") {
+    if (approvalBusy) return;
+    setApprovalBusy(id);
+    setSendError(null);
+    try {
+      const updated =
+        decision === "approve"
+          ? await approveApproval(id)
+          : await rejectApproval(id);
+      mergeApprovals([updated]);
+      notify({
+        kind: decision === "approve" ? "success" : "info",
+        title: decision === "approve" ? "Approved" : "Rejected",
+        description:
+          decision === "approve"
+            ? "ดำเนินการที่อนุมัติแล้ว"
+            : "ยกเลิกงานที่รออนุมัติแล้ว",
+      });
+    } catch (err) {
+      setSendError(err instanceof ApiError ? err.message : String(err));
+      notify({
+        kind: "error",
+        title: "ทำรายการไม่สำเร็จ",
+        description: err instanceof ApiError ? err.message : String(err),
+      });
+    } finally {
+      setApprovalBusy(null);
     }
   }
 
@@ -128,28 +209,42 @@ export default function HomePage() {
     await doSend(lastFailedMessage);
   }
 
-  async function onNewSession() {
+  function requestNewSession() {
     if (sending || briefBusy || resetting) return;
-    if (!window.confirm("Archive this session and start fresh? Old messages are kept in the DB but won't appear in chat or be sent to Claude.")) return;
+    setConfirmingReset(true);
+  }
+
+  async function confirmNewSession() {
+    if (sending || briefBusy || resetting) return;
     setResetting(true);
     try {
       await resetChat();
       setMessages([]);
-      setLastResult(null);
       setSendError(null);
+      setConfirmingReset(false);
+      notify({
+        kind: "success",
+        title: "New session",
+        description: "เริ่มบทสนทนาใหม่แล้ว",
+      });
     } catch (err) {
       setSendError(err instanceof ApiError ? err.message : String(err));
+      notify({
+        kind: "error",
+        title: "เริ่ม session ใหม่ไม่สำเร็จ",
+        description: err instanceof ApiError ? err.message : String(err),
+      });
     } finally {
       setResetting(false);
     }
   }
 
   return (
-    <div className="jarvis-home">
+    <div className={`jarvis-home ${hasConversation ? "has-conversation" : ""}`}>
       <div className="jarvis-session-bar">
         <button
           className="secondary"
-          onClick={onNewSession}
+          onClick={requestNewSession}
           disabled={sending || briefBusy !== null || resetting}
           title="Archive this session - old messages stay in DB but won't be sent to Claude"
         >
@@ -158,36 +253,39 @@ export default function HomePage() {
       </div>
 
       <div className="jarvis-stage">
-        <Orb state={orbState} />
+        {!hasConversation && !loading && (
+          <div className="jarvis-welcome">
+            <Orb state={orbState} />
 
-        <motion.div
-          className="jarvis-greeting"
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ type: "spring", stiffness: 70, damping: 18, delay: 0.15 }}
-        >
-          <h1 className={greeting ? "" : "pending"}>
-            {greeting ?? "Hello"}, Fran.
-          </h1>
-          <p>How can I help you today?</p>
-        </motion.div>
+            <motion.div
+              className="jarvis-greeting"
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ type: "spring", stiffness: 70, damping: 18, delay: 0.15 }}
+            >
+              <h1 className={greeting ? "" : "pending"}>
+                {greeting ?? "Hello"}, Fran.
+              </h1>
+              <p>How can I help you today?</p>
+            </motion.div>
+          </div>
+        )}
 
         <div className="chat-layout home-chat">
-          <div className="chat-messages panel">
+          <div className="chat-messages">
             {loading && <ChatSkeleton />}
             {loadError && (
               <ErrorBanner message={loadError} onRetry={() => window.location.reload()} />
             )}
 
-            {!loading && messages.length === 0 && (
-              <div className="chat-empty">
-                Start a conversation. Ask what is on your plate, set a reminder,
-                or create a task.
-              </div>
-            )}
-
             {messages.map((msg) => (
-              <ChatBubble key={msg.id} msg={msg} />
+              <ChatBubble
+                key={msg.id}
+                msg={msg}
+                approvalMap={approvalMap}
+                approvalBusy={approvalBusy}
+                onApproval={runApproval}
+              />
             ))}
 
             {sending && (
@@ -208,16 +306,6 @@ export default function HomePage() {
 
             <div ref={bottomRef} />
           </div>
-
-          {lastResult && lastResult.approvals.length > 0 && (
-            <div className="chat-notice">
-              <strong>{lastResult.approvals.length} proposal(s) queued</strong>
-              {" - "}
-              <Link href="/approvals" className="section-link">
-                Review in Approvals
-              </Link>
-            </div>
-          )}
 
           {sendError && <ErrorBanner message={sendError} onRetry={onRetry} />}
         </div>
@@ -241,6 +329,74 @@ export default function HomePage() {
           }
         />
       </motion.div>
+
+      {confirmingReset && (
+        <SessionConfirmDialog
+          busy={resetting}
+          onCancel={() => setConfirmingReset(false)}
+          onConfirm={confirmNewSession}
+        />
+      )}
+    </div>
+  );
+}
+
+function SessionConfirmDialog({
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  useEffect(() => {
+    if (busy) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onCancel();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [busy, onCancel]);
+
+  return (
+    <div
+      className="jarvis-dialog-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) onCancel();
+      }}
+    >
+      <section
+        className="jarvis-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="session-dialog-title"
+        aria-describedby="session-dialog-desc"
+      >
+        <div className="jarvis-dialog-orb" aria-hidden="true" />
+        <div className="jarvis-dialog-copy">
+          <p className="page-kicker">Session</p>
+          <h3 id="session-dialog-title">Start a new session?</h3>
+          <p id="session-dialog-desc">
+            Current messages will be archived. They stay in the database, but
+            they will not appear in this chat or be sent to Claude.
+          </p>
+        </div>
+        <div className="jarvis-dialog-actions">
+          <button type="button" onClick={onCancel} disabled={busy} autoFocus>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="primary"
+            onClick={onConfirm}
+            disabled={busy}
+          >
+            {busy ? "Starting..." : "New session"}
+          </button>
+        </div>
+      </section>
     </div>
   );
 }
@@ -288,7 +444,17 @@ function ChatSkeleton() {
   );
 }
 
-function ChatBubble({ msg }: { msg: ChatMessage }) {
+function ChatBubble({
+  msg,
+  approvalMap,
+  approvalBusy,
+  onApproval,
+}: {
+  msg: ChatMessage;
+  approvalMap: ApprovalMap;
+  approvalBusy: number | null;
+  onApproval: (id: number, decision: "approve" | "reject") => void;
+}) {
   const isUser = msg.role === "user";
   const actions = parseActions(msg.actions_json);
 
@@ -298,26 +464,231 @@ function ChatBubble({ msg }: { msg: ChatMessage }) {
         <span className="chat-role">{isUser ? "You" : "Jarvis"}</span>
         <span className="ts">{formatTs(msg.created_at)}</span>
       </div>
-      <div className="chat-content">{msg.content}</div>
+      <RichText text={msg.content} />
       {actions.length > 0 && (
-        <div className="chat-actions-note">
-          Queued {actions.length} proposal(s):{" "}
-          {actions.map((a: { action_type: string }) => a.action_type).join(", ")}{" "}
-          -{" "}
-          <Link href="/approvals" className="section-link">
-            Approvals
-          </Link>
+        <div className="chat-approval-stack">
+          {actions.map((action) => (
+            <InlineApproval
+              key={action.id}
+              action={action}
+              approval={approvalMap[action.id]}
+              busy={approvalBusy === action.id}
+              onApproval={onApproval}
+            />
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-function parseActions(actionsJson: string | null): { action_type: string }[] {
+function InlineApproval({
+  action,
+  approval,
+  busy,
+  onApproval,
+}: {
+  action: ActionRef;
+  approval: Approval | undefined;
+  busy: boolean;
+  onApproval: (id: number, decision: "approve" | "reject") => void;
+}) {
+  const status = approval?.status ?? "pending";
+  const copy = approvalCopy(approval ?? action);
+  const disabled = status !== "pending" || busy;
+
+  return (
+    <div className={`chat-approval ${status}`}>
+      <span>{copy.question}</span>
+      {status === "pending" ? (
+        <div className="chat-approval-actions">
+          <button
+            type="button"
+            className="primary"
+            disabled={disabled}
+            onClick={() => onApproval(action.id, "approve")}
+          >
+            {busy ? "..." : copy.approve}
+          </button>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onApproval(action.id, "reject")}
+          >
+            {copy.reject}
+          </button>
+        </div>
+      ) : (
+        <span className={`badge ${status}`}>{status}</span>
+      )}
+    </div>
+  );
+}
+
+function RichText({ text }: { text: string }) {
+  const blocks = text.split(/\n{2,}/);
+  return (
+    <div className="chat-content">
+      {blocks.map((block, blockIndex) => (
+        <p className="rt-block" key={blockIndex}>
+          {block.split("\n").map((line, lineIndex) => (
+            <Fragment key={`${blockIndex}-${lineIndex}`}>
+              {lineIndex > 0 && <br />}
+              {renderInline(line)}
+            </Fragment>
+          ))}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function renderInline(text: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const token = /(<u>[\s\S]+?<\/u>|\+\+[\s\S]+?\+\+|\*\*[\s\S]+?\*\*|\*[^*\n]+?\*|_[^_\n]+?_)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = token.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+
+    const raw = match[0];
+    const key = `${match.index}-${raw}`;
+    if (raw.startsWith("**")) {
+      nodes.push(<strong key={key}>{raw.slice(2, -2)}</strong>);
+    } else if (raw.startsWith("<u>")) {
+      nodes.push(<u key={key}>{raw.slice(3, -4)}</u>);
+    } else if (raw.startsWith("++")) {
+      nodes.push(<u key={key}>{raw.slice(2, -2)}</u>);
+    } else {
+      nodes.push(<em key={key}>{raw.slice(1, -1)}</em>);
+    }
+    lastIndex = match.index + raw.length;
+  }
+
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes;
+}
+
+interface ActionRef {
+  id: number;
+  action_type: ActionType;
+  payload?: unknown;
+}
+
+function parseActions(actionsJson: string | null): ActionRef[] {
   if (!actionsJson) return [];
   try {
-    return JSON.parse(actionsJson) as { action_type: string }[];
+    const parsed = JSON.parse(actionsJson) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item) => {
+      if (!isActionRef(item)) return [];
+      return [item];
+    });
   } catch {
     return [];
   }
+}
+
+function isActionRef(value: unknown): value is ActionRef {
+  if (typeof value !== "object" || value == null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.id === "number" &&
+    typeof record.action_type === "string" &&
+    isActionType(record.action_type)
+  );
+}
+
+function isActionType(value: string): value is ActionType {
+  return [
+    "task.create",
+    "task.update",
+    "task.archive",
+    "memory.write",
+    "event.create",
+    "event.update",
+    "event.archive",
+    "reminder.create",
+    "reminder.update",
+    "reminder.archive",
+    "google_event.create",
+  ].includes(value);
+}
+
+function indexApprovals(approvals: Approval[]): ApprovalMap {
+  return Object.fromEntries(approvals.map((approval) => [approval.id, approval]));
+}
+
+function approvalCopy(action: Pick<ActionRef, "action_type" | "payload">) {
+  const payload = asRecord(action.payload);
+  const title = stringField(payload, "title");
+  const target = stringField(payload, "summary") ?? stringField(payload, "target");
+  const time = stringField(payload, "starts_at") ?? stringField(payload, "due_at");
+  const detail = [title, time ? formatTs(time) : null].filter(Boolean).join(" - ");
+
+  switch (action.action_type) {
+    case "google_event.create":
+    case "event.create":
+      return {
+        question: `ต้องการสร้าง${detail ? ` "${detail}"` : "อีเวนต์นี้"} ไหม`,
+        approve: "สร้าง",
+        reject: "ไม่สร้าง",
+      };
+    case "task.create":
+      return {
+        question: `ต้องการสร้าง${title ? ` "${title}"` : "งานนี้"} ไหม`,
+        approve: "สร้าง",
+        reject: "ไม่สร้าง",
+      };
+    case "reminder.create":
+      return {
+        question: `ต้องการสร้าง${detail ? ` "${detail}"` : "reminder นี้"} ไหม`,
+        approve: "สร้าง",
+        reject: "ไม่สร้าง",
+      };
+    case "memory.write":
+      return {
+        question: `ต้องการบันทึก${target ? ` "${target}"` : "ความจำนี้"} ไหม`,
+        approve: "บันทึก",
+        reject: "ไม่บันทึก",
+      };
+    case "task.update":
+    case "event.update":
+    case "reminder.update":
+      return {
+        question: "ต้องการอัปเดตรายการนี้ไหม",
+        approve: "อัปเดต",
+        reject: "ไม่อัปเดต",
+      };
+    case "task.archive":
+    case "event.archive":
+    case "reminder.archive":
+      return {
+        question: "ต้องการเก็บรายการนี้ถาวรไหม",
+        approve: "เก็บ",
+        reject: "ไม่เก็บ",
+      };
+    default:
+      return {
+        question: "ต้องการดำเนินการนี้ไหม",
+        approve: "ตกลง",
+        reject: "ไม่ทำ",
+      };
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== "object" || value == null) return undefined;
+  return value as Record<string, unknown>;
+}
+
+function stringField(
+  record: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
+  const value = record?.[key];
+  return typeof value === "string" && value.trim() ? value : undefined;
 }

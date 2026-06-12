@@ -12,7 +12,14 @@ import { useData } from "@/lib/useData";
 import { formatTs } from "@/lib/format";
 import { ErrorBanner, Empty } from "@/components/States";
 import { CommandBar } from "@/components/CommandBar";
+import { useToast } from "@/components/ToastProvider";
 import type { Task } from "@/lib/types";
+
+type ToastSuccess = {
+  title: string;
+  description?: string;
+  kind?: "success" | "info" | "warning" | "error";
+};
 
 function TasksSkeleton() {
   return (
@@ -29,20 +36,27 @@ function TasksSkeleton() {
 }
 
 export default function TasksPage() {
+  const { notify } = useToast();
   const { data: tasks, loading, error, reload } = useData("/api/tasks", listTasks);
 
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  async function run(fn: () => Promise<unknown>) {
+  async function run(fn: () => Promise<unknown>, success?: ToastSuccess) {
     setBusy(true);
     setActionError(null);
     try {
       await fn();
       reload();
+      if (success) notify({ kind: "success", ...success });
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : String(err));
+      notify({
+        kind: "error",
+        title: "Action failed",
+        description: err instanceof ApiError ? err.message : String(err),
+      });
     } finally {
       setBusy(false);
     }
@@ -55,6 +69,18 @@ export default function TasksPage() {
     await run(async () => {
       await createTask(t);
       setTitle("");
+    }, {
+      title: "Created",
+      description: t,
+    });
+  }
+
+  function handleProposed() {
+    reload();
+    notify({
+      kind: "warning",
+      title: "มีงานรอ approve",
+      description: "ตรวจ proposal ก่อนให้ระบบทำงานต่อ",
     });
   }
 
@@ -69,7 +95,7 @@ export default function TasksPage() {
       </header>
 
       <div className="section">
-        <CommandBar onProposed={reload} />
+        <CommandBar onProposed={handleProposed} />
       </div>
 
       <form className="composer" onSubmit={onCreate}>
@@ -116,7 +142,7 @@ function TaskRow({
 }: {
   task: Task;
   busy: boolean;
-  run: (fn: () => Promise<unknown>) => Promise<void>;
+  run: (fn: () => Promise<unknown>, success?: ToastSuccess) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(task.title);
@@ -128,13 +154,19 @@ function TaskRow({
       setEditing(false);
       return;
     }
-    await run(() => updateTask(task.id, { title: t }));
+    await run(() => updateTask(task.id, { title: t }), {
+      title: "Edited",
+      description: t,
+    });
     setEditing(false);
   }
 
   function toggleStatus() {
     const next = task.status === "done" ? "open" : "done";
-    return run(() => updateTask(task.id, { status: next }));
+    return run(() => updateTask(task.id, { status: next }), {
+      title: next === "done" ? "Done" : "Reopened",
+      description: task.title,
+    });
   }
 
   return (
@@ -177,7 +209,12 @@ function TaskRow({
           <button
             type="button"
             className="danger"
-            onClick={() => run(() => archiveTask(task.id))}
+            onClick={() =>
+              run(() => archiveTask(task.id), {
+                title: "Deleted",
+                description: task.title,
+              })
+            }
             disabled={busy}
           >
             Archive
