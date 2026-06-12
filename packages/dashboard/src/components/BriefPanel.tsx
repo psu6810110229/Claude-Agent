@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ApiError, generateDailyBrief, generateEveningBrief } from "@/lib/api";
+import { ApiError, generateDailyBrief, generateEveningBrief, speak } from "@/lib/api";
 import type { BriefResult, BriefType } from "@/lib/types";
 
 /**
@@ -29,6 +29,9 @@ export function BriefPanel({ onProposed }: { onProposed?: () => void }) {
           : await generateEveningBrief();
       setResult(res);
       if (res.approvals.length > 0) onProposed?.();
+      if (typeof window !== "undefined" && localStorage.getItem("jarvis.muted") !== "true") {
+        void speak(res.summary);
+      }
     } catch (err) {
       if (err instanceof ApiError) {
         setError({ message: err.message, status: err.status });
