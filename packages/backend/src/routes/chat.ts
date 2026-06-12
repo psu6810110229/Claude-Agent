@@ -3,10 +3,8 @@ import { chatRequestSchema, chatHistoryQuerySchema } from "../schemas/chat.js";
 import { logActivity } from "../db/repositories/activityRepo.js";
 import { archiveActiveMessages, listRecentMessages } from "../db/repositories/chatRepo.js";
 import { runChat } from "../services/chat.js";
-import {
-  realClaudeInvoker,
-  type ClaudeInvoker,
-} from "../services/claudeClient.js";
+import type { ClaudeInvoker } from "../services/claudeClient.js";
+import { defaultInvoker } from "../services/aiProvider.js";
 import {
   realGoogleEventsFetcher,
   type GoogleEventsFetcher,
@@ -31,7 +29,7 @@ export async function chatRoutes(
   app: FastifyInstance,
   opts: ChatRouteOptions,
 ): Promise<void> {
-  const invoke = opts.aiInvoker ?? realClaudeInvoker;
+  const invoke = opts.aiInvoker ?? defaultInvoker();
   const fetchGoogle = opts.calendarFetcher ?? realGoogleEventsFetcher;
 
   app.post("/api/chat", async (req, reply) => handleChat(req, invoke, fetchGoogle, reply));

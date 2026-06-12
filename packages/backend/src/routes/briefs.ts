@@ -4,10 +4,8 @@ import type { BriefType } from "../schemas/brief.js";
 import { createApproval } from "../db/repositories/approvalRepo.js";
 import { logActivity } from "../db/repositories/activityRepo.js";
 import { runBrief } from "../services/brief.js";
-import {
-  realClaudeInvoker,
-  type ClaudeInvoker,
-} from "../services/claudeClient.js";
+import type { ClaudeInvoker } from "../services/claudeClient.js";
+import { defaultInvoker } from "../services/aiProvider.js";
 import {
   realGoogleEventsFetcher,
   type GoogleEventsFetcher,
@@ -32,7 +30,7 @@ export async function briefRoutes(
   app: FastifyInstance,
   opts: BriefRouteOptions,
 ): Promise<void> {
-  const invoke = opts.aiInvoker ?? realClaudeInvoker;
+  const invoke = opts.aiInvoker ?? defaultInvoker();
   const fetchGoogle = opts.calendarFetcher ?? realGoogleEventsFetcher;
 
   app.post("/api/briefs/daily", (_req, reply) =>

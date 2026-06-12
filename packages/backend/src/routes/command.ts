@@ -5,10 +5,8 @@ import { actionPayloadSchemas, approvalSchema } from "../schemas/approval.js";
 import { createApproval } from "../db/repositories/approvalRepo.js";
 import { logActivity } from "../db/repositories/activityRepo.js";
 import { runAiCommand } from "../services/aiCommand.js";
-import {
-  realClaudeInvoker,
-  type ClaudeInvoker,
-} from "../services/claudeClient.js";
+import type { ClaudeInvoker } from "../services/claudeClient.js";
+import { defaultInvoker } from "../services/aiProvider.js";
 
 /** Plugin options. `aiInvoker` is injectable so tests can stub Claude. */
 export interface CommandRouteOptions {
@@ -30,7 +28,7 @@ export async function commandRoutes(
   app: FastifyInstance,
   opts: CommandRouteOptions,
 ): Promise<void> {
-  const invoke = opts.aiInvoker ?? realClaudeInvoker;
+  const invoke = opts.aiInvoker ?? defaultInvoker();
 
   app.post("/api/command", async (req, reply) => {
     const body = commandRequestSchema.safeParse(req.body);

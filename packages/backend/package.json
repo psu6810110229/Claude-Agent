@@ -14,6 +14,7 @@
     "smoke:registry": "tsx scripts/registry-smoke.ts",
     "smoke:step4": "tsx scripts/smoke-step4.ts",
     "ai-smoke": "tsx scripts/ai-smoke-test.ts",
+    "provider-smoke": "tsx scripts/provider-smoke-test.ts",
     "brief-smoke": "tsx scripts/brief-smoke-test.ts",
     "smoke:step9": "tsx scripts/step9-smoke-test.ts",
     "smoke:step10": "tsx scripts/step10-smoke-test.ts",
