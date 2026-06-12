@@ -22,6 +22,7 @@ import {
   createGoogleCalendarEvent,
   GoogleCalendarError,
 } from "./googleCalendar.js";
+import { getActionMeta } from "./actionRegistry.js";
 
 /** Thrown when an approval cannot be executed (bad payload or unknown target). */
 export class ExecutorError extends Error {}
@@ -40,6 +41,14 @@ export async function executeAction(
   actionType: ActionType,
   payload: unknown,
 ): Promise<ExecutionResult> {
+  const meta = getActionMeta(actionType);
+  if (
+    !meta.policies.includes("approval-required") ||
+    meta.policies.includes("disabled")
+  ) {
+    throw new ExecutorError(`Action ${actionType} is not executable`);
+  }
+
   const parsed = actionPayloadSchemas[actionType].safeParse(payload);
   if (!parsed.success) {
     throw new ExecutorError(

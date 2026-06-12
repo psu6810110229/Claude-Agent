@@ -8,6 +8,8 @@
  * else. The backend, not Claude, decides what (if anything) is executed.
  */
 
+import { buildAllowedActionsPrompt } from "./actionRegistry.js";
+
 export interface CompactContext {
   /** The raw natural-language command from the user. */
   input: string;
@@ -22,6 +24,8 @@ export interface CompactContext {
 }
 
 export function buildChiefOfStaffPrompt(ctx: CompactContext): string {
+  const allowedActions = buildAllowedActionsPrompt();
+
   const tasks =
     ctx.openTasks.length > 0
       ? ctx.openTasks.map((t) => `  - #${t.id}: ${t.title}`).join("\n")
@@ -40,17 +44,7 @@ goes in the separate "payload" object. Do not inline payload fields at the top
 level and do not rename "action_type".
 
 ALLOWED ACTION TYPES (the literal "action_type" value -> its "payload" shape):
-- "task.create"      payload: { "title": string, "status"?: "open" | "done" }
-- "task.update"      payload: { "id": number, "title"?: string, "status"?: "open" | "done" }  (at least one of title/status)
-- "task.archive"     payload: { "id": number }
-- "memory.write"     payload: { "target": <memory target>, "mode": "append" | "replace", "content": string, "summary"?: string }
-- "event.create"     payload: { "title": string, "starts_at": <ISO UTC>, "ends_at"?: <ISO UTC>, "location"?: string, "notes"?: string }
-- "event.update"     payload: { "id": number, "title"?: string, "starts_at"?: <ISO UTC>, "ends_at"?: <ISO UTC>, "location"?: string, "notes"?: string }  (at least one field)
-- "event.archive"    payload: { "id": number }
-- "reminder.create"  payload: { "title": string, "due_at": <ISO UTC>, "notes"?: string }
-- "reminder.update"  payload: { "id": number, "title"?: string, "due_at"?: <ISO UTC>, "notes"?: string }  (at least one field)
-- "reminder.archive" payload: { "id": number }
-- "google_event.create" payload: { "title": string, "starts_at": <ISO UTC>, "ends_at": <ISO UTC>, "location"?: string, "notes"?: string }
+${allowedActions}
 
 Example of a single valid action:
   { "action_type": "task.create", "payload": { "title": "Buy groceries" } }

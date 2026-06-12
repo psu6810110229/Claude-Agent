@@ -11,6 +11,7 @@
  */
 
 import type { BriefType } from "../schemas/brief.js";
+import { buildAllowedActionsPrompt } from "./actionRegistry.js";
 
 export interface BriefContext {
   /** Capped list of open tasks (id + short title) for grounding the brief. */
@@ -63,6 +64,7 @@ const FRAMING: Record<BriefType, { heading: string; intent: string }> = {
 
 export function buildBriefPrompt(type: BriefType, ctx: BriefContext): string {
   const f = FRAMING[type];
+  const allowedActions = buildAllowedActionsPrompt();
 
   const tasks =
     ctx.openTasks.length > 0
@@ -127,17 +129,7 @@ goes in the separate "payload" object. Do not inline payload fields at the top
 level and do not rename "action_type".
 
 ALLOWED ACTION TYPES (the literal "action_type" value -> its "payload" shape):
-- "task.create"      payload: { "title": string, "status"?: "open" | "done" }
-- "task.update"      payload: { "id": number, "title"?: string, "status"?: "open" | "done" }  (at least one of title/status)
-- "task.archive"     payload: { "id": number }
-- "memory.write"     payload: { "target": "preferences" | "routines" | "projects" | "decisions", "mode": "append" | "replace", "content": string, "summary"?: string }
-- "event.create"     payload: { "title": string, "starts_at": <ISO UTC>, "ends_at"?: <ISO UTC>, "location"?: string, "notes"?: string }
-- "event.update"     payload: { "id": number, ...one or more of title/starts_at/ends_at/location/notes }
-- "event.archive"    payload: { "id": number }
-- "reminder.create"  payload: { "title": string, "due_at": <ISO UTC>, "notes"?: string }
-- "reminder.update"  payload: { "id": number, ...one or more of title/due_at/notes }
-- "reminder.archive" payload: { "id": number }
-- "google_event.create" payload: { "title": string, "starts_at": <ISO UTC>, "ends_at": <ISO UTC>, "location"?: string, "notes"?: string }
+${allowedActions}
 
 DATE & TIME RULES: the user's local timezone is Asia/Bangkok (UTC+7). Interpret
 relative/local times in Asia/Bangkok but OUTPUT every datetime as ISO 8601 UTC

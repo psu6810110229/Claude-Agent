@@ -49,6 +49,10 @@ export const aiActionSchema = z.discriminatedUnion("action_type", [
     payload: actionPayloadSchemas["reminder.update"],
   }),
   z.object({
+    action_type: z.literal("reminder.done"),
+    payload: actionPayloadSchemas["reminder.done"],
+  }),
+  z.object({
     action_type: z.literal("reminder.archive"),
     payload: actionPayloadSchemas["reminder.archive"],
   }),

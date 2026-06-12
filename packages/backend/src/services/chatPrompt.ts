@@ -10,6 +10,8 @@
  *   - Required `reply` in the output contract so every response is conversational.
  */
 
+import { buildAllowedActionsPrompt } from "./actionRegistry.js";
+
 export interface ChatContext {
   /** The new user message for this turn. */
   message: string;
@@ -55,6 +57,8 @@ export interface ChatContext {
 }
 
 export function buildChatPrompt(ctx: ChatContext): string {
+  const allowedActions = buildAllowedActionsPrompt();
+
   const tasks =
     ctx.openTasks.length > 0
       ? ctx.openTasks.map((t) => `  - #${t.id}: ${t.title}`).join("\n")
@@ -132,18 +136,7 @@ goes in the separate "payload" object. Do not inline payload fields at the top
 level and do not rename "action_type".
 
 ALLOWED ACTION TYPES (the literal "action_type" value -> its "payload" shape):
-- "task.create"      payload: { "title": string, "status"?: "open" | "done" }
-- "task.update"      payload: { "id": number, "title"?: string, "status"?: "open" | "done" }  (at least one of title/status)
-- "task.archive"     payload: { "id": number }
-- "memory.write"     payload: { "target": <memory target>, "mode": "append" | "replace", "content": string, "summary"?: string }
-- "event.create"     payload: { "title": string, "starts_at": <ISO UTC>, "ends_at"?: <ISO UTC>, "location"?: string, "notes"?: string }
-- "event.update"     payload: { "id": number, "title"?: string, "starts_at"?: <ISO UTC>, "ends_at"?: <ISO UTC>, "location"?: string, "notes"?: string }  (at least one field)
-- "event.archive"    payload: { "id": number }
-- "reminder.create"  payload: { "title": string, "due_at": <ISO UTC>, "notes"?: string }
-- "reminder.update"  payload: { "id": number, "title"?: string, "due_at"?: <ISO UTC>, "notes"?: string }  (at least one field)
-- "reminder.done"    payload: { "id": number }
-- "reminder.archive" payload: { "id": number }
-- "google_event.create" payload: { "title": string, "starts_at": <ISO UTC>, "ends_at": <ISO UTC>, "location"?: string, "notes"?: string }
+${allowedActions}
 
 DONE vs ARCHIVE (reminders) — use the right verb, they mean different things:
 - The user FINISHED/COMPLETED a reminder ("done", "ทำเสร็จแล้ว", "เรียบร้อย") ->
