@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS approval (
   executed_at      TEXT,
   execution_error  TEXT,
   result_summary   TEXT,
+  undo_json        TEXT,
   created_at       TEXT NOT NULL,
   updated_at       TEXT NOT NULL
 );

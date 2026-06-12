@@ -11,6 +11,8 @@ import { getConfigBool } from "../db/repositories/configRepo.js";
 import {
   googleEventSchema,
   type CreateGoogleEventPayload,
+  type UpdateGoogleEventPayload,
+  type DeleteGoogleEventPayload,
   type GoogleEvent,
 } from "../schemas/googleCalendar.js";
 
@@ -19,8 +21,10 @@ import {
  *
  * SAFETY BOUNDARIES:
  * - Reads are fail-closed and display-oriented.
- * - Writes are create-only and are called only by the approval executor. This
- *   module exposes no update/delete path.
+ * - Writes (create/update/delete) are called only by the approval executor,
+ *   after an approval has been actioned (Step 14 added update/delete; deletes
+ *   are always confirm-gated). Update/delete snapshot the prior event first so
+ *   the change is recoverable (undo_json).
  * - FAILS CLOSED. Disabled flag, missing/invalid credential files, or any API
  *   error throw `GoogleCalendarError`; callers turn that into an empty,
  *   `available: false` result so the dashboard/brief degrade gracefully.
@@ -53,6 +57,30 @@ export type GoogleEventsFetcher = (
 export interface CreatedGoogleEvent {
   id: string;
   htmlLink: string | null;
+}
+
+/**
+ * Minimal snapshot of a Google event's prior state, captured before an update
+ * or delete so the change can be undone. Stored verbatim as the approval's
+ * undo_json (JSON string). Never contains tokens/secrets — only event fields.
+ */
+export interface GoogleEventSnapshot {
+  summary: string | null;
+  start: { dateTime?: string | null; date?: string | null } | null;
+  end: { dateTime?: string | null; date?: string | null } | null;
+  location: string | null;
+  description: string | null;
+}
+
+export interface UpdatedGoogleEvent {
+  id: string;
+  htmlLink: string | null;
+  undoSnapshot: GoogleEventSnapshot;
+}
+
+export interface DeletedGoogleEvent {
+  id: string;
+  undoSnapshot: GoogleEventSnapshot;
 }
 
 /**
@@ -238,6 +266,120 @@ export async function createGoogleCalendarEvent(
     throw new GoogleCalendarError(
       "api",
       "Failed to create Google Calendar event.",
+    );
+  }
+}
+
+/**
+ * Read one Google event's prior state for an undo snapshot. Generic error
+ * message only (never the raw API body). Throws GoogleCalendarError on failure.
+ */
+async function fetchEventSnapshot(
+  calendar: ReturnType<typeof google.calendar>,
+  eventId: string,
+): Promise<GoogleEventSnapshot> {
+  try {
+    const res = await calendar.events.get({
+      calendarId: GOOGLE_CALENDAR_ID,
+      eventId,
+    });
+    const e = res.data;
+    return {
+      summary: e.summary ?? null,
+      start: e.start
+        ? { dateTime: e.start.dateTime ?? null, date: e.start.date ?? null }
+        : null,
+      end: e.end
+        ? { dateTime: e.end.dateTime ?? null, date: e.end.date ?? null }
+        : null,
+      location: e.location ?? null,
+      description: e.description ?? null,
+    };
+  } catch (err) {
+    if (err instanceof GoogleCalendarError) throw err;
+    throw new GoogleCalendarError(
+      "api",
+      "Failed to read the Google Calendar event (it may not exist).",
+    );
+  }
+}
+
+/**
+ * Update an existing Google event (Step 14). Only the supplied fields are
+ * patched. Snapshots the prior state first so the edit can be reverted. Called
+ * only by the approval executor after the approval is actioned.
+ */
+export async function updateGoogleCalendarEvent(
+  payload: UpdateGoogleEventPayload,
+): Promise<UpdatedGoogleEvent> {
+  if (!isGoogleCalendarEnabled()) {
+    throw new GoogleCalendarError("disabled", "Google Calendar is disabled.");
+  }
+
+  const auth = buildOAuthClient();
+  const calendar = google.calendar({ version: "v3", auth });
+
+  const undoSnapshot = await fetchEventSnapshot(calendar, payload.id);
+
+  const requestBody: Record<string, unknown> = {};
+  if (payload.title !== undefined) requestBody.summary = payload.title;
+  if (payload.starts_at !== undefined)
+    requestBody.start = { dateTime: payload.starts_at };
+  if (payload.ends_at !== undefined)
+    requestBody.end = { dateTime: payload.ends_at };
+  if (payload.location !== undefined) requestBody.location = payload.location;
+  if (payload.notes !== undefined) requestBody.description = payload.notes;
+
+  try {
+    const res = await calendar.events.patch({
+      calendarId: GOOGLE_CALENDAR_ID,
+      eventId: payload.id,
+      sendUpdates: "none",
+      requestBody,
+    });
+    return {
+      id: res.data.id ?? payload.id,
+      htmlLink: res.data.htmlLink ?? null,
+      undoSnapshot,
+    };
+  } catch (err) {
+    if (err instanceof GoogleCalendarError) throw err;
+    throw new GoogleCalendarError(
+      "api",
+      "Failed to update the Google Calendar event.",
+    );
+  }
+}
+
+/**
+ * Delete a Google event (Step 14). Irreversible on Google's side, so the prior
+ * event is snapshotted first (returned as undo_json) to allow recreation.
+ * Called only by the approval executor after an explicit confirm.
+ */
+export async function deleteGoogleCalendarEvent(
+  payload: DeleteGoogleEventPayload,
+): Promise<DeletedGoogleEvent> {
+  if (!isGoogleCalendarEnabled()) {
+    throw new GoogleCalendarError("disabled", "Google Calendar is disabled.");
+  }
+
+  const auth = buildOAuthClient();
+  const calendar = google.calendar({ version: "v3", auth });
+
+  const undoSnapshot = await fetchEventSnapshot(calendar, payload.id);
+
+  try {
+    await calendar.events.delete({
+      calendarId: GOOGLE_CALENDAR_ID,
+      eventId: payload.id,
+      sendUpdates: "none",
+    });
+    return { id: payload.id, undoSnapshot };
+  } catch (err) {
+    if (err instanceof GoogleCalendarError) throw err;
+    throw new GoogleCalendarError(
+      "api",
+      "Failed to delete the Google Calendar event.",
     );
   }
 }

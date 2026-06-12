@@ -59,3 +59,52 @@ export const createGoogleEventPayloadSchema = z
 export type CreateGoogleEventPayload = z.infer<
   typeof createGoogleEventPayloadSchema
 >;
+
+/**
+ * `google_event.update` approval payload (Step 14). Targets an existing Google
+ * event by its string `id` (as returned by the read routes). All mutable fields
+ * are optional, but at least one must be present. When both `starts_at` and
+ * `ends_at` are supplied, `ends_at` must be after `starts_at`. The executor
+ * snapshots the prior event state (for undo) before patching.
+ */
+export const updateGoogleEventPayloadSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    title: z.string().trim().min(1).max(500).optional(),
+    starts_at: isoUtcDateTime.optional(),
+    ends_at: isoUtcDateTime.optional(),
+    location: z.string().trim().max(500).optional(),
+    notes: z.string().trim().max(2000).optional(),
+  })
+  .refine(
+    (v) =>
+      v.title !== undefined ||
+      v.starts_at !== undefined ||
+      v.ends_at !== undefined ||
+      v.location !== undefined ||
+      v.notes !== undefined,
+    { message: "At least one field to update must be provided" },
+  )
+  .refine(
+    (v) =>
+      v.starts_at === undefined ||
+      v.ends_at === undefined ||
+      v.ends_at > v.starts_at,
+    { message: "ends_at must be after starts_at", path: ["ends_at"] },
+  );
+export type UpdateGoogleEventPayload = z.infer<
+  typeof updateGoogleEventPayloadSchema
+>;
+
+/**
+ * `google_event.delete` approval payload (Step 14). Deletes one Google event by
+ * id. Irreversible on Google's side — the executor first snapshots the full
+ * prior event (stored as the approval's undo_json) so it can be recreated.
+ * Always confirm-gated; never auto-executed (see Step 14 auto-execute policy).
+ */
+export const deleteGoogleEventPayloadSchema = z.object({
+  id: z.string().trim().min(1),
+});
+export type DeleteGoogleEventPayload = z.infer<
+  typeof deleteGoogleEventPayloadSchema
+>;

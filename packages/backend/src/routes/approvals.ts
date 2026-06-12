@@ -48,7 +48,11 @@ export async function approvalRoutes(app: FastifyInstance): Promise<void> {
     // be retried or rejected — it is NOT marked approved.
     try {
       const result = await executeAction(approval.action_type, approval.payload);
-      const updated = markApprovalExecutionSucceeded(approval.id, result.summary);
+      const updated = markApprovalExecutionSucceeded(
+        approval.id,
+        result.summary,
+        result.undoJson ?? null,
+      );
       logActivity(
         "approval.approve",
         `approval #${approval.id}: ${result.summary}`,

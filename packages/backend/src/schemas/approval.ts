@@ -12,13 +12,17 @@ import {
   doneReminderPayloadSchema,
   archiveReminderPayloadSchema,
 } from "./reminder.js";
-import { createGoogleEventPayloadSchema } from "./googleCalendar.js";
+import {
+  createGoogleEventPayloadSchema,
+  updateGoogleEventPayloadSchema,
+  deleteGoogleEventPayloadSchema,
+} from "./googleCalendar.js";
 
 /**
- * The ONLY action types the executor will run for now. Most are internal,
- * non-destructive operations against the local DB or the whitelisted memory
- * files. The one outward action (`google_event.create`) is approval-gated and
- * create-only; Google update/delete actions are deliberately absent.
+ * The ONLY action types the executor will run. Most are internal operations
+ * against the local DB or the whitelisted memory files. The outward Google
+ * Calendar actions (create/update/delete, Step 14) are approval-gated; delete
+ * is additionally always confirm-gated and never auto-executed.
  */
 export const actionTypeSchema = z.enum([
   "task.create",
@@ -33,6 +37,8 @@ export const actionTypeSchema = z.enum([
   "reminder.done",
   "reminder.archive",
   "google_event.create",
+  "google_event.update",
+  "google_event.delete",
 ]);
 export type ActionType = z.infer<typeof actionTypeSchema>;
 
@@ -63,6 +69,8 @@ export const actionPayloadSchemas = {
   "reminder.done": doneReminderPayloadSchema,
   "reminder.archive": archiveReminderPayloadSchema,
   "google_event.create": createGoogleEventPayloadSchema,
+  "google_event.update": updateGoogleEventPayloadSchema,
+  "google_event.delete": deleteGoogleEventPayloadSchema,
 } as const;
 
 export const approvalStatusSchema = z.enum(["pending", "approved", "rejected"]);
@@ -85,6 +93,8 @@ export const approvalSchema = z.object({
   executed_at: z.string().nullable(),
   execution_error: z.string().nullable(),
   result_summary: z.string().nullable(),
+  /** Prior-state JSON snapshot for reversible undo (Step 14). Null otherwise. */
+  undo_json: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
 });

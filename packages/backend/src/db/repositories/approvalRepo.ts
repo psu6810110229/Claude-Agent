@@ -17,6 +17,7 @@ interface ApprovalRow {
   executed_at: string | null;
   execution_error: string | null;
   result_summary: string | null;
+  undo_json: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -33,7 +34,7 @@ export function listPendingApprovals(): Approval[] {
   const rows = getDb()
     .prepare(
       `SELECT id, action_type, payload, status, execution_status, executed_at,
-        execution_error, result_summary, created_at, updated_at
+        execution_error, result_summary, undo_json, created_at, updated_at
        FROM approval
        WHERE status = 'pending'
        ORDER BY id ASC`,
@@ -46,7 +47,7 @@ export function listApprovals(): Approval[] {
   const rows = getDb()
     .prepare(
       `SELECT id, action_type, payload, status, execution_status, executed_at,
-        execution_error, result_summary, created_at, updated_at
+        execution_error, result_summary, undo_json, created_at, updated_at
        FROM approval
        ORDER BY id DESC`,
     )
@@ -58,7 +59,7 @@ export function getApprovalById(id: number): Approval | undefined {
   const row = getDb()
     .prepare(
       `SELECT id, action_type, payload, status, execution_status, executed_at,
-        execution_error, result_summary, created_at, updated_at
+        execution_error, result_summary, undo_json, created_at, updated_at
        FROM approval
        WHERE id = ?`,
     )
@@ -70,7 +71,7 @@ export function listRecentApprovalOutcomes(limit = 10): Approval[] {
   const rows = getDb()
     .prepare(
       `SELECT id, action_type, payload, status, execution_status, executed_at,
-        execution_error, result_summary, created_at, updated_at
+        execution_error, result_summary, undo_json, created_at, updated_at
        FROM approval
        WHERE execution_status != 'not_started' OR status != 'pending'
        ORDER BY updated_at DESC, id DESC
@@ -108,6 +109,7 @@ export function setApprovalStatus(
 export function markApprovalExecutionSucceeded(
   id: number,
   resultSummary: string,
+  undoJson: string | null = null,
 ): Approval | undefined {
   const existing = getApprovalById(id);
   if (!existing) return undefined;
@@ -120,10 +122,11 @@ export function markApprovalExecutionSucceeded(
            executed_at = ?,
            execution_error = NULL,
            result_summary = ?,
+           undo_json = ?,
            updated_at = ?
        WHERE id = ?`,
     )
-    .run(ts, resultSummary, ts, id);
+    .run(ts, resultSummary, undoJson, ts, id);
   return getApprovalById(id);
 }
 

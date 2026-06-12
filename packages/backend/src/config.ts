@@ -114,9 +114,9 @@ export const BRIEF_REMINDER_CAP = 20;
  *
  * Google Calendar is the PRIMARY schedule source; local events/reminders
  * (Step 9) remain secondary. Reads are available through dashboard/brief routes.
- * Writes are create-only and approval-gated via `google_event.create`; there
- * are no Google update/delete action types. Disabled by default; real Google
- * calls fail closed when off or unconfigured.
+ * Writes are approval-gated via `google_event.create|update|delete` (Step 14);
+ * delete is additionally always confirm-gated and never auto-executed. Disabled
+ * by default; real Google calls fail closed when off or unconfigured.
  */
 
 /** Google Calendar integration is OFF unless explicitly enabled. */

@@ -19,7 +19,9 @@ export type CapabilityId =
   | "memory.write"
   | "local.events"
   | "reminders"
-  | "google.calendar.create";
+  | "google.calendar.create"
+  | "google.calendar.update"
+  | "google.calendar.delete";
 export type ActionDomain = "task" | "event" | "reminder" | "memory" | "google";
 export type RiskLevel = "low" | "medium" | "high";
 export type ActionPolicy =
@@ -27,6 +29,8 @@ export type ActionPolicy =
   | "create-only"
   | "local-only"
   | "external-service"
+  /** Irreversible/data-losing; always confirm-gated, never auto-executed (Step 14). */
+  | "destructive"
   | "disabled";
 export type PromptExposure = "allowed" | "hidden";
 
@@ -77,6 +81,16 @@ export const capabilityRegistry: Record<CapabilityId, CapabilityMeta> = {
     capability: "google.calendar.create",
     humanLabel: "Google Calendar create",
     policies: ["approval-required", "create-only", "external-service"],
+  },
+  "google.calendar.update": {
+    capability: "google.calendar.update",
+    humanLabel: "Google Calendar update",
+    policies: ["approval-required", "external-service"],
+  },
+  "google.calendar.delete": {
+    capability: "google.calendar.delete",
+    humanLabel: "Google Calendar delete",
+    policies: ["approval-required", "external-service", "destructive"],
   },
 };
 
@@ -205,6 +219,27 @@ export const actionRegistry: Record<ActionType, ActionMeta> = {
       '{ "title": string, "starts_at": <ISO UTC>, "ends_at": <ISO UTC>, "location"?: string, "notes"?: string }',
     riskLevel: "medium",
     policies: ["approval-required", "create-only", "external-service"],
+    promptExposure: "allowed",
+  },
+  "google_event.update": {
+    actionType: "google_event.update",
+    capability: "google.calendar.update",
+    domain: "google",
+    humanLabel: "Update Google Calendar event",
+    payloadShape:
+      '{ "id": string, "title"?: string, "starts_at"?: <ISO UTC>, "ends_at"?: <ISO UTC>, "location"?: string, "notes"?: string }  (id from the calendar read; at least one field)',
+    riskLevel: "medium",
+    policies: ["approval-required", "external-service"],
+    promptExposure: "allowed",
+  },
+  "google_event.delete": {
+    actionType: "google_event.delete",
+    capability: "google.calendar.delete",
+    domain: "google",
+    humanLabel: "Delete Google Calendar event",
+    payloadShape: '{ "id": string }  (id from the calendar read)',
+    riskLevel: "high",
+    policies: ["approval-required", "external-service", "destructive"],
     promptExposure: "allowed",
   },
 };

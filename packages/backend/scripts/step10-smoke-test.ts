@@ -42,7 +42,8 @@ async function main(): Promise<void> {
     "../src/services/googleCalendar.js"
   );
 
-  // --- 0. The allowlist contains only the create Google Calendar action ---
+  // --- 0. The allowlist has the Google Calendar write actions (Step 14 added
+  // update/delete); unrelated/legacy names stay absent. ---
   const actionTypes = (actionTypeSchema as any).options as string[];
   const forbidden = [
     "calendar.create",
@@ -50,14 +51,14 @@ async function main(): Promise<void> {
     "calendar.delete",
     "calendar.event.create",
     "gcal.create",
-    "google_event.update",
-    "google_event.delete",
     "google_event.archive",
   ];
   assert(
     actionTypes.includes("google_event.create") &&
+      actionTypes.includes("google_event.update") &&
+      actionTypes.includes("google_event.delete") &&
       forbidden.every((t) => !actionTypes.includes(t)),
-    "allowlist has create-only Google Calendar write action type",
+    "allowlist has Google Calendar create/update/delete write action types",
   );
   assert(
     GOOGLE_CALENDAR_SCOPES.length === 1 &&

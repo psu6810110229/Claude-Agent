@@ -24,6 +24,7 @@
     "smoke:phase3": "npm run smoke:phase3 -w @claude-agent/backend",
     "smoke:phase4": "npm run smoke:phase4 -w @claude-agent/backend",
     "smoke:step13": "npm run smoke:step13 -w @claude-agent/backend",
+    "smoke:step14": "npm run smoke:step14 -w @claude-agent/backend",
     "google-auth": "npm run google-auth -w @claude-agent/backend",
     "db:init": "npm run db:init -w @claude-agent/backend",
     "build": "npm run build -w @claude-agent/backend"

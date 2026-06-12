@@ -34,6 +34,7 @@ function ensureApprovalExecutionColumns(): void {
     executed_at: "TEXT",
     execution_error: "TEXT",
     result_summary: "TEXT",
+    undo_json: "TEXT",
   };
 
   for (const [name, definition] of Object.entries(additions)) {

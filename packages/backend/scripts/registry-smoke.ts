@@ -70,21 +70,34 @@ for (const type of actionTypeSchema.options) {
   );
 }
 
-// The single external-service action stays google_event.create (create-only).
+// The external-service actions are exactly the Google Calendar writes (Step 14
+// added update/delete). No other capability reaches an external service.
 const external = actionTypeSchema.options.filter((t) =>
   getActionMeta(t).policies.includes("external-service"),
 );
 assert(
-  external.length === 1 && external[0] === "google_event.create",
-  "only google_event.create is marked external-service",
+  JSON.stringify([...external].sort()) ===
+    JSON.stringify([
+      "google_event.create",
+      "google_event.delete",
+      "google_event.update",
+    ]),
+  "external-service actions are exactly the Google Calendar writes",
 );
 assert(
   getActionMeta("google_event.create").policies.includes("create-only"),
   "google_event.create keeps create-only policy",
 );
+// Delete is the destructive Google write; it must never be create-only and must
+// carry the destructive policy (always confirm-gated, never auto-executed).
 assert(
-  !actionTypeSchema.options.some((t) => /^google_.*\.(update|delete)$/.test(t)),
-  "Google Calendar update/delete action types are absent",
+  getActionMeta("google_event.delete").policies.includes("destructive") &&
+    !getActionMeta("google_event.delete").policies.includes("create-only"),
+  "google_event.delete is destructive and not create-only",
+);
+assert(
+  !getActionMeta("google_event.update").policies.includes("create-only"),
+  "google_event.update is not create-only",
 );
 
 const reminderDone = aiActionSchema.safeParse({
@@ -144,8 +157,15 @@ const briefPrompt = buildBriefPrompt("daily", {
 });
 for (const prompt of [chiefPrompt, chatPrompt, briefPrompt]) {
   assert(prompt.includes('"reminder.done"'), "prompt includes reminder.done");
-  assert(!prompt.includes("google_event.update"), "prompt omits google update");
-  assert(!prompt.includes("google_event.delete"), "prompt omits google delete");
+  // Step 14: Google update/delete are now prompt-exposed allowlist actions.
+  assert(
+    prompt.includes("google_event.update"),
+    "prompt includes google update",
+  );
+  assert(
+    prompt.includes("google_event.delete"),
+    "prompt includes google delete",
+  );
 }
 
 console.log("Sprint 2 registry smoke: ALL PASS");

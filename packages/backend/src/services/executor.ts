@@ -3,7 +3,11 @@ import {
   type ActionType,
 } from "../schemas/approval.js";
 import type { MemoryWritePayload } from "../schemas/memory.js";
-import type { CreateGoogleEventPayload } from "../schemas/googleCalendar.js";
+import type {
+  CreateGoogleEventPayload,
+  UpdateGoogleEventPayload,
+  DeleteGoogleEventPayload,
+} from "../schemas/googleCalendar.js";
 import { createTask, updateTask, archiveTask } from "../db/repositories/taskRepo.js";
 import { writeMemory } from "./memoryStore.js";
 import { upsertMemoryEntry } from "../db/repositories/memoryRepo.js";
@@ -20,6 +24,8 @@ import {
 } from "../db/repositories/reminderRepo.js";
 import {
   createGoogleCalendarEvent,
+  updateGoogleCalendarEvent,
+  deleteGoogleCalendarEvent,
   GoogleCalendarError,
 } from "./googleCalendar.js";
 import { getActionMeta } from "./actionRegistry.js";
@@ -30,6 +36,11 @@ export class ExecutorError extends Error {}
 export interface ExecutionResult {
   /** Human-readable summary for the activity log. */
   summary: string;
+  /**
+   * Prior-state JSON snapshot enabling undo, set only by reversible outward
+   * actions (Google update/delete). Persisted as the approval's undo_json.
+   */
+  undoJson?: string | null;
 }
 
 /**
@@ -156,6 +167,36 @@ export async function executeAction(
       try {
         const event = await createGoogleCalendarEvent(data);
         return { summary: `created Google Calendar event ${event.id}` };
+      } catch (err) {
+        if (err instanceof GoogleCalendarError) {
+          throw new ExecutorError(err.message);
+        }
+        throw err;
+      }
+    }
+    case "google_event.update": {
+      const data = parsed.data as UpdateGoogleEventPayload;
+      try {
+        const event = await updateGoogleCalendarEvent(data);
+        return {
+          summary: `updated Google Calendar event ${event.id}`,
+          undoJson: JSON.stringify(event.undoSnapshot),
+        };
+      } catch (err) {
+        if (err instanceof GoogleCalendarError) {
+          throw new ExecutorError(err.message);
+        }
+        throw err;
+      }
+    }
+    case "google_event.delete": {
+      const data = parsed.data as DeleteGoogleEventPayload;
+      try {
+        const event = await deleteGoogleCalendarEvent(data);
+        return {
+          summary: `deleted Google Calendar event ${event.id}`,
+          undoJson: JSON.stringify(event.undoSnapshot),
+        };
       } catch (err) {
         if (err instanceof GoogleCalendarError) {
           throw new ExecutorError(err.message);
