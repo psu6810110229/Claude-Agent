@@ -154,6 +154,7 @@ async function handleChat(
   return reply.code(201).send({
     kind: "chat",
     reply: result.reply,
+    spoken: result.spoken ?? null,
     mode,
     provider: resolved.selection.selectedProvider,
     selectedModel: resolved.selection.selectedModel ?? null,

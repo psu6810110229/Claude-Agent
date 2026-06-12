@@ -51,6 +51,7 @@ export type ChatResult =
   | {
       kind: "replied";
       reply: string;
+      spoken?: string;
       approvals: Approval[];
       clarification?: string;
       clarificationChoices?: string[];
@@ -245,6 +246,7 @@ export async function runChat(
   return {
     kind: "replied",
     reply: check.data.reply,
+    spoken: check.data.spoken,
     approvals,
     clarification: check.data.clarification,
     clarificationChoices: check.data.clarification_choices,

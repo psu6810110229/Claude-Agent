@@ -35,6 +35,16 @@ export const chatHistoryQuerySchema = z.object({
 export const chatOutputSchema = z
   .object({
     reply: z.string().trim().min(1).max(4000),
+    // Short spoken summary of `reply` (<=30 words) for TTS. Same Claude/Gemini
+    // call produces both — no extra round trip. Optional; on omission the
+    // frontend falls back to speaking `reply` (fail-soft, esp. for Gemini).
+    spoken: z
+      .string()
+      .trim()
+      .min(1)
+      .max(400)
+      .nullish()
+      .transform((v) => v ?? undefined),
     actions: z.array(aiActionSchema).max(CLAUDE_MAX_ACTIONS).default([]),
     clarification: z
       .string()

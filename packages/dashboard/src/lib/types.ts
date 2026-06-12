@@ -271,6 +271,8 @@ export type ProviderChoice = AiProviderId | "auto";
 export interface ChatResult {
   kind: "chat";
   reply: string;
+  /** Short spoken summary of `reply` for TTS; null when the model omitted it. */
+  spoken?: string | null;
   /** Routing mode the backend applied. */
   mode: AiProviderMode;
   /** Provider that actually produced this reply. */

@@ -153,6 +153,10 @@ export default function HomePage() {
 
     try {
       const result = await sendChat(text, provider);
+      // Start TTS the instant the reply lands — before the history refetch — so
+      // audio isn't delayed by that round trip. Speak the short `spoken`
+      // summary; fall back to full `reply` when the model omitted it.
+      if (!muted) void speak(result.spoken ?? result.reply);
       if (result.approvals.length > 0) {
         mergeApprovals(result.approvals);
         notifyPendingApprovals(result.approvals.length);
@@ -170,7 +174,6 @@ export default function HomePage() {
           ...prev,
           [freshAssistant.id]: result.provider,
         }));
-        if (!muted) void speak(result.reply);
       }
       setActiveClarification(
         buildClarificationPrompt(updated, result.clarification, result.clarification_choices),

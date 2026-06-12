@@ -237,9 +237,14 @@ ${ctx.message}
 OUTPUT CONTRACT (must follow exactly):
 - Output a SINGLE JSON object and nothing else.
 - No prose, no explanation, no markdown, no code fences.
-- Shape: { "reply": string, "actions": Action[], "clarification"?: string, "clarification_choices"?: string[], "notes"?: string }
+- Shape: { "reply": string, "spoken": string, "actions": Action[], "clarification"?: string, "clarification_choices"?: string[], "notes"?: string }
 - "reply" is REQUIRED. It is the conversational response to the user — answer
   their question, summarise what you proposed, or ask a follow-up. Max 4000 chars.
+- "spoken" is REQUIRED. It is a SHORT spoken summary of "reply" to be read aloud
+  by voice — at most 30 words (Thai or English, matching the reply language).
+  Capture only the key point in one or two natural sentences a person would say
+  out loud. Drop lists, IDs, URLs, and detail; those stay in "reply" only. If
+  "reply" is already very short, "spoken" may equal it.
 - "actions" may contain at most 5 items and may be empty. Only propose an action
   if clearly appropriate. Ambiguous details → ask in reply, propose nothing.
 - "clarification" is a short follow-up question (max 500 chars) when you need
