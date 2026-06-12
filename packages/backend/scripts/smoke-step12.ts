@@ -174,6 +174,13 @@ async function main(): Promise<void> {
       readOnlyPrompt.includes("proposal waiting for approval"),
     "prompt gives a concrete memory.write pattern for user-name statements",
   );
+  assert(
+    readOnlyPrompt.includes("APPROVAL / ACTION AUDIT RULES") &&
+      readOnlyPrompt.includes("Approval payloads are intentionally omitted") &&
+      readOnlyPrompt.includes("Do not infer or") &&
+      readOnlyPrompt.includes("Activity detail UI"),
+    "prompt prevents guessing hidden approval payload details",
+  );
 
   // --- 2. History persisted: GET /api/chat/history returns 2 rows ---
   const hist1 = await getJson("/api/chat/history?limit=10");
