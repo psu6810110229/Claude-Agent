@@ -136,9 +136,55 @@ export interface Approval {
   updated_at: string;
 }
 
+export type ActivityEventType =
+  | "chat.message.received"
+  | "chat.message.replied"
+  | "chat.message.proposed"
+  | "chat.message.failed"
+  | "chat.message.rejected"
+  | "chat.session.reset"
+  | "command.received"
+  | "command.proposed"
+  | "command.rejected"
+  | "ai.command.received"
+  | "ai.command.proposed"
+  | "ai.command.failed"
+  | "ai.command.rejected"
+  | "ai.command.clarification"
+  | "brief.daily.requested"
+  | "brief.daily.generated"
+  | "brief.daily.proposed"
+  | "brief.daily.failed"
+  | "brief.daily.rejected"
+  | "brief.evening.requested"
+  | "brief.evening.generated"
+  | "brief.evening.proposed"
+  | "brief.evening.failed"
+  | "brief.evening.rejected"
+  | "approval.approve"
+  | "approval.create"
+  | "approval.reject"
+  | "approval.execute_succeeded"
+  | "approval.execute_failed"
+  | "notification.fired"
+  | "notification.desktop_failed"
+  | "scheduler.tick_error"
+  | "task.create"
+  | "task.update"
+  | "task.archive"
+  | "event.create"
+  | "event.update"
+  | "event.archive"
+  | "reminder.create"
+  | "reminder.update"
+  | "reminder.done"
+  | "reminder.archive"
+  | "memory.write"
+  | "google_event.create";
+
 export interface Activity {
   id: number;
-  event_type: string;
+  event_type: ActivityEventType | string;
   detail: string | null;
   created_at: string;
 }
