@@ -3,6 +3,13 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import {
+  CalendarDays,
+  CheckSquare,
+  Clock3,
+  Database,
+  MessageCircle,
+} from "lucide-react";
+import {
   ApiError,
   approveApproval,
   generateDailyBrief,
@@ -64,6 +71,9 @@ export default function HomePage() {
   const [resetting, setResetting] = useState(false);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
+  const [revealingMessageIds, setRevealingMessageIds] = useState<Set<number>>(
+    () => new Set(),
+  );
   const [activeClarification, setActiveClarification] =
     useState<ClarificationPrompt | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -101,6 +111,7 @@ export default function HomePage() {
 
   async function doSend(text: string) {
     if (briefBusy) return;
+    const previousIds = new Set(messages.map((message) => message.id));
     setOrbState("thinking");
     setSending(true);
     setSendError(null);
@@ -125,7 +136,13 @@ export default function HomePage() {
         notifyPendingApprovals(result.approvals.length);
       }
       const updated = await getChatHistory(100);
+      const freshAssistant = [...updated]
+        .reverse()
+        .find((message) => message.role === "assistant" && !previousIds.has(message.id));
       setMessages(updated);
+      if (freshAssistant) {
+        setRevealingMessageIds((prev) => new Set(prev).add(freshAssistant.id));
+      }
       setActiveClarification(
         buildClarificationPrompt(updated, result.clarification, result.clarification_choices),
       );
@@ -165,7 +182,9 @@ export default function HomePage() {
         mergeApprovals(result.approvals);
         notifyPendingApprovals(result.approvals.length);
     }
-    setMessages((prev) => [...prev, briefToMessage(result)]);
+    const message = briefToMessage(result);
+    setMessages((prev) => [...prev, message]);
+    setRevealingMessageIds((prev) => new Set(prev).add(message.id));
   } catch (err) {
     setSendError(err instanceof ApiError ? err.message : String(err));
     notify({
@@ -290,6 +309,22 @@ export default function HomePage() {
                 {greeting ?? "Hello"}, Fran.
               </h1>
               <p>How can I help you today?</p>
+              <div className="chat-empty-actions" aria-label="Suggested prompts">
+                {[
+                  "What is on my schedule today?",
+                  "Show open tasks",
+                  "Draft a quick reminder",
+                ].map((prompt) => (
+                  <button
+                    type="button"
+                    key={prompt}
+                    onClick={() => doSend(prompt)}
+                    disabled={sending || briefBusy !== null}
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
             </motion.div>
           </div>
         )}
@@ -301,18 +336,23 @@ export default function HomePage() {
               <ErrorBanner message={loadError} onRetry={() => window.location.reload()} />
             )}
 
-            {messages.map((msg) => (
-              <ChatBubble
-                key={msg.id}
-                msg={msg}
+            {groupMessages(messages).map((group) => (
+              <ChatMessageGroup
+                key={group.key}
+                group={group}
                 approvalMap={approvalMap}
                 approvalBusy={approvalBusy}
-                onApproval={runApproval}
-                clarification={
-                  activeClarification?.messageId === msg.id
-                    ? activeClarification
-                    : null
+                revealingMessageIds={revealingMessageIds}
+                onRevealDone={(id) =>
+                  setRevealingMessageIds((prev) => {
+                    if (!prev.has(id)) return prev;
+                    const next = new Set(prev);
+                    next.delete(id);
+                    return next;
+                  })
                 }
+                onApproval={runApproval}
+                activeClarification={activeClarification}
                 onClarificationChoice={doSend}
                 onClarificationSkip={() => setActiveClarification(null)}
               />
@@ -321,7 +361,10 @@ export default function HomePage() {
             {sending && (
               <div className="chat-bubble assistant typing">
                 <span className="chat-role">Jarvis</span>
-                <ThinkingContent label="Thinking" detail="Reading context and planning the next step" />
+                <ThinkingContent
+                  label="Checking context"
+                  detail="Reviewing chat history, tasks, reminders, and approvals"
+                />
               </div>
             )}
 
@@ -526,18 +569,116 @@ function ThinkingContent({
   );
 }
 
-function ChatBubble({
-  msg,
+interface ChatGroup {
+  key: string;
+  role: ChatMessage["role"];
+  messages: ChatMessage[];
+}
+
+function groupMessages(messages: ChatMessage[]): ChatGroup[] {
+  const groups: ChatGroup[] = [];
+  for (const message of messages) {
+    const previous = groups[groups.length - 1];
+    const lastMessage = previous?.messages[previous.messages.length - 1];
+    const closeInTime =
+      lastMessage &&
+      Math.abs(
+        new Date(message.created_at).getTime() -
+          new Date(lastMessage.created_at).getTime(),
+      ) <= 5 * 60 * 1000;
+
+    if (previous && previous.role === message.role && closeInTime) {
+      previous.messages.push(message);
+    } else {
+      groups.push({
+        key: `${message.role}-${message.id}`,
+        role: message.role,
+        messages: [message],
+      });
+    }
+  }
+  return groups;
+}
+
+function ChatMessageGroup({
+  group,
   approvalMap,
   approvalBusy,
+  revealingMessageIds,
+  onRevealDone,
+  onApproval,
+  activeClarification,
+  onClarificationChoice,
+  onClarificationSkip,
+}: {
+  group: ChatGroup;
+  approvalMap: ApprovalMap;
+  approvalBusy: number | null;
+  revealingMessageIds: Set<number>;
+  onRevealDone: (id: number) => void;
+  onApproval: (id: number, decision: "approve" | "reject") => void;
+  activeClarification: ClarificationPrompt | null;
+  onClarificationChoice: (text: string) => void;
+  onClarificationSkip: () => void;
+}) {
+  const isUser = group.role === "user";
+  const first = group.messages[0];
+  const groupSources = mergeSourceHints(
+    group.messages.flatMap((message) =>
+      inferSourceHints(message, parseActions(message.actions_json)),
+    ),
+  );
+
+  return (
+    <section className={`chat-group ${isUser ? "user" : "assistant"}`}>
+      <div className="chat-group-header">
+        <span className="chat-role">{isUser ? "You" : "Jarvis"}</span>
+        <span className="ts">{formatTs(first.created_at)}</span>
+        {!isUser && <SourceHintList hints={groupSources} />}
+      </div>
+      <div className="chat-group-stack">
+        {group.messages.map((msg, index) => (
+          <ChatBubble
+            key={msg.id}
+            msg={msg}
+            groupedIndex={index}
+            approvalMap={approvalMap}
+            approvalBusy={approvalBusy}
+            revealing={revealingMessageIds.has(msg.id)}
+            onRevealDone={onRevealDone}
+            onApproval={onApproval}
+            clarification={
+              activeClarification?.messageId === msg.id
+                ? activeClarification
+                : null
+            }
+            onClarificationChoice={onClarificationChoice}
+            onClarificationSkip={onClarificationSkip}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ChatBubble({
+  msg,
+  groupedIndex,
+  approvalMap,
+  approvalBusy,
+  revealing,
+  onRevealDone,
   onApproval,
   clarification,
   onClarificationChoice,
   onClarificationSkip,
 }: {
   msg: ChatMessage;
+  groupedIndex: number;
   approvalMap: ApprovalMap;
   approvalBusy: number | null;
+  revealing: boolean;
+  onRevealDone: (id: number) => void;
   onApproval: (id: number, decision: "approve" | "reject") => void;
   clarification: ClarificationPrompt | null;
   onClarificationChoice: (text: string) => void;
@@ -547,12 +688,16 @@ function ChatBubble({
   const actions = parseActions(msg.actions_json);
 
   return (
-    <div className={`chat-bubble ${isUser ? "user" : "assistant"}`}>
-      <div className="chat-bubble-header">
-        <span className="chat-role">{isUser ? "You" : "Jarvis"}</span>
-        <span className="ts">{formatTs(msg.created_at)}</span>
-      </div>
-      <RichText text={msg.content} />
+    <div
+      className={`chat-bubble ${isUser ? "user" : "assistant"} ${
+        groupedIndex > 0 ? "grouped" : ""
+      }`}
+    >
+      <RichText
+        text={msg.content}
+        reveal={revealing && !isUser}
+        onRevealDone={() => onRevealDone(msg.id)}
+      />
       {actions.length > 0 && (
         <div className="chat-approval-stack">
           {actions.map((action) => (
@@ -676,27 +821,155 @@ function approvalExecutionMessage(approval: Approval): string | null {
   return null;
 }
 
-function RichText({ text }: { text: string }) {
-  const blocks = text.split(/\n{2,}/);
+function RichText({
+  text,
+  reveal = false,
+  onRevealDone,
+}: {
+  text: string;
+  reveal?: boolean;
+  onRevealDone?: () => void;
+}) {
+  const [visibleCount, setVisibleCount] = useState(reveal ? 0 : text.length);
+  const displayText = reveal ? text.slice(0, visibleCount) : text;
+
+  useEffect(() => {
+    if (!reveal) {
+      setVisibleCount(text.length);
+      return;
+    }
+    setVisibleCount(0);
+    const step = Math.max(3, Math.ceil(text.length / 90));
+    const timer = window.setInterval(() => {
+      setVisibleCount((current) => {
+        const next = Math.min(text.length, current + step);
+        if (next >= text.length) {
+          window.clearInterval(timer);
+          window.setTimeout(() => onRevealDone?.(), 120);
+        }
+        return next;
+      });
+    }, 16);
+    return () => window.clearInterval(timer);
+  }, [onRevealDone, reveal, text]);
+
+  const blocks = parseMarkdownBlocks(displayText);
   return (
     <div className="chat-content">
-      {blocks.map((block, blockIndex) => (
-        <p className="rt-block" key={blockIndex}>
-          {block.split("\n").map((line, lineIndex) => (
-            <Fragment key={`${blockIndex}-${lineIndex}`}>
-              {lineIndex > 0 && <br />}
-              {renderInline(line)}
-            </Fragment>
-          ))}
-        </p>
-      ))}
+      {blocks.map((block, blockIndex) => renderBlock(block, blockIndex))}
+      {reveal && visibleCount < text.length && (
+        <span className="stream-caret" aria-hidden="true" />
+      )}
     </div>
+  );
+}
+
+type MarkdownBlock =
+  | { kind: "paragraph"; lines: string[] }
+  | { kind: "list"; ordered: boolean; items: string[] }
+  | { kind: "code"; text: string };
+
+function parseMarkdownBlocks(text: string): MarkdownBlock[] {
+  const lines = text.split("\n");
+  const blocks: MarkdownBlock[] = [];
+  let paragraph: string[] = [];
+  let list: { ordered: boolean; items: string[] } | null = null;
+  let code: string[] | null = null;
+
+  function flushParagraph() {
+    if (paragraph.length > 0) {
+      blocks.push({ kind: "paragraph", lines: paragraph });
+      paragraph = [];
+    }
+  }
+
+  function flushList() {
+    if (list) {
+      blocks.push({ kind: "list", ordered: list.ordered, items: list.items });
+      list = null;
+    }
+  }
+
+  for (const line of lines) {
+    if (line.trim().startsWith("```")) {
+      if (code) {
+        blocks.push({ kind: "code", text: code.join("\n") });
+        code = null;
+      } else {
+        flushParagraph();
+        flushList();
+        code = [];
+      }
+      continue;
+    }
+
+    if (code) {
+      code.push(line);
+      continue;
+    }
+
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    const unordered = line.match(/^\s*[-*]\s+(.+)$/);
+    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (unordered || ordered) {
+      flushParagraph();
+      const nextOrdered = Boolean(ordered);
+      if (!list || list.ordered !== nextOrdered) flushList();
+      if (!list) list = { ordered: nextOrdered, items: [] };
+      list.items.push((ordered?.[1] ?? unordered?.[1] ?? "").trim());
+      continue;
+    }
+
+    flushList();
+    paragraph.push(line);
+  }
+
+  if (code) blocks.push({ kind: "code", text: code.join("\n") });
+  flushParagraph();
+  flushList();
+  return blocks;
+}
+
+function renderBlock(block: MarkdownBlock, index: number) {
+  if (block.kind === "code") {
+    return (
+      <pre className="rt-code-block" key={index}>
+        <code>{block.text}</code>
+      </pre>
+    );
+  }
+
+  if (block.kind === "list") {
+    const Tag = block.ordered ? "ol" : "ul";
+    return (
+      <Tag className="rt-list" key={index}>
+        {block.items.map((item, itemIndex) => (
+          <li key={`${index}-${itemIndex}`}>{renderInline(item)}</li>
+        ))}
+      </Tag>
+    );
+  }
+
+  return (
+    <p className="rt-block" key={index}>
+      {block.lines.map((line, lineIndex) => (
+        <Fragment key={`${index}-${lineIndex}`}>
+          {lineIndex > 0 && <br />}
+          {renderInline(line)}
+        </Fragment>
+      ))}
+    </p>
   );
 }
 
 function renderInline(text: string): ReactNode[] {
   const nodes: ReactNode[] = [];
-  const token = /(<u>[\s\S]+?<\/u>|\+\+[\s\S]+?\+\+|\*\*[\s\S]+?\*\*|\*[^*\n]+?\*|_[^_\n]+?_)/g;
+  const token = /(`[^`\n]+?`|\[([^\]\n]+?)\]\(([^)\s]+?)\)|<u>[\s\S]+?<\/u>|\+\+[\s\S]+?\+\+|\*\*[\s\S]+?\*\*|\*[^*\n]+?\*|_[^_\n]+?_)/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
@@ -707,7 +980,20 @@ function renderInline(text: string): ReactNode[] {
 
     const raw = match[0];
     const key = `${match.index}-${raw}`;
-    if (raw.startsWith("**")) {
+    if (raw.startsWith("`")) {
+      nodes.push(<code key={key}>{raw.slice(1, -1)}</code>);
+    } else if (raw.startsWith("[")) {
+      const href = sanitizeHref(match[3]);
+      nodes.push(
+        href ? (
+          <a key={key} href={href} target="_blank" rel="noreferrer">
+            {match[2]}
+          </a>
+        ) : (
+          raw
+        ),
+      );
+    } else if (raw.startsWith("**")) {
       nodes.push(<strong key={key}>{raw.slice(2, -2)}</strong>);
     } else if (raw.startsWith("<u>")) {
       nodes.push(<u key={key}>{raw.slice(3, -4)}</u>);
@@ -721,6 +1007,71 @@ function renderInline(text: string): ReactNode[] {
 
   if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
   return nodes;
+}
+
+function sanitizeHref(href: string): string | null {
+  if (/^(https?:\/\/|mailto:)/i.test(href)) return href;
+  return null;
+}
+
+type SourceHint = "calendar" | "tasks" | "reminders" | "memory" | "chat";
+
+const SOURCE_LABELS: Record<SourceHint, string> = {
+  calendar: "Calendar",
+  tasks: "Tasks",
+  reminders: "Reminders",
+  memory: "Memory",
+  chat: "Chat",
+};
+
+const SOURCE_ICONS: Record<SourceHint, typeof CalendarDays> = {
+  calendar: CalendarDays,
+  tasks: CheckSquare,
+  reminders: Clock3,
+  memory: Database,
+  chat: MessageCircle,
+};
+
+function SourceHintList({ hints }: { hints: SourceHint[] }) {
+  if (hints.length === 0) return null;
+  return (
+    <span className="source-hints" aria-label="Message context">
+      {hints.map((hint) => {
+        const Icon = SOURCE_ICONS[hint];
+        return (
+          <span className="source-hint" key={hint} title={SOURCE_LABELS[hint]}>
+            <Icon aria-hidden="true" strokeWidth={1.8} />
+            <span>{SOURCE_LABELS[hint]}</span>
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+function inferSourceHints(message: ChatMessage, actions: ActionRef[]): SourceHint[] {
+  if (message.role === "user") return [];
+  const hints = new Set<SourceHint>();
+  for (const action of actions) {
+    if (action.action_type.includes("event")) hints.add("calendar");
+    if (action.action_type.includes("task")) hints.add("tasks");
+    if (action.action_type.includes("reminder")) hints.add("reminders");
+    if (action.action_type.includes("memory")) hints.add("memory");
+  }
+
+  const content = message.content.toLowerCase();
+  if (/\b(calendar|schedule|event|brief)\b/.test(content)) hints.add("calendar");
+  if (/\btask|todo\b/.test(content)) hints.add("tasks");
+  if (/\breminder\b/.test(content)) hints.add("reminders");
+  if (/\bmemory|preference|routine|project\b/.test(content)) hints.add("memory");
+  if (hints.size === 0) hints.add("chat");
+  return [...hints];
+}
+
+function mergeSourceHints(hints: SourceHint[]): SourceHint[] {
+  const order: SourceHint[] = ["calendar", "tasks", "reminders", "memory", "chat"];
+  const set = new Set(hints);
+  return order.filter((hint) => set.has(hint)).slice(0, 3);
 }
 
 interface ActionRef {
