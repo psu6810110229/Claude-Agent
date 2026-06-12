@@ -2636,6 +2636,52 @@ pre.payload {
   display: flex;
 }
 
+/* Manual AI provider selector (Roadmap 11 Phase 2). */
+.ji-provider {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: var(--inner-light);
+}
+
+.ji-provider button {
+  background: none;
+  box-shadow: none;
+  border-radius: 999px;
+  padding: 4px 11px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.ji-provider button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.ji-provider button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Provider that produced a reply, shown in the chat group header. */
+.provider-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: var(--inner-light);
+  color: var(--accent-hover);
+  padding: 3px 8px;
+  font-size: 11px;
+  line-height: 1;
+}
+
 .ji-menu {
   position: absolute;
   right: 0;

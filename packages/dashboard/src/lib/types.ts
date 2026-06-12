@@ -255,9 +255,17 @@ export interface ChatMessage {
  * `approvals` are any pending write proposals queued by this turn (may be
  * empty). Failures arrive as 4xx/5xx via ApiError.
  */
+/** Manual AI provider choice carried per chat request (Roadmap 11 Phase 2). */
+export type AiProviderId = "claude" | "gemini";
+
 export interface ChatResult {
   kind: "chat";
   reply: string;
+  /** Provider that actually produced this reply. */
+  provider: AiProviderId;
+  /** Provider the user explicitly requested, or null when defaulted. */
+  requestedProvider: AiProviderId | null;
+  providerReason?: string;
   approvals: Approval[];
   clarification?: string;
   clarification_choices?: string[];

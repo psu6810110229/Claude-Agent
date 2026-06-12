@@ -396,6 +396,66 @@ async function main(): Promise<void> {
     "new session starts with only 2 messages (current exchange)",
   );
 
+  // --- 11. Roadmap 11 Phase 2: manual provider selection ---
+  // Explicit Claude -> normal 201 reply, response echoes selected provider.
+  currentInvoker = stubOk("Claude reporting in.");
+  const pClaude = await postJson("/api/chat", {
+    message: "hello claude",
+    provider: "claude",
+  });
+  assert(
+    pClaude.status === 201 && pClaude.json.kind === "chat",
+    "manual provider=claude returns normal 201 chat reply",
+  );
+  assert(
+    pClaude.json.provider === "claude" &&
+      pClaude.json.requestedProvider === "claude",
+    "response echoes selected + requested provider (UI never hides the choice)",
+  );
+
+  // Omitted provider -> default Claude, still echoed.
+  currentInvoker = stubOk("Default provider here.");
+  const pDefault = await postJson("/api/chat", { message: "no provider field" });
+  assert(
+    pDefault.status === 201 && pDefault.json.provider === "claude",
+    "omitted provider defaults to claude and is reported",
+  );
+
+  // Explicit Gemini WITHOUT config -> fail closed: no fake success, nothing
+  // persisted, requested provider still visible. (Gemini arrives in Phase 3.)
+  const histBeforeGemini = (await getJson("/api/chat/history?limit=100")).json
+    .messages.length;
+  const pendingBeforeGemini = (
+    (await getJson("/api/approvals")).json.approvals as any[]
+  ).filter((a: any) => a.status === "pending").length;
+
+  const pGemini = await postJson("/api/chat", {
+    message: "hello gemini",
+    provider: "gemini",
+  });
+  assert(
+    pGemini.status === 503 && pGemini.json.kind === "error",
+    "manual provider=gemini (unconfigured) does not pretend success (503)",
+  );
+  assert(
+    pGemini.json.requestedProvider === "gemini",
+    "gemini error response does not hide the requested provider",
+  );
+
+  const histAfterGemini = (await getJson("/api/chat/history?limit=100")).json
+    .messages.length;
+  assert(
+    histAfterGemini === histBeforeGemini,
+    "unconfigured gemini request persists no chat history",
+  );
+  const pendingAfterGemini = (
+    (await getJson("/api/approvals")).json.approvals as any[]
+  ).filter((a: any) => a.status === "pending").length;
+  assert(
+    pendingAfterGemini === pendingBeforeGemini,
+    "unconfigured gemini request creates no approvals (no false success)",
+  );
+
   // Cleanup
   await app.close();
   closeDb();

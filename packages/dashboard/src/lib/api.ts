@@ -4,6 +4,7 @@
  */
 import type {
   Activity,
+  AiProviderId,
   Approval,
   BriefResult,
   CalendarEvent,
@@ -209,14 +210,18 @@ export function markNotificationRead(id: number): Promise<Notification> {
 // --- Chat (Step 12) -------------------------------------------------------
 
 /**
- * Send a chat message. Returns the assistant reply + any queued approvals.
- * AI failures throw ApiError (503 disabled, 504 timeout, 502 failure, 400
- * invalid output).
+ * Send a chat message. `provider` optionally forces a manual provider choice
+ * (`claude | gemini`); omitted uses the backend default. Returns the assistant
+ * reply + any queued approvals. AI failures throw ApiError (503 disabled/
+ * provider-unconfigured, 504 timeout, 502 failure, 400 invalid output).
  */
-export function sendChat(message: string): Promise<ChatResult> {
+export function sendChat(
+  message: string,
+  provider?: AiProviderId,
+): Promise<ChatResult> {
   return request<ChatResult>("/api/chat", {
     method: "POST",
-    body: JSON.stringify({ message }),
+    body: JSON.stringify(provider ? { message, provider } : { message }),
   });
 }
 

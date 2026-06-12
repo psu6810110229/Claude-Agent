@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { realClaudeInvoker, type ClaudeInvoker } from "./claudeClient.js";
 import { CLAUDE_MODEL } from "../config.js";
 
@@ -17,8 +18,16 @@ import { CLAUDE_MODEL } from "../config.js";
  * later phases where it is actually consumed.
  */
 
-export type AiProviderId = "claude" | "gemini";
-export type AiProviderMode = "manual" | "auto";
+/**
+ * Single source of truth for provider/mode ids. Request schemas (e.g.
+ * `chatRequestSchema`) import these zod enums so the HTTP contract and the
+ * provider registry can never drift apart.
+ */
+export const aiProviderIdSchema = z.enum(["claude", "gemini"]);
+export const aiProviderModeSchema = z.enum(["manual", "auto"]);
+
+export type AiProviderId = z.infer<typeof aiProviderIdSchema>;
+export type AiProviderMode = z.infer<typeof aiProviderModeSchema>;
 
 /** A pluggable AI proposal worker. `invoke` returns raw provider output. */
 export interface AiProvider {

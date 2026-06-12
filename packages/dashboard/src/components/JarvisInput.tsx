@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 import { ArrowUp, ChevronDown, Moon, Sparkles, Sun } from "lucide-react";
-import type { BriefType } from "@/lib/types";
+import type { AiProviderId, BriefType } from "@/lib/types";
+
+const PROVIDER_OPTIONS: { id: AiProviderId; label: string }[] = [
+  { id: "claude", label: "Claude" },
+  { id: "gemini", label: "Gemini" },
+];
 
 /**
  * Floating capsule input (72px). Mic is a placeholder - voice is out of scope.
@@ -13,12 +18,16 @@ export function JarvisInput({
   onFocusChange,
   disabled = false,
   briefBusy = null,
+  provider = "claude",
+  onProviderChange,
 }: {
   onSubmit: (text: string) => void | Promise<void>;
   onBrief?: (type: BriefType) => void | Promise<void>;
   onFocusChange?: (focused: boolean) => void;
   disabled?: boolean;
   briefBusy?: BriefType | null;
+  provider?: AiProviderId;
+  onProviderChange?: (provider: AiProviderId) => void;
 }) {
   const [text, setText] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -52,6 +61,27 @@ export function JarvisInput({
         disabled={disabled}
         autoFocus
       />
+      {onProviderChange && (
+        <div
+          className="ji-provider"
+          role="group"
+          aria-label="AI provider"
+          title="Choose which AI provider answers"
+        >
+          {PROVIDER_OPTIONS.map((opt) => (
+            <button
+              type="button"
+              key={opt.id}
+              className={provider === opt.id ? "active" : ""}
+              aria-pressed={provider === opt.id}
+              disabled={disabled}
+              onClick={() => onProviderChange(opt.id)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
       {onBrief && (
         <div className="ji-menu-wrap">
           <button

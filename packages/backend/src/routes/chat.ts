@@ -4,7 +4,11 @@ import { logActivity } from "../db/repositories/activityRepo.js";
 import { archiveActiveMessages, listRecentMessages } from "../db/repositories/chatRepo.js";
 import { runChat } from "../services/chat.js";
 import type { ClaudeInvoker } from "../services/claudeClient.js";
-import { defaultInvoker } from "../services/aiProvider.js";
+import {
+  selectProvider,
+  ProviderError,
+  type AiProviderId,
+} from "../services/aiProvider.js";
 import {
   realGoogleEventsFetcher,
   type GoogleEventsFetcher,
@@ -29,10 +33,11 @@ export async function chatRoutes(
   app: FastifyInstance,
   opts: ChatRouteOptions,
 ): Promise<void> {
-  const invoke = opts.aiInvoker ?? defaultInvoker();
   const fetchGoogle = opts.calendarFetcher ?? realGoogleEventsFetcher;
 
-  app.post("/api/chat", async (req, reply) => handleChat(req, invoke, fetchGoogle, reply));
+  app.post("/api/chat", async (req, reply) =>
+    handleChat(req, opts.aiInvoker, fetchGoogle, reply),
+  );
 
   app.post("/api/chat/reset", async (_req, reply) => {
     const archived = archiveActiveMessages();
@@ -52,7 +57,7 @@ export async function chatRoutes(
 
 async function handleChat(
   req: import("fastify").FastifyRequest,
-  invoke: ClaudeInvoker,
+  injectedInvoker: ClaudeInvoker | undefined,
   fetchGoogle: GoogleEventsFetcher,
   reply: FastifyReply,
 ): Promise<unknown> {
@@ -63,9 +68,36 @@ async function handleChat(
       .send({ kind: "error", error: body.error.issues[0].message });
   }
 
-  const { message } = body.data;
+  const { message, provider: requestedProvider } = body.data;
   logActivity("chat.message.received", message.slice(0, 120));
 
+  // Roadmap 11 Phase 2 — manual provider selection. Resolve the requested
+  // provider per request. An unregistered/unconfigured provider (e.g. Gemini
+  // before Phase 3) fails closed here: no invocation, no fake success, and the
+  // requested provider is echoed back so the UI never hides the choice.
+  let resolved: ReturnType<typeof selectProvider>;
+  try {
+    resolved = selectProvider({ mode: "manual", requestedProvider });
+  } catch (err) {
+    if (err instanceof ProviderError) {
+      logActivity(
+        "ai.provider.unavailable",
+        `requested '${requestedProvider}': ${err.reason}`,
+      );
+      return reply.code(503).send({
+        kind: "error",
+        error: providerUnavailableMessage(requestedProvider),
+        requestedProvider: requestedProvider ?? null,
+        reason: err.reason,
+      });
+    }
+    throw err;
+  }
+
+  logActivity("ai.provider.selected", resolved.selection.reason);
+
+  // Tests inject `aiInvoker`; otherwise invoke the selected provider directly.
+  const invoke = injectedInvoker ?? resolved.provider.invoke;
   const result = await runChat(message, invoke, fetchGoogle);
 
   // Spawn/timeout/disabled/empty: fail closed, no approvals, no history written.
@@ -98,9 +130,18 @@ async function handleChat(
   return reply.code(201).send({
     kind: "chat",
     reply: result.reply,
+    provider: resolved.selection.selectedProvider,
+    requestedProvider: resolved.selection.requestedProvider ?? null,
+    providerReason: resolved.selection.reason,
     approvals: result.approvals,
     clarification: result.clarification,
     clarification_choices: result.clarificationChoices,
     notes: result.notes,
   });
+}
+
+/** User-facing message when a manually requested provider is not usable yet. */
+function providerUnavailableMessage(requested: AiProviderId | undefined): string {
+  const name = requested === "gemini" ? "Gemini" : (requested ?? "provider");
+  return `ผู้ช่วย ${name} ยังไม่พร้อมใช้งานครับ ตอนนี้ยังไม่ได้ตั้งค่าไว้ ลองเลือก Claude แทนได้`;
 }

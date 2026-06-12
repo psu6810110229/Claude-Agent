@@ -28,11 +28,17 @@ import { JarvisInput } from "@/components/JarvisInput";
 import { useToast } from "@/components/ToastProvider";
 import type {
   ActionType,
+  AiProviderId,
   Approval,
   BriefResult,
   BriefType,
   ChatMessage,
 } from "@/lib/types";
+
+const PROVIDER_LABELS: Record<AiProviderId, string> = {
+  claude: "Claude",
+  gemini: "Gemini",
+};
 
 /** Time-of-day greeting in the user's timezone (Asia/Bangkok). */
 function greetingNow(): string {
@@ -61,6 +67,10 @@ export default function HomePage() {
   const [greeting, setGreeting] = useState<string | null>(null);
   const [orbState, setOrbState] = useState<OrbState>("idle");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [provider, setProvider] = useState<AiProviderId>("claude");
+  const [messageProvider, setMessageProvider] = useState<
+    Record<number, AiProviderId>
+  >({});
   const [approvalMap, setApprovalMap] = useState<ApprovalMap>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -130,7 +140,7 @@ export default function HomePage() {
     setMessages((prev) => [...prev, optimisticUser]);
 
     try {
-      const result = await sendChat(text);
+      const result = await sendChat(text, provider);
       if (result.approvals.length > 0) {
         mergeApprovals(result.approvals);
         notifyPendingApprovals(result.approvals.length);
@@ -142,6 +152,12 @@ export default function HomePage() {
       setMessages(updated);
       if (freshAssistant) {
         setRevealingMessageIds((prev) => new Set(prev).add(freshAssistant.id));
+        // Record which provider answered so the bubble can show it (provider is
+        // not persisted server-side, so this is session-scoped).
+        setMessageProvider((prev) => ({
+          ...prev,
+          [freshAssistant.id]: result.provider,
+        }));
       }
       setActiveClarification(
         buildClarificationPrompt(updated, result.clarification, result.clarification_choices),
@@ -340,6 +356,7 @@ export default function HomePage() {
               <ChatMessageGroup
                 key={group.key}
                 group={group}
+                messageProvider={messageProvider}
                 approvalMap={approvalMap}
                 approvalBusy={approvalBusy}
                 revealingMessageIds={revealingMessageIds}
@@ -396,6 +413,8 @@ export default function HomePage() {
           onBrief={runBrief}
           disabled={sending || briefBusy !== null}
           briefBusy={briefBusy}
+          provider={provider}
+          onProviderChange={setProvider}
           onFocusChange={(focused) =>
             setOrbState((s) =>
               s === "thinking" ? s : focused ? "listening" : "idle",
@@ -602,6 +621,7 @@ function groupMessages(messages: ChatMessage[]): ChatGroup[] {
 
 function ChatMessageGroup({
   group,
+  messageProvider,
   approvalMap,
   approvalBusy,
   revealingMessageIds,
@@ -612,6 +632,7 @@ function ChatMessageGroup({
   onClarificationSkip,
 }: {
   group: ChatGroup;
+  messageProvider: Record<number, AiProviderId>;
   approvalMap: ApprovalMap;
   approvalBusy: number | null;
   revealingMessageIds: Set<number>;
@@ -628,12 +649,22 @@ function ChatMessageGroup({
       inferSourceHints(message, parseActions(message.actions_json)),
     ),
   );
+  const groupProvider = isUser
+    ? undefined
+    : group.messages
+        .map((message) => messageProvider[message.id])
+        .find((value): value is AiProviderId => Boolean(value));
 
   return (
     <section className={`chat-group ${isUser ? "user" : "assistant"}`}>
       <div className="chat-group-header">
         <span className="chat-role">{isUser ? "You" : "Jarvis"}</span>
         <span className="ts">{formatTs(first.created_at)}</span>
+        {groupProvider && (
+          <span className="provider-badge" title="AI provider">
+            {PROVIDER_LABELS[groupProvider]}
+          </span>
+        )}
         {!isUser && <SourceHintList hints={groupSources} />}
       </div>
       <div className="chat-group-stack">

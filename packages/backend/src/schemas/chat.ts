@@ -1,12 +1,18 @@
 import { z } from "zod";
 import { aiActionSchema } from "./aiCommand.js";
+import { aiProviderIdSchema } from "../services/aiProvider.js";
 import { CLAUDE_MAX_ACTIONS } from "../config.js";
 
 /**
- * Request schema for POST /api/chat (Step 12).
+ * Request schema for POST /api/chat (Step 12; Roadmap 11 Phase 2).
+ *
+ * `provider` is an optional manual provider choice (`claude | gemini`) carried
+ * per request. Omitted -> backend default (Claude). Manual selection never
+ * silently falls back to another provider.
  */
 export const chatRequestSchema = z.object({
   message: z.string().trim().min(1).max(4000),
+  provider: aiProviderIdSchema.optional(),
 });
 
 /**
