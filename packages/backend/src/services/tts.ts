@@ -13,6 +13,10 @@ const VOICE = "en-AU-WilliamMultilingualNeural";
 const DEFAULT_PRESET: TtsPreset = "warm";
 
 // FX building blocks (matching POC output)
+// Lead-in silence: browsers/players often clip the first few hundred ms before
+// decode settles, swallowing the first 1-3 words. Padding the front guarantees
+// real speech never sits at sample 0.
+const LEAD_SILENCE = "adelay=700:all=1";
 const HP = "highpass=f=70";
 const COMP = "acompressor=threshold=-18dB:ratio=3:attack=15:release=200";
 const COMP_TIGHT = "acompressor=threshold=-20dB:ratio=4:attack=8:release=150";
@@ -30,14 +34,29 @@ interface PresetConfig {
 
 const PRESETS: Record<TtsPreset, PresetConfig> = {
   warm: {
-    prosody: { pitch: "-8%", rate: "-6%", volume: "+0%" },
+    prosody: { pitch: "-8%", rate: "-12%", volume: "+0%" },
     fx: [HP, lowBoost4, body, tameHigh3, COMP, "aecho=0.85:0.82:55:0.18", NORM],
   },
   intimate: {
-    prosody: { pitch: "-10%", rate: "-6%" },
+    prosody: { pitch: "-10%", rate: "-12%" },
     fx: [HP, lowBoost5, body, tameHigh2, COMP_TIGHT, "aecho=0.9:0.75:25:0.06", NORM],
   },
 };
+
+/**
+ * Make speech sound more natural and unhurried via punctuation-driven pauses.
+ *
+ * NOTE: the public Edge endpoint (via msedge-tts `toStream`) returns an EMPTY
+ * stream when the input contains SSML <break> tags, so we cannot use those.
+ * Instead we lean on punctuation, which Edge neural voices honour as real,
+ * un-spoken pauses. Thai uses spaces as phrase delimiters; inserting a comma
+ * at each Thai phrase boundary yields a natural breath pause. English word-
+ * spaces are left untouched (a Thai char must sit on both sides). Overall
+ * slowness comes from the preset `rate` (see PRESETS), not from here.
+ */
+function withNaturalPauses(text: string): string {
+  return text.replace(/([฀-๿])[ \t]+(?=[฀-๿])/g, "$1, ");
+}
 
 export interface TtsSynthesizer {
   /** Returns WAV buffer, or null when disabled/unavailable. Never throws. */
@@ -112,9 +131,9 @@ class RealTtsSynthesizer implements TtsSynthesizer {
     const wavPath = path.join(os.tmpdir(), `jarvis-tts-${id}.wav`);
 
     try {
-      const mp3 = await ttsToBuffer(text, config.prosody);
+      const mp3 = await ttsToBuffer(withNaturalPauses(text), config.prosody);
       await writeFile(mp3Path, mp3);
-      await applyFx(mp3Path, wavPath, config.fx);
+      await applyFx(mp3Path, wavPath, [LEAD_SILENCE, ...config.fx]);
       const wav = await readFile(wavPath);
       logActivity("tts.served", `${wav.length} bytes preset=${resolvedPreset}`);
       return wav;

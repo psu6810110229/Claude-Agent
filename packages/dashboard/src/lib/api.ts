@@ -308,14 +308,28 @@ export async function speak(text: string, preset?: string): Promise<void> {
     }
 
     _currentUrl = url;
-    _audio = new Audio(url);
-    _audio.onended = () => {
+    const audio = new Audio();
+    _audio = audio;
+    audio.preload = "auto";
+    audio.onended = () => {
       if (_currentUrl === url) {
         URL.revokeObjectURL(url);
         _currentUrl = null;
       }
     };
-    void _audio.play();
+    // Start only once enough is buffered to play through, so the browser never
+    // begins mid-decode and clips the first word. Fall back to a plain play()
+    // if the event hasn't fired shortly after load.
+    let started = false;
+    const start = () => {
+      if (started || _audio !== audio) return;
+      started = true;
+      void audio.play();
+    };
+    audio.oncanplaythrough = start;
+    audio.src = url;
+    audio.load();
+    setTimeout(start, 600);
   } catch {
     // Fail silently — text is already shown.
   }
