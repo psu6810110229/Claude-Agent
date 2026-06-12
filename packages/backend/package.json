@@ -21,7 +21,8 @@
     "smoke:step11": "tsx scripts/step11-smoke-test.ts",
     "smoke:step12": "tsx scripts/smoke-step12.ts",
     "google-auth": "tsx scripts/google-auth.ts",
-    "smoke:phase3": "tsx scripts/smoke-phase3.ts"
+    "smoke:phase3": "tsx scripts/smoke-phase3.ts",
+    "smoke:phase4": "tsx scripts/smoke-phase4.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import { ArrowUp, ChevronDown, Moon, Sparkles, Sun } from "lucide-react";
-import type { AiProviderId, BriefType } from "@/lib/types";
+import type { ProviderChoice, BriefType } from "@/lib/types";
 
-const PROVIDER_OPTIONS: { id: AiProviderId; label: string }[] = [
-  { id: "claude", label: "Claude" },
-  { id: "gemini", label: "Gemini" },
+const PROVIDER_OPTIONS: { id: ProviderChoice; label: string; title: string }[] = [
+  { id: "auto", label: "Auto", title: "Backend picks the best provider per task" },
+  { id: "claude", label: "Claude", title: "Always use Claude" },
+  { id: "gemini", label: "Gemini", title: "Always use Gemini" },
 ];
 
 /**
@@ -26,8 +27,8 @@ export function JarvisInput({
   onFocusChange?: (focused: boolean) => void;
   disabled?: boolean;
   briefBusy?: BriefType | null;
-  provider?: AiProviderId;
-  onProviderChange?: (provider: AiProviderId) => void;
+  provider?: ProviderChoice;
+  onProviderChange?: (provider: ProviderChoice) => void;
 }) {
   const [text, setText] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -74,6 +75,7 @@ export function JarvisInput({
               key={opt.id}
               className={provider === opt.id ? "active" : ""}
               aria-pressed={provider === opt.id}
+              title={opt.title}
               disabled={disabled}
               onClick={() => onProviderChange(opt.id)}
             >

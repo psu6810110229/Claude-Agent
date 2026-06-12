@@ -29,6 +29,7 @@ import { useToast } from "@/components/ToastProvider";
 import type {
   ActionType,
   AiProviderId,
+  ProviderChoice,
   Approval,
   BriefResult,
   BriefType,
@@ -67,7 +68,7 @@ export default function HomePage() {
   const [greeting, setGreeting] = useState<string | null>(null);
   const [orbState, setOrbState] = useState<OrbState>("idle");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [provider, setProvider] = useState<AiProviderId>("claude");
+  const [provider, setProvider] = useState<ProviderChoice>("claude");
   const [messageProvider, setMessageProvider] = useState<
     Record<number, AiProviderId>
   >({});
@@ -163,12 +164,23 @@ export default function HomePage() {
         buildClarificationPrompt(updated, result.clarification, result.clarification_choices),
       );
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : String(err);
+      let message = err instanceof ApiError ? err.message : String(err);
+      // Phase 4 — Auto mode never switches providers silently. On failure the
+      // backend names another available provider; surface it as an explicit
+      // retry hint instead of auto-retrying.
+      const fallback =
+        err instanceof ApiError
+          ? (err.details?.fallbackProvider as AiProviderId | null | undefined)
+          : undefined;
+      if (fallback) {
+        const hint = `ลองใหม่ด้วย ${PROVIDER_LABELS[fallback]} ได้ครับ`;
+        message = `${message} (${hint})`;
+      }
       setMessages((prev) => [
         ...prev,
         fallbackAssistantMessage(message),
       ]);
-      setSendError(err instanceof ApiError ? err.message : String(err));
+      setSendError(message);
       setLastFailedMessage(text);
       notify({
         kind: "error",

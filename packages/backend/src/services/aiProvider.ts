@@ -109,31 +109,127 @@ export function getProvider(id: AiProviderId): AiProvider | undefined {
 /** The default provider for the current phase. */
 export const DEFAULT_PROVIDER_ID: AiProviderId = "claude";
 
+/** Coarse Auto-mode routing class for an incoming task. */
+export type TaskComplexity = "low-risk" | "complex";
+
 /**
- * Pick a provider and record the reason. Phase 3 policy:
+ * Patterns that mark a task as low-risk enough for the cheaper/faster model in
+ * Auto mode (summarize / rewrite / translate style work). Deterministic and
+ * conservative: anything that does NOT clearly match is treated as "complex"
+ * and routed to Claude. Thai keywords included since the user writes Thai.
+ */
+const LOW_RISK_PATTERNS: RegExp[] = [
+  /\bsummar(y|ise|ize|ies)\b/i,
+  /\brewrite\b/i,
+  /\brephrase\b/i,
+  /\bparaphrase\b/i,
+  /\btranslate\b/i,
+  /\bproofread\b/i,
+  /\btl;?dr\b/i,
+  /\brecap\b/i,
+  /\bshorten\b/i,
+  /สรุป/,
+  /แปล/,
+];
+
+/**
+ * Deterministic Auto-mode task classifier. Returns "low-risk" only when the
+ * message clearly matches a summarize/rewrite-style pattern; otherwise
+ * "complex". Defaulting to "complex" keeps Claude as the safe choice for
+ * anything ambiguous.
+ */
+export function classifyTaskComplexity(
+  message: string | undefined,
+): TaskComplexity {
+  if (!message) return "complex";
+  return LOW_RISK_PATTERNS.some((re) => re.test(message))
+    ? "low-risk"
+    : "complex";
+}
+
+function resolve(
+  provider: AiProvider,
+  selection: ProviderSelection,
+): ResolvedProvider {
+  return { provider, selection };
+}
+
+/**
+ * The other configured + available provider, if any. Used to surface a VISIBLE
+ * Auto-mode fallback the user can retry with explicitly — never to switch
+ * providers silently inside one request.
+ */
+export function otherAvailableProvider(
+  excluding: AiProviderId,
+): AiProvider | undefined {
+  for (const id of ["claude", "gemini"] as AiProviderId[]) {
+    if (id === excluding) continue;
+    const p = registry[id];
+    if (p?.isAvailable()) return p;
+  }
+  return undefined;
+}
+
+/**
+ * Pick a provider and record the reason.
+ *
+ * Manual mode (Phase 2/3):
  * - no request -> default Claude.
  * - explicit Claude -> Claude.
  * - explicit Gemini -> Gemini when isGeminiConfigured(); otherwise fail closed
  *   with `"unavailable"` (never silently substitutes Claude).
- * - Auto mode resolves to the default provider; real Auto rules arrive in Phase 4.
  *
- * Fails closed by throwing `ProviderError` rather than substituting a different
- * provider, so a manual choice is never silently swapped.
+ * Auto mode (Phase 4) — transparent deterministic policy:
+ * - low-risk summarize/rewrite task AND Gemini configured -> Gemini Flash.
+ * - complex task, or Gemini unavailable -> Claude.
+ * Every choice records a human-readable `reason`. Auto never throws: Claude is
+ * always available as the safe default, so Auto degrades visibly, never blindly.
+ *
+ * Manual fails closed by throwing `ProviderError` rather than substituting a
+ * different provider, so a manual choice is never silently swapped.
  */
 export function selectProvider(opts?: {
   mode?: AiProviderMode;
   requestedProvider?: AiProviderId;
+  message?: string;
 }): ResolvedProvider {
   const mode: AiProviderMode = opts?.mode ?? "manual";
   const requestedProvider = opts?.requestedProvider;
 
-  // Auto mode: Phase 1 has a single registered provider, so the deterministic
-  // policy trivially resolves to the default. Real Auto rules arrive in Phase 4.
-  const targetId: AiProviderId =
-    mode === "auto"
-      ? DEFAULT_PROVIDER_ID
-      : (requestedProvider ?? DEFAULT_PROVIDER_ID);
+  if (mode === "auto") {
+    const gemini = registry.gemini;
+    const complexity = classifyTaskComplexity(opts?.message);
+    if (gemini?.isAvailable() && complexity === "low-risk") {
+      return resolve(gemini, {
+        mode,
+        requestedProvider,
+        selectedProvider: gemini.id,
+        selectedModel: gemini.model,
+        reason: `auto: low-risk task → ${gemini.id} (${gemini.model ?? "default"})`,
+      });
+    }
+    const claude = registry.claude;
+    if (!claude) {
+      throw new ProviderError(
+        "unknown-provider",
+        "Claude provider is not registered.",
+      );
+    }
+    const why = !gemini
+      ? "gemini not registered"
+      : !gemini.isAvailable()
+        ? "gemini unavailable"
+        : "complex task";
+    return resolve(claude, {
+      mode,
+      requestedProvider,
+      selectedProvider: claude.id,
+      selectedModel: claude.model,
+      reason: `auto: ${why} → ${claude.id}`,
+    });
+  }
 
+  const targetId: AiProviderId = requestedProvider ?? DEFAULT_PROVIDER_ID;
   const provider = registry[targetId];
   if (!provider) {
     throw new ProviderError(
@@ -148,23 +244,15 @@ export function selectProvider(opts?: {
     );
   }
 
-  const reason =
-    mode === "auto"
-      ? `auto selected '${targetId}' (only configured provider)`
-      : requestedProvider
-        ? `manual selection '${targetId}'`
-        : `default provider '${targetId}'`;
-
-  return {
-    provider,
-    selection: {
-      mode,
-      requestedProvider,
-      selectedProvider: provider.id,
-      selectedModel: provider.model,
-      reason,
-    },
-  };
+  return resolve(provider, {
+    mode,
+    requestedProvider,
+    selectedProvider: provider.id,
+    selectedModel: provider.model,
+    reason: requestedProvider
+      ? `manual selection '${targetId}'`
+      : `default provider '${targetId}'`,
+  });
 }
 
 /**

@@ -258,12 +258,26 @@ export interface ChatMessage {
 /** Manual AI provider choice carried per chat request (Roadmap 11 Phase 2). */
 export type AiProviderId = "claude" | "gemini";
 
+/** Provider routing mode (Roadmap 11 Phase 4). */
+export type AiProviderMode = "manual" | "auto";
+
+/**
+ * What the user picks in the UI: a specific provider (manual) or `"auto"`
+ * (backend routes transparently). Maps to either `{ provider }` or
+ * `{ mode: "auto" }` on the wire.
+ */
+export type ProviderChoice = AiProviderId | "auto";
+
 export interface ChatResult {
   kind: "chat";
   reply: string;
+  /** Routing mode the backend applied. */
+  mode: AiProviderMode;
   /** Provider that actually produced this reply. */
   provider: AiProviderId;
-  /** Provider the user explicitly requested, or null when defaulted. */
+  /** Model the selected provider used, when known. */
+  selectedModel?: string | null;
+  /** Provider the user explicitly requested, or null when defaulted/auto. */
   requestedProvider: AiProviderId | null;
   providerReason?: string;
   approvals: Approval[];

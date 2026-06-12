@@ -6,6 +6,7 @@ import { runChat } from "../services/chat.js";
 import type { ClaudeInvoker } from "../services/claudeClient.js";
 import {
   selectProvider,
+  otherAvailableProvider,
   ProviderError,
   type AiProviderId,
 } from "../services/aiProvider.js";
@@ -68,16 +69,18 @@ async function handleChat(
       .send({ kind: "error", error: body.error.issues[0].message });
   }
 
-  const { message, provider: requestedProvider } = body.data;
+  const { message, provider: requestedProvider, mode: requestedMode } = body.data;
+  const mode = requestedMode ?? "manual";
   logActivity("chat.message.received", message.slice(0, 120));
 
-  // Roadmap 11 Phase 2 — manual provider selection. Resolve the requested
-  // provider per request. An unregistered/unconfigured provider (e.g. Gemini
-  // before Phase 3) fails closed here: no invocation, no fake success, and the
-  // requested provider is echoed back so the UI never hides the choice.
+  // Roadmap 11 Phase 2/4 — provider selection. Manual resolves the requested
+  // provider per request (an unconfigured provider fails closed here: no
+  // invocation, no fake success, requested provider echoed back so the UI never
+  // hides the choice). Auto routes transparently and never throws (Claude is the
+  // always-available safe default); the message drives low-risk classification.
   let resolved: ReturnType<typeof selectProvider>;
   try {
-    resolved = selectProvider({ mode: "manual", requestedProvider });
+    resolved = selectProvider({ mode, requestedProvider, message });
   } catch (err) {
     if (err instanceof ProviderError) {
       logActivity(
@@ -109,7 +112,26 @@ async function handleChat(
         : result.reason === "disabled"
           ? 503
           : 502;
-    return reply.code(code).send({ kind: "error", error: result.userMessage });
+    // Phase 4 — VISIBLE Auto fallback. The budget allows one provider call per
+    // chat command, so we never retry silently. On an Auto failure we surface
+    // the other available provider for an EXPLICIT user retry instead.
+    const fallback =
+      mode === "auto"
+        ? otherAvailableProvider(resolved.selection.selectedProvider)
+        : undefined;
+    if (fallback) {
+      logActivity(
+        "ai.provider.fallback_requested",
+        `${resolved.selection.selectedProvider} failed (${result.reason}); offer ${fallback.id}`,
+      );
+    }
+    return reply.code(code).send({
+      kind: "error",
+      error: result.userMessage,
+      mode,
+      provider: resolved.selection.selectedProvider,
+      fallbackProvider: fallback?.id ?? null,
+    });
   }
 
   // Invalid JSON / schema failure: reject, no approvals.
@@ -130,7 +152,9 @@ async function handleChat(
   return reply.code(201).send({
     kind: "chat",
     reply: result.reply,
+    mode,
     provider: resolved.selection.selectedProvider,
+    selectedModel: resolved.selection.selectedModel ?? null,
     requestedProvider: resolved.selection.requestedProvider ?? null,
     providerReason: resolved.selection.reason,
     approvals: result.approvals,

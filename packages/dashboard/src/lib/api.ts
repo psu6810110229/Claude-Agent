@@ -4,7 +4,7 @@
  */
 import type {
   Activity,
-  AiProviderId,
+  ProviderChoice,
   Approval,
   BriefResult,
   CalendarEvent,
@@ -30,6 +30,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** Parsed error body, when present — e.g. Auto-mode `fallbackProvider`. */
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "ApiError";
@@ -55,13 +57,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
+    let details: Record<string, unknown> | undefined;
     try {
-      const body = (await res.json()) as { error?: string };
+      const body = (await res.json()) as { error?: string } & Record<
+        string,
+        unknown
+      >;
       if (body?.error) message = body.error;
+      details = body;
     } catch {
       // non-JSON error body — keep the generic message
     }
-    throw new ApiError(message, res.status);
+    throw new ApiError(message, res.status, details);
   }
 
   if (res.status === 204) return undefined as T;
@@ -210,18 +217,27 @@ export function markNotificationRead(id: number): Promise<Notification> {
 // --- Chat (Step 12) -------------------------------------------------------
 
 /**
- * Send a chat message. `provider` optionally forces a manual provider choice
- * (`claude | gemini`); omitted uses the backend default. Returns the assistant
+ * Send a chat message. `choice` is the user's provider pick:
+ * - `"auto"` -> backend routes transparently (`mode: "auto"`).
+ * - `"claude" | "gemini"` -> manual provider (`provider: <id>`).
+ * Omitted uses the backend default (Claude, manual). Returns the assistant
  * reply + any queued approvals. AI failures throw ApiError (503 disabled/
- * provider-unconfigured, 504 timeout, 502 failure, 400 invalid output).
+ * provider-unconfigured, 504 timeout, 502 failure, 400 invalid output);
+ * Auto-mode failures carry `details.fallbackProvider` for an explicit retry.
  */
 export function sendChat(
   message: string,
-  provider?: AiProviderId,
+  choice?: ProviderChoice,
 ): Promise<ChatResult> {
+  const body =
+    choice === "auto"
+      ? { message, mode: "auto" }
+      : choice
+        ? { message, provider: choice }
+        : { message };
   return request<ChatResult>("/api/chat", {
     method: "POST",
-    body: JSON.stringify(provider ? { message, provider } : { message }),
+    body: JSON.stringify(body),
   });
 }
 
