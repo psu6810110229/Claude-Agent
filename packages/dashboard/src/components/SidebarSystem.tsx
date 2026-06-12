@@ -12,6 +12,7 @@ const POLL_MS = 60_000;
 
 interface SystemState {
   healthy: boolean;
+  aiEnabled: boolean;
   calendarConnected: boolean;
   memoryEntries: number | null;
 }
@@ -32,6 +33,7 @@ async function loadSystem(): Promise<SystemState> {
 
   return {
     healthy,
+    aiEnabled: settings?.find((s) => s.key === "claude_ai")?.enabled ?? false,
     calendarConnected:
       settings?.find((s) => s.key === "google_calendar")?.enabled ?? false,
     memoryEntries: memory ? memory.length : null,
@@ -67,7 +69,9 @@ export function SidebarSystem() {
       </div>
       <div className="side-widget">
         <div className="w-label">Agents</div>
-        <div className="w-value">{healthy ? "1 ready" : "0 ready"}</div>
+        <div className="w-value">
+          {healthy && state?.aiEnabled ? "1 ready" : "0 ready"}
+        </div>
       </div>
       <div className="side-widget">
         <div className="w-label">Connections</div>

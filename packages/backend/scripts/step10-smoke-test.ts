@@ -2,13 +2,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-// Throwaway memory dir + AI/Google disabled BEFORE importing config-dependent
-// modules. We inject stub invokers/fetchers; the real Claude binary and the real
-// Google API are NEVER reached in this test.
-const TEST_MEMORY_DIR = fs.mkdtempSync(
-  path.join(os.tmpdir(), "claude-agent-step10-"),
-);
+// Throwaway memory dir + temp DB + AI/Google disabled BEFORE importing
+// config-dependent modules. We inject stub invokers/fetchers; the real Claude
+// binary and the real Google API are NEVER reached in this test. The temp DB
+// matters: runtime Settings toggles store config overrides in the real DB
+// (e.g. google_calendar_enabled) which would beat the env flags below.
+const TEST_TMP = fs.mkdtempSync(path.join(os.tmpdir(), "claude-agent-step10-"));
+const TEST_MEMORY_DIR = path.join(TEST_TMP, "memory");
+fs.mkdirSync(TEST_MEMORY_DIR, { recursive: true });
 process.env.CLAUDE_AGENT_MEMORY_DIR = TEST_MEMORY_DIR;
+process.env.CLAUDE_AGENT_DB_PATH = path.join(TEST_TMP, "test.db");
 process.env.CLAUDE_AGENT_AI_ENABLED = "";
 process.env.GOOGLE_CALENDAR_ENABLED = "";
 
@@ -63,6 +66,10 @@ async function main(): Promise<void> {
     "Google OAuth scope is limited to Calendar events",
   );
 
+  // initDb() before the disabled-gate check: isGoogleCalendarEnabled() reads
+  // the config table (runtime Settings overrides), which must exist.
+  initDb();
+
   // --- 1. Disabled (real fetcher, flag off) fails closed with 'disabled' ---
   let disabledThrew = false;
   try {
@@ -75,8 +82,6 @@ async function main(): Promise<void> {
       err instanceof GoogleCalendarError && err.reason === "disabled";
   }
   assert(disabledThrew, "real fetcher fails closed when disabled");
-
-  initDb();
 
   // --- Stub Google fetcher returns one timed + one all-day event ---
   const stubEvents = [

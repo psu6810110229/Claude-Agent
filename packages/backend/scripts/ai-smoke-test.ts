@@ -40,6 +40,7 @@ async function main(): Promise<void> {
   const { initDb } = await import("../src/db/init.js");
   const { getDb, closeDb } = await import("../src/db/connection.js");
   const { ClaudeError } = await import("../src/services/claudeClient.js");
+  const { CLAUDE_MAX_ACTIONS } = await import("../src/config.js");
 
   const validOutput = JSON.stringify({
     actions: [
@@ -110,7 +111,8 @@ async function main(): Promise<void> {
       return "Here is the result:\n" + validOutput;
     if (prompt.includes("CASE_TOOMANY"))
       return JSON.stringify({
-        actions: Array.from({ length: 6 }, (_, i) => ({
+        // One over the configured cap so the over-limit rejection always fires.
+        actions: Array.from({ length: CLAUDE_MAX_ACTIONS + 1 }, (_, i) => ({
           action_type: "task.create",
           payload: { title: `t${i}` },
         })),
@@ -214,12 +216,12 @@ async function main(): Promise<void> {
   );
   assert(countApprovals() === before4b, "prose response created zero approvals");
 
-  // --- 5. More than 5 actions is rejected ---
+  // --- 5. More than CLAUDE_MAX_ACTIONS actions is rejected ---
   const before5 = countApprovals();
   const tooMany = await postAi("CASE_TOOMANY add many tasks");
   assert(
     tooMany.status === 400 && tooMany.json.kind === "error",
-    "more than 5 actions is rejected",
+    "more than CLAUDE_MAX_ACTIONS actions is rejected",
   );
   assert(countApprovals() === before5, "over-cap response created zero approvals");
 

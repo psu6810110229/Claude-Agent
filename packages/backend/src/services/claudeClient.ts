@@ -5,6 +5,7 @@ import {
   CLAUDE_TIMEOUT_MS,
   CLAUDE_AI_ENABLED,
 } from "../config.js";
+import { getConfigBool } from "../db/repositories/configRepo.js";
 
 /**
  * Controlled wrapper around `claude -p` (Step 6).
@@ -62,14 +63,24 @@ function sanitizedEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-/** Real invoker: spawns the Claude CLI. Gated by CLAUDE_AI_ENABLED. */
+/**
+ * Runtime gate for the Claude reasoning runtime. A DB config override (set via
+ * the Settings page, key `claude_ai_enabled`) wins; otherwise falls back to
+ * the CLAUDE_AGENT_AI_ENABLED env flag. Mirrors isGoogleCalendarEnabled().
+ */
+export function isClaudeAiEnabled(): boolean {
+  const dbValue = getConfigBool("claude_ai_enabled");
+  return dbValue ?? CLAUDE_AI_ENABLED;
+}
+
+/** Real invoker: spawns the Claude CLI. Gated by isClaudeAiEnabled(). */
 export const realClaudeInvoker: ClaudeInvoker = (prompt, opts) =>
   new Promise<string>((resolve, reject) => {
-    if (!CLAUDE_AI_ENABLED) {
+    if (!isClaudeAiEnabled()) {
       reject(
         new ClaudeError(
           "disabled",
-          "AI command mode is disabled. Set CLAUDE_AGENT_AI_ENABLED=1 to enable.",
+          "Claude AI is disabled. Enable it in Settings or set CLAUDE_AGENT_AI_ENABLED=1.",
         ),
       );
       return;

@@ -7,8 +7,9 @@ import {
 } from "../config.js";
 import { getConfigBool, setConfigBool } from "../db/repositories/configRepo.js";
 import { isGoogleCalendarEnabled } from "../services/googleCalendar.js";
+import { isClaudeAiEnabled } from "../services/claudeClient.js";
 
-const TOGGLEABLE_KEYS = ["google_calendar"] as const;
+const TOGGLEABLE_KEYS = ["google_calendar", "claude_ai"] as const;
 type ToggleableKey = (typeof TOGGLEABLE_KEYS)[number];
 
 const toggleBodySchema = z.object({ enabled: z.boolean() });
@@ -20,6 +21,15 @@ function isCredentialsConfigured(): boolean {
 function buildSettingsPayload() {
   return {
     settings: [
+      {
+        key: "claude_ai",
+        label: "Claude AI",
+        enabled: isClaudeAiEnabled(),
+        configured: true,
+        description:
+          "Toggle the Claude reasoning runtime (chat, AI commands, briefs). " +
+          "Proposal-only — every write still goes through the approval queue.",
+      },
       {
         key: "google_calendar",
         label: "Google Calendar",
@@ -59,6 +69,10 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
         });
       }
       setConfigBool("google_calendar_enabled", enabled);
+    }
+
+    if (key === "claude_ai") {
+      setConfigBool("claude_ai_enabled", enabled);
     }
 
     return reply.code(200).send({ key, enabled });
