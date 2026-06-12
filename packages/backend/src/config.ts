@@ -230,6 +230,11 @@ export const TTS_ENABLED = /^(1|true)$/i.test(
 /** Default TTS preset. Validated to TtsPreset in tts.ts. */
 export const TTS_PRESET = process.env.CLAUDE_AGENT_TTS_PRESET ?? "warm";
 
+/** Backend speaker playback is OFF unless explicitly enabled. */
+export const TTS_SPEAKER_ENABLED = /^(1|true)$/i.test(
+  process.env.CLAUDE_AGENT_TTS_SPEAKER_ENABLED ?? "",
+);
+
 /** Single source of truth for UTC ISO 8601 timestamps. */
 export function nowIso(): string {
   return new Date().toISOString();
