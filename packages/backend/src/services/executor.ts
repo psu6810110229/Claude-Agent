@@ -15,6 +15,7 @@ import {
 import {
   createReminder,
   updateReminder,
+  completeReminder,
   archiveReminder,
 } from "../db/repositories/reminderRepo.js";
 import {
@@ -128,6 +129,12 @@ export async function executeAction(
       const reminder = updateReminder(id, fields);
       if (!reminder) throw new ExecutorError(`reminder #${id} not found`);
       return { summary: `updated reminder #${reminder.id}` };
+    }
+    case "reminder.done": {
+      const data = parsed.data as { id: number };
+      const reminder = completeReminder(data.id);
+      if (!reminder) throw new ExecutorError(`reminder #${data.id} not found`);
+      return { summary: `completed reminder #${reminder.id}` };
     }
     case "reminder.archive": {
       const data = parsed.data as { id: number };

@@ -38,7 +38,9 @@ CREATE TABLE IF NOT EXISTS activity_log (
 
 -- Step 9 — local events & reminders. All datetimes are ISO 8601 UTC TEXT,
 -- generated/validated by the application layer (see schemas/event, schemas/reminder).
--- status is 'scheduled'/'active' until soft-archived ('archived'); never hard-deleted.
+-- event.status is 'scheduled' until soft-archived ('archived'); never hard-deleted.
+-- reminder.status is 'active' until 'done' (completed) or 'archived' (filed away);
+-- 'done' and 'archived' are distinct meanings and both leave the active views.
 CREATE TABLE IF NOT EXISTS event (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   title      TEXT NOT NULL,

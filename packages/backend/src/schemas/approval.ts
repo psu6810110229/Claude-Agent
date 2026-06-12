@@ -9,6 +9,7 @@ import {
 import {
   createReminderPayloadSchema,
   updateReminderPayloadSchema,
+  doneReminderPayloadSchema,
   archiveReminderPayloadSchema,
 } from "./reminder.js";
 import { createGoogleEventPayloadSchema } from "./googleCalendar.js";
@@ -29,6 +30,7 @@ export const actionTypeSchema = z.enum([
   "event.archive",
   "reminder.create",
   "reminder.update",
+  "reminder.done",
   "reminder.archive",
   "google_event.create",
 ]);
@@ -58,6 +60,7 @@ export const actionPayloadSchemas = {
   "event.archive": archiveEventPayloadSchema,
   "reminder.create": createReminderPayloadSchema,
   "reminder.update": updateReminderPayloadSchema,
+  "reminder.done": doneReminderPayloadSchema,
   "reminder.archive": archiveReminderPayloadSchema,
   "google_event.create": createGoogleEventPayloadSchema,
 } as const;

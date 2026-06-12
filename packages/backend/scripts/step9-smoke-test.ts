@@ -53,6 +53,9 @@ async function main(): Promise<void> {
   const { bucketEvents, bucketReminders } = await import(
     "../src/services/agenda.js"
   );
+  const { listReminders } = await import(
+    "../src/db/repositories/reminderRepo.js"
+  );
 
   // --- 0. Agenda bucketing math (Asia/Bangkok, fixed instant) ---
   const now = new Date("2026-06-06T05:00:00.000Z"); // 12:00 in Bangkok
@@ -253,6 +256,52 @@ async function main(): Promise<void> {
     ),
     "archived event is excluded from GET /api/events",
   );
+
+  // --- 7. reminder.done (Sprint 1) — distinct from archive ---
+  const storedReminder = remindersRes.json.reminders.find(
+    (r: any) => r.title === "Pay rent",
+  );
+  const doneApproval = await createApprovalRow("reminder.done", {
+    id: storedReminder.id,
+  });
+  const okDone = await postApprove(doneApproval.id);
+  assert(
+    okDone.status === 200 && okDone.json.status === "approved",
+    "approving reminder.done succeeds",
+  );
+  const reminderStatus = (
+    db
+      .prepare("SELECT status FROM reminder WHERE id = ?")
+      .get(storedReminder.id) as { status: string }
+  ).status;
+  assert(
+    reminderStatus === "done",
+    "reminder.done sets DB status to 'done' (not 'archived')",
+  );
+  assert(
+    !(await getJson("/api/reminders")).json.reminders.some(
+      (r: any) => r.id === storedReminder.id,
+    ),
+    "done reminder is excluded from GET /api/reminders (active-only)",
+  );
+  {
+    // Overdue bucketing must never include a done reminder.
+    const past = new Date("2000-01-01T00:00:00.000Z").toISOString();
+    db.prepare("UPDATE reminder SET due_at = ? WHERE id = ?").run(
+      past,
+      storedReminder.id,
+    );
+    const buckets = bucketReminders(listReminders(), new Date());
+    const allBucketed = [
+      ...buckets.overdue,
+      ...buckets.today,
+      ...buckets.upcoming,
+    ];
+    assert(
+      !allBucketed.some((r: any) => r.id === storedReminder.id),
+      "done reminder (even past-due) is not counted as overdue",
+    );
+  }
 
   async function createApprovalRow(
     action_type: string,

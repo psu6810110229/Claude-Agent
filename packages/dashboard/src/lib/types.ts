@@ -29,6 +29,7 @@ export type ActionType =
   | "event.archive"
   | "reminder.create"
   | "reminder.update"
+  | "reminder.done"
   | "reminder.archive"
   | "google_event.create";
 
@@ -73,7 +74,7 @@ export interface GoogleEventListResponse {
   available: boolean;
 }
 
-export type ReminderStatus = "active" | "archived";
+export type ReminderStatus = "active" | "done" | "archived";
 
 export interface Reminder {
   id: number;

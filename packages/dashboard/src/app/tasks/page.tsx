@@ -124,14 +124,55 @@ export default function TasksPage() {
         {tasks && tasks.length === 0 && <Empty label="No tasks yet." />}
 
         {tasks && tasks.length > 0 && (
-          <div className="panel">
-            {tasks.map((task) => (
-              <TaskRow key={task.id} task={task} busy={busy} run={run} />
-            ))}
-          </div>
+          <>
+            <TaskGroup
+              label="Active"
+              tasks={tasks.filter((t) => t.status === "open")}
+              busy={busy}
+              run={run}
+            />
+            <TaskGroup
+              label="Done"
+              tasks={tasks.filter((t) => t.status === "done")}
+              busy={busy}
+              run={run}
+            />
+            <TaskGroup
+              label="Archived"
+              tasks={tasks.filter((t) => t.status === "archived")}
+              busy={busy}
+              run={run}
+            />
+          </>
         )}
       </div>
     </>
+  );
+}
+
+function TaskGroup({
+  label,
+  tasks,
+  busy,
+  run,
+}: {
+  label: string;
+  tasks: Task[];
+  busy: boolean;
+  run: (fn: () => Promise<unknown>, success?: ToastSuccess) => Promise<void>;
+}) {
+  if (tasks.length === 0) return null;
+  return (
+    <section className="section">
+      <p className="page-kicker">
+        {label} ({tasks.length})
+      </p>
+      <div className="panel">
+        {tasks.map((task) => (
+          <TaskRow key={task.id} task={task} busy={busy} run={run} />
+        ))}
+      </div>
+    </section>
   );
 }
 
