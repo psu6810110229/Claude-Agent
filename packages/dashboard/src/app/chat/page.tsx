@@ -21,17 +21,28 @@ export default function ChatPage() {
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Load history on mount.
+  // Load history on mount, then auto-send any message handed off from the
+  // home (J.A.R.V.I.S input) page via sessionStorage.
+  const handoffDone = useRef(false);
   useEffect(() => {
     getChatHistory(100)
       .then((msgs) => {
         setMessages(msgs);
         setLoading(false);
+        if (!handoffDone.current) {
+          handoffDone.current = true;
+          const pending = sessionStorage.getItem("jarvis.pending");
+          if (pending) {
+            sessionStorage.removeItem("jarvis.pending");
+            void doSend(pending);
+          }
+        }
       })
       .catch((err) => {
         setLoadError(err instanceof ApiError ? err.message : String(err));
         setLoading(false);
       });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Scroll to bottom when messages change.
