@@ -78,6 +78,7 @@ export default function HomePage() {
   const [sending, setSending] = useState(false);
   const [briefBusy, setBriefBusy] = useState<BriefType | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [chatErrorRendered, setChatErrorRendered] = useState(false);
   const [approvalBusy, setApprovalBusy] = useState<number | null>(null);
   const [resetting, setResetting] = useState(false);
   const [confirmingReset, setConfirmingReset] = useState(false);
@@ -126,6 +127,7 @@ export default function HomePage() {
     setOrbState("thinking");
     setSending(true);
     setSendError(null);
+    setChatErrorRendered(false);
     setLastFailedMessage(null);
     setActiveClarification(null);
 
@@ -181,6 +183,7 @@ export default function HomePage() {
         fallbackAssistantMessage(message),
       ]);
       setSendError(message);
+      setChatErrorRendered(true);
       setLastFailedMessage(text);
       notify({
         kind: "error",
@@ -198,6 +201,7 @@ export default function HomePage() {
     setOrbState("thinking");
     setBriefBusy(type);
     setSendError(null);
+    setChatErrorRendered(false);
     setLastFailedMessage(null);
     setActiveClarification(null);
 
@@ -242,6 +246,7 @@ export default function HomePage() {
     if (approvalBusy) return;
     setApprovalBusy(id);
     setSendError(null);
+    setChatErrorRendered(false);
     try {
       const updated =
         decision === "approve"
@@ -290,6 +295,7 @@ export default function HomePage() {
       await resetChat();
       setMessages([]);
       setSendError(null);
+      setChatErrorRendered(false);
       setActiveClarification(null);
       setConfirmingReset(false);
       notify({
@@ -410,7 +416,9 @@ export default function HomePage() {
             <div ref={bottomRef} />
           </div>
 
-          {sendError && <ErrorBanner message={sendError} onRetry={onRetry} />}
+          {sendError && !chatErrorRendered && (
+            <ErrorBanner message={sendError} onRetry={onRetry} />
+          )}
         </div>
       </div>
 

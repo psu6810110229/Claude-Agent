@@ -18,11 +18,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       {/* suppressHydrationWarning: browser extensions (e.g. Grammarly) inject
-          attributes onto <body> before React hydrates, which otherwise trips a
-          dev-only hydration mismatch. This suppresses only this element's
-          attribute diff, not its children. */}
+          attributes onto <html>/<body> before React hydrates, which otherwise
+          trips a hydration mismatch. This suppresses only these elements'
+          attribute diffs, not their children. */}
       <body suppressHydrationWarning>
         <ToastProvider>
           <div className="shell">

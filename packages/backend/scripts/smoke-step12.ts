@@ -131,7 +131,14 @@ async function main(): Promise<void> {
   };
 
   // --- 1. POST /api/chat: successful reply persists both messages ---
-  currentInvoker = stubOk("You have 3 open tasks. Anything I can help with?");
+  let readOnlyPrompt = "";
+  currentInvoker = async (prompt) => {
+    readOnlyPrompt = prompt;
+    return JSON.stringify({
+      reply: "You have 3 open tasks. Anything I can help with?",
+      actions: [],
+    });
+  };
 
   const chat1 = await postJson("/api/chat", { message: "What's on my plate?" });
   assert(
@@ -145,6 +152,11 @@ async function main(): Promise<void> {
   assert(
     Array.isArray(chat1.json.approvals) && chat1.json.approvals.length === 0,
     "no approvals queued for info-only reply",
+  );
+  assert(
+    readOnlyPrompt.includes("Read-only questions are valid chat") &&
+      readOnlyPrompt.includes('set "actions" to []'),
+    "prompt explicitly allows read-only chat answers without tool/action proposals",
   );
 
   // --- 2. History persisted: GET /api/chat/history returns 2 rows ---
