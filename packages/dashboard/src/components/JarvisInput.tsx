@@ -4,23 +4,25 @@ import { useState } from "react";
 import { ArrowUp, Mic, Sparkles } from "lucide-react";
 
 /**
- * Floating capsule input (72px). Submits hand the message to the chat page,
- * which auto-sends it. Mic is a placeholder — voice is out of scope.
+ * Floating capsule input (72px). Mic is a placeholder - voice is out of scope.
  */
 export function JarvisInput({
   onSubmit,
   onFocusChange,
+  disabled = false,
 }: {
-  onSubmit: (text: string) => void;
+  onSubmit: (text: string) => void | Promise<void>;
   onFocusChange?: (focused: boolean) => void;
+  disabled?: boolean;
 }) {
   const [text, setText] = useState("");
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = text.trim();
-    if (!trimmed) return;
-    onSubmit(trimmed);
+    if (!trimmed || disabled) return;
+    setText("");
+    void onSubmit(trimmed);
   }
 
   return (
@@ -35,6 +37,7 @@ export function JarvisInput({
         onBlur={() => onFocusChange?.(false)}
         placeholder="Ask J.A.R.V.I.S anything..."
         aria-label="Ask J.A.R.V.I.S anything"
+        disabled={disabled}
         autoFocus
       />
       <button
@@ -49,7 +52,7 @@ export function JarvisInput({
       <button
         type="submit"
         className="ji-send"
-        disabled={text.trim() === ""}
+        disabled={disabled || text.trim() === ""}
         aria-label="Send"
       >
         <ArrowUp strokeWidth={2} />

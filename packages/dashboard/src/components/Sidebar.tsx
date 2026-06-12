@@ -12,7 +12,6 @@ import {
   Files,
   Home,
   ListTodo,
-  MessageCircle,
   NotebookPen,
   Brain,
   CalendarDays,
@@ -31,12 +30,12 @@ import {
 
 /** Matches keys used in useData() calls in each page. */
 const PRELOADERS: Record<string, () => void> = {
+  "/":          () => preload("/api/chat/history", () => getChatHistory(100)),
   "/tasks":     () => preload("/api/tasks",    listTasks),
   "/approvals": () => preload("/api/approvals", listApprovals),
   "/activity":  () => preload("/api/activity",  () => listActivity(100)),
   "/settings":  () => preload("/api/settings",  getSettings),
   "/memory":    () => preload("/api/memory",    listMemory),
-  "/chat":      () => preload("/api/chat/history", () => getChatHistory(100)),
   "/upcoming":  () =>
     preload("/api/upcoming", () =>
       Promise.all([getCalendarUpcoming(), listEvents(), listReminders()]).then(
@@ -47,7 +46,6 @@ const PRELOADERS: Record<string, () => void> = {
 
 const LINKS = [
   { href: "/",          label: "Home",          icon: Home          },
-  { href: "/chat",      label: "Chat",          icon: MessageCircle },
   { href: "/approvals", label: "Approvals",     icon: CheckCircle2  },
 ];
 
