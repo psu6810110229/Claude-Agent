@@ -1569,6 +1569,30 @@ pre.payload {
   background: rgba(255, 255, 255, 0.045);
 }
 
+.chat-bubble.typing {
+  position: relative;
+  overflow: hidden;
+  min-width: min(360px, 88%);
+  background: rgba(255, 255, 255, 0.052);
+  animation: thinking-bubble 2.4s ease-in-out infinite;
+}
+
+.chat-bubble.typing::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    110deg,
+    transparent 0%,
+    rgba(10, 132, 255, 0.08) 42%,
+    rgba(139, 92, 246, 0.08) 52%,
+    transparent 64%
+  );
+  transform: translateX(-120%);
+  animation: thinking-sheen 2.8s var(--spring-soft) infinite;
+  pointer-events: none;
+}
+
 .chat-bubble-header {
   display: flex;
   align-items: baseline;
@@ -1660,6 +1684,129 @@ pre.payload {
   border-radius: 10px;
   padding: 5px 10px;
   font-size: 12px;
+}
+
+.thinking-content {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  min-width: 240px;
+  gap: 7px;
+}
+
+.thinking-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted-strong);
+  font-size: 14px;
+  font-weight: 620;
+}
+
+.thinking-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-top: 2px;
+}
+
+.thinking-dots i {
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent-hover);
+  box-shadow: 0 0 12px rgba(10, 132, 255, 0.42);
+  opacity: 0.35;
+  transform: translateY(0) scale(0.85);
+  animation: thinking-dot 1.25s ease-in-out infinite;
+}
+
+.thinking-dots i:nth-child(2) {
+  animation-delay: 150ms;
+}
+
+.thinking-dots i:nth-child(3) {
+  animation-delay: 300ms;
+}
+
+.thinking-detail {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+  animation: thinking-text 2.2s ease-in-out infinite;
+}
+
+.thinking-progress {
+  position: relative;
+  overflow: hidden;
+  width: min(260px, 100%);
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.thinking-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 42%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--violet));
+  box-shadow: 0 0 16px rgba(10, 132, 255, 0.45);
+  animation: thinking-progress 1.7s var(--spring-soft) infinite;
+}
+
+@keyframes thinking-bubble {
+  0%,
+  100% {
+    box-shadow: var(--inner-light), 0 0 0 rgba(10, 132, 255, 0);
+  }
+  50% {
+    box-shadow: var(--inner-light), 0 0 34px rgba(10, 132, 255, 0.12);
+  }
+}
+
+@keyframes thinking-sheen {
+  0% {
+    transform: translateX(-120%);
+  }
+  54%,
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+@keyframes thinking-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0) scale(0.85);
+  }
+  38% {
+    opacity: 1;
+    transform: translateY(-4px) scale(1.08);
+  }
+}
+
+@keyframes thinking-text {
+  0%,
+  100% {
+    opacity: 0.58;
+  }
+  50% {
+    opacity: 0.92;
+  }
+}
+
+@keyframes thinking-progress {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(260%);
+  }
 }
 
 .chat-composer {
@@ -2171,16 +2318,26 @@ pre.payload {
 
 /* ── Skeleton loading ──────────────────────────── */
 
-@keyframes skel-pulse {
-  0%, 100% { opacity: 0.25; }
-  50%       { opacity: 0.5;  }
-}
-
 .skel {
   display: inline-block;
-  background: var(--glass-strong);
+  position: relative;
+  overflow: hidden;
   border-radius: 6px;
-  animation: skel-pulse 1.4s ease-in-out infinite;
+  background: rgba(255, 255, 255, 0.065);
+}
+
+.skel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.11) 44%,
+    transparent 72%
+  );
+  transform: translateX(-120%);
+  animation: skel-shimmer 1.65s ease-in-out infinite;
 }
 
 .skel-row {
@@ -2188,4 +2345,13 @@ pre.payload {
   align-items: center;
   gap: 10px;
   padding: 10px 0;
+}
+
+@keyframes skel-shimmer {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(120%);
+  }
 }

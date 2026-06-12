@@ -291,16 +291,17 @@ export default function HomePage() {
             {sending && (
               <div className="chat-bubble assistant typing">
                 <span className="chat-role">Jarvis</span>
-                <span className="chat-content muted">Thinking...</span>
+                <ThinkingContent label="Thinking" detail="Reading context and planning the next step" />
               </div>
             )}
 
             {briefBusy && (
               <div className="chat-bubble assistant typing">
                 <span className="chat-role">Jarvis</span>
-                <span className="chat-content muted">
-                  Generating {briefBusy === "daily" ? "Daily Brief" : "Evening Brief"}...
-                </span>
+                <ThinkingContent
+                  label={`Generating ${briefBusy === "daily" ? "Daily Brief" : "Evening Brief"}`}
+                  detail="Collecting schedule, tasks, and pending approvals"
+                />
               </div>
             )}
 
@@ -441,6 +442,29 @@ function ChatSkeleton() {
         </div>
       ))}
     </>
+  );
+}
+
+function ThinkingContent({
+  label,
+  detail,
+}: {
+  label: string;
+  detail: string;
+}) {
+  return (
+    <div className="thinking-content" aria-live="polite">
+      <div className="thinking-line">
+        <span>{label}</span>
+        <span className="thinking-dots" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </span>
+      </div>
+      <div className="thinking-detail">{detail}</div>
+      <div className="thinking-progress" aria-hidden="true" />
+    </div>
   );
 }
 
