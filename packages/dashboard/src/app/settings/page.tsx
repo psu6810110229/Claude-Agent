@@ -2,12 +2,32 @@
 
 import { useState } from "react";
 import { ApiError, getSettings, updateSetting } from "@/lib/api";
-import { useResource } from "@/lib/useResource";
-import { Loading, ErrorBanner } from "@/components/States";
+import { useData } from "@/lib/useData";
+import { ErrorBanner } from "@/components/States";
 import type { Setting } from "@/lib/types";
 
+function SettingsSkeleton() {
+  return (
+    <div className="panel">
+      {[1, 2, 3, 4].map((i) => (
+        <div
+          key={i}
+          className="row"
+          style={{ flexDirection: "column", alignItems: "flex-start", gap: "0.25rem", padding: "1rem 0" }}
+        >
+          <div style={{ display: "flex", width: "100%", alignItems: "center", gap: "0.75rem" }}>
+            <span className="skel" style={{ flex: 1, height: 18 }} />
+            <span className="skel" style={{ width: 72, height: 32, flexShrink: 0 }} />
+          </div>
+          <span className="skel" style={{ width: "58%", height: 13 }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
-  const { data, loading, error, reload } = useResource(getSettings);
+  const { data, loading, error, reload } = useData("/api/settings", getSettings);
 
   return (
     <>
@@ -19,7 +39,7 @@ export default function SettingsPage() {
         </div>
       </header>
 
-      {loading && <Loading />}
+      {loading && <SettingsSkeleton />}
       {error && <ErrorBanner message={error} onRetry={reload} />}
 
       {data && (

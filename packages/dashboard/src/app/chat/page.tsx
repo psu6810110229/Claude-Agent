@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ApiError, getChatHistory, resetChat, sendChat } from "@/lib/api";
 import { formatTs } from "@/lib/format";
-import { ErrorBanner, Loading } from "@/components/States";
+import { ErrorBanner } from "@/components/States";
 import { BriefPanel } from "@/components/BriefPanel";
 import type { ChatMessage, ChatResult } from "@/lib/types";
 
@@ -134,7 +134,7 @@ export default function ChatPage() {
 
       <div className="chat-layout">
         <div className="chat-messages panel">
-          {loading && <Loading />}
+          {loading && <ChatSkeleton />}
           {loadError && (
             <ErrorBanner message={loadError} onRetry={() => window.location.reload()} />
           )}
@@ -195,6 +195,32 @@ export default function ChatPage() {
 
         <BriefPanel />
       </div>
+    </>
+  );
+}
+
+function ChatSkeleton() {
+  return (
+    <>
+      {[
+        { role: "assistant", lines: [70, 55] },
+        { role: "user",      lines: [45]     },
+        { role: "assistant", lines: [65, 40] },
+      ].map((item, i) => (
+        <div className={`chat-bubble ${item.role}`} key={i}>
+          <div className="chat-bubble-header">
+            <span className="skel" style={{ width: item.role === "user" ? 30 : 40, height: 13 }} />
+            <span className="skel" style={{ width: 58, height: 11 }} />
+          </div>
+          {item.lines.map((w, j) => (
+            <span
+              key={j}
+              className="skel"
+              style={{ display: "block", width: `${w}%`, height: 14, marginTop: j ? 6 : 0 }}
+            />
+          ))}
+        </div>
+      ))}
     </>
   );
 }

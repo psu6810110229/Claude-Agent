@@ -7,7 +7,7 @@ import {
   getMemoryContent,
   listMemory,
 } from "@/lib/api";
-import { useResource } from "@/lib/useResource";
+import { useData } from "@/lib/useData";
 import { formatTs } from "@/lib/format";
 import { ErrorBanner, Loading, Empty } from "@/components/States";
 import type {
@@ -24,8 +24,27 @@ const TARGETS: MemoryTarget[] = [
   "decisions",
 ];
 
+function EntriesSkeleton() {
+  return (
+    <div className="panel">
+      {[1, 2, 3].map((i) => (
+        <div className="row entry-row" key={i}>
+          <span className="grow">
+            <span className="entry-head">
+              <span className="skel" style={{ display: "inline-block", width: 110, height: 15 }} />
+              <span className="skel" style={{ display: "inline-block", width: 48, height: 12, marginLeft: 8 }} />
+            </span>
+            <span className="skel" style={{ display: "block", width: "68%", height: 12, marginTop: 5 }} />
+            <span className="skel" style={{ display: "block", width: "48%", height: 12, marginTop: 3 }} />
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function MemoryPage() {
-  const { data: entries, loading, error, reload } = useResource(listMemory);
+  const { data: entries, loading, error, reload } = useData("/api/memory", listMemory);
 
   const [target, setTarget] = useState<MemoryTarget>("preferences");
   const [content, setContent] = useState<MemoryContent | null>(null);
@@ -100,7 +119,7 @@ export default function MemoryPage() {
         <div className="stack">
           <section className="section">
             <h3>Entries</h3>
-            {loading && <Loading />}
+            {loading && <EntriesSkeleton />}
             {error && <ErrorBanner message={error} onRetry={reload} />}
             {entries && entries.length === 0 && (
               <Empty label="No memory written yet." />

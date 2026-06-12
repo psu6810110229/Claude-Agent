@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { preload } from "swr";
 import {
   Activity,
   CheckCircle2,
@@ -14,27 +15,52 @@ import {
   Brain,
   CalendarDays,
 } from "lucide-react";
+import {
+  getCalendarUpcoming,
+  getChatHistory,
+  getSettings,
+  listActivity,
+  listApprovals,
+  listEvents,
+  listMemory,
+  listReminders,
+  listTasks,
+} from "@/lib/api";
+
+/** Matches keys used in useData() calls in each page. */
+const PRELOADERS: Record<string, () => void> = {
+  "/tasks":     () => preload("/api/tasks",    listTasks),
+  "/approvals": () => preload("/api/approvals", listApprovals),
+  "/activity":  () => preload("/api/activity",  () => listActivity(100)),
+  "/settings":  () => preload("/api/settings",  getSettings),
+  "/memory":    () => preload("/api/memory",    listMemory),
+  "/chat":      () => preload("/api/chat/history", () => getChatHistory(100)),
+  "/upcoming":  () =>
+    preload("/api/upcoming", () =>
+      Promise.all([getCalendarUpcoming(), listEvents(), listReminders()]).then(
+        ([calendar, events, reminders]) => ({ calendar, events, reminders }),
+      ),
+    ),
+};
 
 const LINKS = [
-  { href: "/", label: "Home", icon: Home },
-  { href: "/chat", label: "Chat", icon: MessageCircle },
-  { href: "/approvals", label: "Approvals", icon: CheckCircle2 },
-  { href: "/tasks", label: "Tasks", icon: ListTodo },
-  { href: "/activity", label: "Activity", icon: Activity },
-  { href: "/upcoming", label: "Upcoming", icon: CalendarDays },
-  { href: "/memory", label: "Memory", icon: Brain },
-  { href: "/files", label: "File Explorer", icon: Files },
-  { href: "/notepad", label: "Notepad", icon: NotebookPen },
-  { href: "/projects", label: "Projects", icon: FolderKanban },
+  { href: "/",          label: "Home",          icon: Home          },
+  { href: "/chat",      label: "Chat",          icon: MessageCircle },
+  { href: "/approvals", label: "Approvals",     icon: CheckCircle2  },
+  { href: "/tasks",     label: "Tasks",         icon: ListTodo      },
+  { href: "/activity",  label: "Activity",      icon: Activity      },
+  { href: "/upcoming",  label: "Upcoming",      icon: CalendarDays  },
+  { href: "/memory",    label: "Memory",        icon: Brain         },
+  { href: "/files",     label: "File Explorer", icon: Files         },
+  { href: "/notepad",   label: "Notepad",       icon: NotebookPen   },
+  { href: "/projects",  label: "Projects",      icon: FolderKanban  },
 ];
 
 export function Sidebar({
   schedule,
   system,
 }: {
-  /** Today's schedule timeline (slot filled in by layout). */
   schedule?: React.ReactNode;
-  /** System overview widgets (slot filled in by layout). */
   system?: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -62,6 +88,7 @@ export function Sidebar({
               href={l.href}
               className={active ? "active" : ""}
               aria-current={active ? "page" : undefined}
+              onMouseEnter={() => PRELOADERS[l.href]?.()}
             >
               <Icon aria-hidden="true" strokeWidth={1.8} />
               {l.label}

@@ -7,14 +7,32 @@ import {
   listApprovals,
   rejectApproval,
 } from "@/lib/api";
-import { useResource } from "@/lib/useResource";
+import { useData } from "@/lib/useData";
 import { formatTs } from "@/lib/format";
-import { ErrorBanner, Loading, Empty } from "@/components/States";
+import { ErrorBanner, Empty } from "@/components/States";
 import type { Approval } from "@/lib/types";
+
+function ApprovalsSkeleton() {
+  return (
+    <div className="stack">
+      {[1, 2].map((i) => (
+        <section className="panel approval-card" key={i}>
+          <div className="row">
+            <span className="skel" style={{ width: 62, height: 22, flexShrink: 0 }} />
+            <span className="skel" style={{ flex: 1, height: 15, margin: "0 8px" }} />
+            <span className="skel" style={{ width: 60, height: 13, flexShrink: 0 }} />
+            <span className="skel" style={{ width: 72, height: 32, flexShrink: 0 }} />
+            <span className="skel" style={{ width: 60, height: 32, flexShrink: 0 }} />
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
 
 export default function ApprovalsPage() {
   const { data: approvals, loading, error, reload } =
-    useResource(listApprovals);
+    useData("/api/approvals", listApprovals);
 
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -47,7 +65,7 @@ export default function ApprovalsPage() {
           <ErrorBanner message={actionError} onRetry={() => setActionError(null)} />
         )}
 
-        {loading && <Loading />}
+        {loading && <ApprovalsSkeleton />}
         {error && <ErrorBanner message={error} onRetry={reload} />}
         {approvals && approvals.length === 0 && (
           <Empty label="No approvals in the queue." />

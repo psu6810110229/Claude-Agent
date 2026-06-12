@@ -8,14 +8,28 @@ import {
   listTasks,
   updateTask,
 } from "@/lib/api";
-import { useResource } from "@/lib/useResource";
+import { useData } from "@/lib/useData";
 import { formatTs } from "@/lib/format";
-import { ErrorBanner, Loading, Empty } from "@/components/States";
+import { ErrorBanner, Empty } from "@/components/States";
 import { CommandBar } from "@/components/CommandBar";
 import type { Task } from "@/lib/types";
 
+function TasksSkeleton() {
+  return (
+    <div className="panel">
+      {[80, 60, 75, 50].map((w, i) => (
+        <div className="row" key={i}>
+          <span className="skel" style={{ width: 52, height: 22, flexShrink: 0 }} />
+          <span className="skel" style={{ flex: 1, height: 15, margin: "0 8px" }} />
+          <span className="skel" style={{ width: `${w}px`, height: 13, flexShrink: 0 }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function TasksPage() {
-  const { data: tasks, loading, error, reload } = useResource(listTasks);
+  const { data: tasks, loading, error, reload } = useData("/api/tasks", listTasks);
 
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
@@ -79,7 +93,7 @@ export default function TasksPage() {
       )}
 
       <div className="stack">
-        {loading && <Loading />}
+        {loading && <TasksSkeleton />}
         {error && <ErrorBanner message={error} onRetry={reload} />}
         {tasks && tasks.length === 0 && <Empty label="No tasks yet." />}
 

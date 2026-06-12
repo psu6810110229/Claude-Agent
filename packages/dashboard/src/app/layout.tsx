@@ -3,6 +3,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { TopBar } from "@/components/TopBar";
 import { SidebarSchedule } from "@/components/SidebarSchedule";
 import { SidebarSystem } from "@/components/SidebarSystem";
+import { Prefetcher } from "@/components/Prefetcher";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -23,6 +24,7 @@ export default function RootLayout({
           attribute diff, not its children. */}
       <body suppressHydrationWarning>
         <div className="shell">
+          <Prefetcher />
           <Sidebar schedule={<SidebarSchedule />} system={<SidebarSystem />} />
           <div className="content">
             <TopBar />

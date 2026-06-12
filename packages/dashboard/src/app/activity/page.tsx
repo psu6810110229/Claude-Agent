@@ -1,13 +1,28 @@
 "use client";
 
 import { listActivity } from "@/lib/api";
-import { useResource } from "@/lib/useResource";
+import { useData } from "@/lib/useData";
 import { formatTs } from "@/lib/format";
-import { ErrorBanner, Loading, Empty } from "@/components/States";
+import { ErrorBanner, Empty } from "@/components/States";
+
+function ActivitySkeleton() {
+  return (
+    <div className="panel">
+      {[140, 110, 165, 95, 130, 120].map((w, i) => (
+        <div className="row" key={i}>
+          <span className="skel" style={{ width: w, height: 22, flexShrink: 0 }} />
+          <span className="skel" style={{ flex: 1, height: 13, margin: "0 8px" }} />
+          <span className="skel" style={{ width: 55, height: 13, flexShrink: 0 }} />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function ActivityPage() {
-  const { data: activity, loading, error, reload } = useResource(() =>
-    listActivity(100),
+  const { data: activity, loading, error, reload } = useData(
+    "/api/activity",
+    () => listActivity(100),
   );
 
   return (
@@ -21,7 +36,7 @@ export default function ActivityPage() {
       </header>
 
       <div className="stack">
-        {loading && <Loading />}
+        {loading && <ActivitySkeleton />}
         {error && <ErrorBanner message={error} onRetry={reload} />}
         {activity && activity.length === 0 && <Empty label="No activity yet." />}
 

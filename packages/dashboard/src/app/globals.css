@@ -1715,3 +1715,24 @@ pre.payload {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── Skeleton loading ──────────────────────────── */
+
+@keyframes skel-pulse {
+  0%, 100% { opacity: 0.25; }
+  50%       { opacity: 0.5;  }
+}
+
+.skel {
+  display: inline-block;
+  background: var(--glass-strong);
+  border-radius: 6px;
+  animation: skel-pulse 1.4s ease-in-out infinite;
+}
+
+.skel-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+}
