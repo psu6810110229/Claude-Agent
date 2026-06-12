@@ -214,6 +214,7 @@ export interface ChatResult {
   reply: string;
   approvals: Approval[];
   clarification?: string;
+  clarification_choices?: string[];
   notes?: string;
 }
 

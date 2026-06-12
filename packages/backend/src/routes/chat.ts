@@ -79,7 +79,7 @@ async function handleChat(
         : result.reason === "disabled"
           ? 503
           : 502;
-    return reply.code(code).send({ kind: "error", error: result.message });
+    return reply.code(code).send({ kind: "error", error: result.userMessage });
   }
 
   // Invalid JSON / schema failure: reject, no approvals.
@@ -102,6 +102,7 @@ async function handleChat(
     reply: result.reply,
     approvals: result.approvals,
     clarification: result.clarification,
+    clarification_choices: result.clarificationChoices,
     notes: result.notes,
   });
 }

@@ -118,6 +118,14 @@ async function main(): Promise<void> {
       actions: [{ action_type: "hack.system", payload: {} }],
     });
 
+  const stubClarification: ClaudeInvoker = async () =>
+    JSON.stringify({
+      reply: "ผมไม่แน่ใจว่าหมายถึงนัดไหนครับ เลือกจากตัวเลือกนี้ก่อนได้ไหม",
+      actions: [],
+      clarification: "หมายถึงนัดไหนครับ",
+      clarification_choices: ["นัดวันนี้", "นัดพรุ่งนี้", "ข้ามก่อน"],
+    });
+
   const stubDisabled: ClaudeInvoker = async () => {
     throw new ClaudeError("disabled", "AI command mode is disabled.");
   };
@@ -209,6 +217,12 @@ async function main(): Promise<void> {
     badJsonRes.status === 400 && badJsonRes.json.kind === "error",
     "invalid JSON from Claude → 400 error",
   );
+  assert(
+    typeof badJsonRes.json.error === "string" &&
+      !badJsonRes.json.error.includes("Raw(") &&
+      !badJsonRes.json.error.includes("not json"),
+    "invalid JSON fallback is user-safe and does not expose raw output",
+  );
 
   const histAfterBad = await getJson("/api/chat/history?limit=100");
   assert(
@@ -216,7 +230,43 @@ async function main(): Promise<void> {
     "failed exchange not persisted in history",
   );
 
-  // --- 6. Unknown action type → 400 error, zero pending approvals ---
+  const activityAfterBadJson = await getJson("/api/activity?limit=10");
+  const badJsonActivity = (activityAfterBadJson.json.activity as any[]).find(
+    (a: any) => a.event_type === "chat.message.rejected",
+  );
+  assert(
+    badJsonActivity &&
+      !String(badJsonActivity.detail).includes("Raw(") &&
+      !String(badJsonActivity.detail).includes("not json"),
+    "invalid JSON activity avoids raw model output",
+  );
+
+  // --- 6. Clarification → 201 reply, zero approvals, compact choices ---
+  currentInvoker = stubClarification;
+
+  const clarification = await postJson("/api/chat", {
+    message: "เลื่อนนัดนี้ให้หน่อย",
+  });
+  assert(
+    clarification.status === 201 && clarification.json.kind === "chat",
+    "clarification response returns normal chat result",
+  );
+  assert(
+    clarification.json.clarification === "หมายถึงนัดไหนครับ",
+    "clarification question is returned",
+  );
+  assert(
+    Array.isArray(clarification.json.clarification_choices) &&
+      clarification.json.clarification_choices.length === 3,
+    "clarification choices are returned for quick UI buttons",
+  );
+  assert(
+    Array.isArray(clarification.json.approvals) &&
+      clarification.json.approvals.length === 0,
+    "clarification queues no approvals before the user answers",
+  );
+
+  // --- 7. Unknown action type → 400 error, zero pending approvals ---
   currentInvoker = stubBadAction;
 
   const badAction = await postJson("/api/chat", { message: "do bad thing" });
@@ -224,13 +274,18 @@ async function main(): Promise<void> {
     badAction.status === 400 && badAction.json.kind === "error",
     "unknown action type → 400 error, zero approvals",
   );
+  assert(
+    typeof badAction.json.error === "string" &&
+      !badAction.json.error.includes("hack.system"),
+    "bad action fallback does not expose raw invalid action details",
+  );
   const approvalsAfterBad = await getJson("/api/approvals");
   const pendingAfterBad = (approvalsAfterBad.json.approvals as any[]).filter(
     (a: any) => a.status === "pending",
   );
   assert(pendingAfterBad.length === 0, "no pending approvals after bad action type");
 
-  // --- 7. Failed execution stays pending but records failed metadata ---
+  // --- 8. Failed execution stays pending but records failed metadata ---
   const failingApproval = await postJson("/api/approvals", {
     action_type: "task.update",
     payload: { id: 999, title: "Missing task" },
@@ -286,7 +341,7 @@ async function main(): Promise<void> {
     "chat context includes recent succeeded/failed action summaries",
   );
 
-  // --- 7. AI disabled → 503 fail closed, no messages persisted ---
+  // --- 9. AI disabled → 503 fail closed, no messages persisted ---
   currentInvoker = stubDisabled;
   const histBeforeDisabled = await getJson("/api/chat/history?limit=100");
   const histLenBefore = histBeforeDisabled.json.messages.length;
@@ -296,6 +351,10 @@ async function main(): Promise<void> {
     disabledRes.status === 503 && disabledRes.json.kind === "error",
     "disabled AI → 503 error",
   );
+  assert(
+    disabledRes.json.error !== "AI command mode is disabled.",
+    "disabled AI returns a provider-neutral fallback message",
+  );
 
   const histAfterDisabled = await getJson("/api/chat/history?limit=100");
   assert(
@@ -303,7 +362,7 @@ async function main(): Promise<void> {
     "disabled AI: no messages persisted",
   );
 
-  // --- 8. POST /api/chat/reset → archives all active messages, history empty ---
+  // --- 10. POST /api/chat/reset → archives all active messages, history empty ---
   const histBeforeReset = await getJson("/api/chat/history?limit=100");
   const activeCountBefore: number = histBeforeReset.json.messages.length;
   assert(activeCountBefore > 0, "history has active messages before reset");

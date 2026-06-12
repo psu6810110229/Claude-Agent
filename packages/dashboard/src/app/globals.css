@@ -1875,6 +1875,32 @@ pre.payload {
   font-size: 12px;
 }
 
+.chat-clarification {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: var(--inner-light);
+  color: var(--muted-strong);
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.chat-clarification-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chat-clarification-actions button {
+  min-height: 30px;
+  border-radius: 10px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
 .thinking-content {
   position: relative;
   z-index: 1;

@@ -52,10 +52,24 @@ export type ChatResult =
       reply: string;
       approvals: Approval[];
       clarification?: string;
+      clarificationChoices?: string[];
       notes?: string;
     }
-  | { kind: "rejected"; message: string }
-  | { kind: "failed"; reason: string; message: string };
+  | { kind: "rejected"; message: string; detail?: string }
+  | { kind: "failed"; reason: string; message: string; userMessage: string };
+
+function chatFailureMessage(reason: string): string {
+  if (reason === "disabled") {
+    return "ผมยังช่วยคิดด้วย AI ไม่ได้ครับ โหมด AI ยังไม่พร้อมใช้งาน เปิดใช้งานแล้วลองใหม่ได้";
+  }
+  if (reason === "timeout") {
+    return "ผมยังตอบรายการนี้ไม่สำเร็จครับ ระบบใช้เวลานานเกินไป ลองส่งใหม่แบบสั้นลงได้";
+  }
+  return "ผมยังทำรายการนี้ให้ไม่สำเร็จครับ ลองส่งใหม่อีกครั้งได้";
+}
+
+const invalidOutputMessage =
+  "ผมยังตอบรายการนี้ให้ครบไม่ได้ครับ รูปแบบคำตอบไม่พร้อมใช้งาน ลองส่งใหม่อีกครั้งได้";
 
 /** Build compact recall context for a chat turn. */
 async function buildChatContext(
@@ -166,10 +180,20 @@ export async function runChat(
     });
   } catch (err) {
     if (err instanceof ClaudeError) {
-      return { kind: "failed", reason: err.reason, message: err.message };
+      return {
+        kind: "failed",
+        reason: err.reason,
+        message: err.message,
+        userMessage: chatFailureMessage(err.reason),
+      };
     }
     const msg = err instanceof Error ? err.message : String(err);
-    return { kind: "failed", reason: "spawn", message: msg };
+    return {
+      kind: "failed",
+      reason: "spawn",
+      message: msg,
+      userMessage: chatFailureMessage("spawn"),
+    };
   }
 
   // 3. Normalize + strict JSON parse. No repair; prose still fails.
@@ -180,7 +204,8 @@ export async function runChat(
     const snippet = raw.slice(0, 300).replace(/\n/g, "\\n");
     return {
       kind: "rejected",
-      message: `Claude output was not valid JSON. Raw(300): ${snippet}`,
+      message: invalidOutputMessage,
+      detail: `Claude output was not valid JSON. Raw(300): ${snippet}`,
     };
   }
 
@@ -192,7 +217,8 @@ export async function runChat(
       .join("; ");
     return {
       kind: "rejected",
-      message: `Claude output failed validation: ${detail}`,
+      message: invalidOutputMessage,
+      detail: `Claude output failed validation: ${detail}`,
     };
   }
 
@@ -217,6 +243,7 @@ export async function runChat(
     reply: check.data.reply,
     approvals,
     clarification: check.data.clarification,
+    clarificationChoices: check.data.clarification_choices,
     notes: check.data.notes,
   };
 }

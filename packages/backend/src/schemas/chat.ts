@@ -28,8 +28,23 @@ export const chatOutputSchema = z
   .object({
     reply: z.string().trim().min(1).max(4000),
     actions: z.array(aiActionSchema).max(CLAUDE_MAX_ACTIONS).default([]),
-    clarification: z.string().trim().min(1).max(500).nullish().transform(v => v ?? undefined),
-    notes: z.string().max(2000).nullish().transform(v => v ?? undefined),
+    clarification: z
+      .string()
+      .trim()
+      .min(1)
+      .max(500)
+      .nullish()
+      .transform((v) => v ?? undefined),
+    clarification_choices: z
+      .array(z.string().trim().min(1).max(120))
+      .max(4)
+      .nullish()
+      .transform((v) => v ?? undefined),
+    notes: z
+      .string()
+      .max(2000)
+      .nullish()
+      .transform((v) => v ?? undefined),
   })
   .strict();
 

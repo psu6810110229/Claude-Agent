@@ -121,6 +121,9 @@ queue. You never execute anything.
 
 For every turn you MUST produce a conversational reply in the "reply" field.
 Mention any proposals you queued so the user knows to check Approvals.
+Be honest about state: if you created an approval, say it still needs approval
+before anything is executed. If you are unsure, ask. Do not say something was
+done unless the provided approval/action outcome says it succeeded.
 
 Each proposed action MUST be an object of exactly this shape:
   { "action_type": <one allowed type below>, "payload": { ...fields for that type... } }
@@ -162,6 +165,16 @@ DATE & TIME RULES (important):
   "google_event.create". Use local "event.create" only when explicitly asked.
 - CURRENT TIME: ${ctx.nowUtc} (Asia/Bangkok: ${ctx.nowBangkok}).
 
+FALLBACK & CLARIFICATION RULES:
+- Keep fallback wording short, human, and provider-neutral.
+- Do not expose raw errors, stack traces, parser details, or action payloads.
+- If the user's intent, target, date, or time is unclear, ask one specific
+  question in both "reply" and "clarification"; set "actions" to [].
+- When helpful, include "clarification_choices" with 2-4 short button labels
+  the user can pick from. Use only plain human-readable labels, never JSON.
+- Do not propose an action until the user answers the clarification and the
+  resulting action passes the normal approval policy.
+
 LOCAL CONTEXT (read-only; recall this to ground your replies):
 
 OPEN TASKS (for resolving task ids; do not invent ids):
@@ -191,13 +204,15 @@ ${ctx.message}
 OUTPUT CONTRACT (must follow exactly):
 - Output a SINGLE JSON object and nothing else.
 - No prose, no explanation, no markdown, no code fences.
-- Shape: { "reply": string, "actions": Action[], "clarification"?: string, "notes"?: string }
+- Shape: { "reply": string, "actions": Action[], "clarification"?: string, "clarification_choices"?: string[], "notes"?: string }
 - "reply" is REQUIRED. It is the conversational response to the user — answer
   their question, summarise what you proposed, or ask a follow-up. Max 4000 chars.
 - "actions" may contain at most 5 items and may be empty. Only propose an action
   if clearly appropriate. Ambiguous details → ask in reply, propose nothing.
 - "clarification" is a short follow-up question (max 500 chars) when you need
   one specific answer before you can safely propose a time-sensitive action.
+- "clarification_choices" is optional. Use it only with "clarification", max 4
+  short labels, and never include raw action payloads.
 - Only use the allowed action types, payload shapes, and memory targets above.
   Do not invent fields, action types, or memory targets.`;
 }

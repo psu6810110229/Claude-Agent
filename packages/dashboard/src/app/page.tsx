@@ -43,6 +43,11 @@ function greetingNow(): string {
 }
 
 type ApprovalMap = Record<number, Approval>;
+interface ClarificationPrompt {
+  messageId: number;
+  question: string;
+  choices: string[];
+}
 
 export default function HomePage() {
   const { notify } = useToast();
@@ -59,6 +64,8 @@ export default function HomePage() {
   const [resetting, setResetting] = useState(false);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
+  const [activeClarification, setActiveClarification] =
+    useState<ClarificationPrompt | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const hasConversation = messages.length > 0 || sending || briefBusy !== null;
@@ -98,6 +105,7 @@ export default function HomePage() {
     setSending(true);
     setSendError(null);
     setLastFailedMessage(null);
+    setActiveClarification(null);
 
     const optimisticUser: ChatMessage = {
       id: -Date.now(),
@@ -118,14 +126,21 @@ export default function HomePage() {
       }
       const updated = await getChatHistory(100);
       setMessages(updated);
+      setActiveClarification(
+        buildClarificationPrompt(updated, result.clarification, result.clarification_choices),
+      );
     } catch (err) {
-      setMessages((prev) => prev.filter((m) => m.id !== optimisticUser.id));
+      const message = err instanceof ApiError ? err.message : String(err);
+      setMessages((prev) => [
+        ...prev,
+        fallbackAssistantMessage(message),
+      ]);
       setSendError(err instanceof ApiError ? err.message : String(err));
       setLastFailedMessage(text);
       notify({
         kind: "error",
         title: "ส่งข้อความไม่สำเร็จ",
-        description: err instanceof ApiError ? err.message : String(err),
+        description: message,
       });
     } finally {
       setSending(false);
@@ -139,6 +154,7 @@ export default function HomePage() {
     setBriefBusy(type);
     setSendError(null);
     setLastFailedMessage(null);
+    setActiveClarification(null);
 
     try {
       const result =
@@ -227,6 +243,7 @@ export default function HomePage() {
       await resetChat();
       setMessages([]);
       setSendError(null);
+      setActiveClarification(null);
       setConfirmingReset(false);
       notify({
         kind: "success",
@@ -291,6 +308,13 @@ export default function HomePage() {
                 approvalMap={approvalMap}
                 approvalBusy={approvalBusy}
                 onApproval={runApproval}
+                clarification={
+                  activeClarification?.messageId === msg.id
+                    ? activeClarification
+                    : null
+                }
+                onClarificationChoice={doSend}
+                onClarificationSkip={() => setActiveClarification(null)}
               />
             ))}
 
@@ -346,6 +370,34 @@ export default function HomePage() {
       )}
     </div>
   );
+}
+
+function buildClarificationPrompt(
+  messages: ChatMessage[],
+  question?: string,
+  choices?: string[],
+): ClarificationPrompt | null {
+  if (!question) return null;
+  const assistant = [...messages].reverse().find((m) => m.role === "assistant");
+  if (!assistant) return null;
+  return {
+    messageId: assistant.id,
+    question,
+    choices: (choices ?? []).slice(0, 4),
+  };
+}
+
+function fallbackAssistantMessage(content: string): ChatMessage {
+  const now = new Date().toISOString();
+  return {
+    id: -Date.now() - 1,
+    role: "assistant",
+    content,
+    actions_json: null,
+    status: "active",
+    created_at: now,
+    updated_at: now,
+  };
 }
 
 function SessionConfirmDialog({
@@ -479,11 +531,17 @@ function ChatBubble({
   approvalMap,
   approvalBusy,
   onApproval,
+  clarification,
+  onClarificationChoice,
+  onClarificationSkip,
 }: {
   msg: ChatMessage;
   approvalMap: ApprovalMap;
   approvalBusy: number | null;
   onApproval: (id: number, decision: "approve" | "reject") => void;
+  clarification: ClarificationPrompt | null;
+  onClarificationChoice: (text: string) => void;
+  onClarificationSkip: () => void;
 }) {
   const isUser = msg.role === "user";
   const actions = parseActions(msg.actions_json);
@@ -508,6 +566,44 @@ function ChatBubble({
           ))}
         </div>
       )}
+      {!isUser && clarification && (
+        <ClarificationPanel
+          prompt={clarification}
+          onChoice={onClarificationChoice}
+          onSkip={onClarificationSkip}
+        />
+      )}
+    </div>
+  );
+}
+
+function ClarificationPanel({
+  prompt,
+  onChoice,
+  onSkip,
+}: {
+  prompt: ClarificationPrompt;
+  onChoice: (text: string) => void;
+  onSkip: () => void;
+}) {
+  return (
+    <div className="chat-clarification">
+      <span>{prompt.question}</span>
+      <div className="chat-clarification-actions">
+        {prompt.choices.map((choice) => (
+          <button
+            type="button"
+            className="primary"
+            key={choice}
+            onClick={() => onChoice(choice)}
+          >
+            {choice}
+          </button>
+        ))}
+        <button type="button" onClick={onSkip}>
+          Skip
+        </button>
+      </div>
     </div>
   );
 }
