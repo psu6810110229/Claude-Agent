@@ -130,7 +130,7 @@ export function actionQuestion(action: ActionLike): ActionQuestion {
   }
 }
 
-/** Compact one-line payload summary for the Approvals list (no raw JSON). */
+/** Compact one-line payload summary for approval cards (no raw JSON). */
 export function summarizePayload(action: ActionLike): string | null {
   const payload = asRecord(action.payload);
   if (!payload) return null;
@@ -146,6 +146,24 @@ export function summarizePayload(action: ActionLike): string | null {
   ].filter(Boolean);
 
   return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/** Optional second line for approval cards when the payload has useful detail. */
+export function summarizePayloadDetail(action: ActionLike): string | null {
+  const payload = asRecord(action.payload);
+  if (!payload) return null;
+
+  const fields = [
+    stringField(payload, "summary"),
+    stringField(payload, "notes"),
+    stringField(payload, "location"),
+    stringField(payload, "mode"),
+    stringField(payload, "content"),
+  ]
+    .filter(Boolean)
+    .map((value) => truncate(value!, 140));
+
+  return fields.length > 0 ? fields.join(" - ") : null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -167,4 +185,8 @@ function numberField(
 ): number | undefined {
   const value = record?.[key];
   return typeof value === "number" ? value : undefined;
+}
+
+function truncate(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max - 1)}...` : value;
 }
