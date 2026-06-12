@@ -40,6 +40,16 @@ export interface ChatContext {
     title: string;
     bucket: "overdue" | "today" | "upcoming";
   }[];
+  /** Recent approval decisions / execution outcomes, capped and payload-free. */
+  approvalOutcomes: {
+    id: number;
+    action_type: string;
+    status: string;
+    execution_status: string;
+    summary: string | null;
+    error: string | null;
+    updated_at: string;
+  }[];
   /** Prior conversation turns (oldest first), capped to CHAT_HISTORY_LIMIT. */
   history: { role: "user" | "assistant"; content: string }[];
 }
@@ -78,6 +88,21 @@ export function buildChatPrompt(ctx: ChatContext): string {
     ctx.reminders.length > 0
       ? ctx.reminders
           .map((r) => `  - #${r.id} [${r.bucket}] due ${r.due_at}: ${r.title}`)
+          .join("\n")
+      : "  (none)";
+
+  const approvalOutcomes =
+    ctx.approvalOutcomes.length > 0
+      ? ctx.approvalOutcomes
+          .map((a) => {
+            const detail =
+              a.execution_status === "failed"
+                ? `failed: ${a.error ?? "unknown error"}`
+                : a.execution_status === "succeeded"
+                  ? `succeeded: ${a.summary ?? "completed"}`
+                  : a.status;
+            return `  - #${a.id} ${a.action_type}: ${detail} (${a.updated_at})`;
+          })
           .join("\n")
       : "  (none)";
 
@@ -150,6 +175,9 @@ ${events}
 
 REMINDERS (overdue / today / upcoming; do not invent ids):
 ${reminders}
+
+RECENT APPROVAL / ACTION OUTCOMES (latest first; payloads omitted):
+${approvalOutcomes}
 
 MEMORY SUMMARIES (slug + short summary only; full contents NOT available):
 ${memory}

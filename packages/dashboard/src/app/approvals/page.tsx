@@ -55,6 +55,7 @@ export default function ApprovalsPage() {
             : "ยกเลิกงานที่รออนุมัติแล้ว",
       });
     } catch (err) {
+      reload();
       setActionError(err instanceof ApiError ? err.message : String(err));
       notify({
         kind: "error",
@@ -106,13 +107,25 @@ function ApprovalCard({
 }) {
   const pending = approval.status === "pending";
   const summary = summarizePayload(approval);
+  const executionNote = approvalExecutionMessage(approval);
+  const failed = approval.execution_status === "failed";
   return (
-    <section className="panel approval-card">
+    <section className={`panel approval-card ${failed ? "failed" : ""}`}>
       <div className="row">
         <span className={`badge ${approval.status}`}>{approval.status}</span>
+        {approval.execution_status !== "not_started" && (
+          <span className={`badge ${approval.execution_status}`}>
+            {approval.execution_status === "succeeded"
+              ? "done"
+              : approval.execution_status}
+          </span>
+        )}
         <span className="grow">
           <strong className="item-title">{humanLabel(approval.action_type)}</strong>
           {summary && <span className="item-meta">{summary}</span>}
+          {executionNote && (
+            <span className="item-meta execution-note">{executionNote}</span>
+          )}
         </span>
         <span className="ts">{formatTs(approval.created_at)}</span>
         {pending && (
@@ -148,4 +161,16 @@ function ApprovalCard({
       )}
     </section>
   );
+}
+
+function approvalExecutionMessage(approval: Approval): string | null {
+  if (approval.execution_status === "failed") {
+    return approval.execution_error
+      ? `Execution failed: ${approval.execution_error}`
+      : "Execution failed. Retry approval or reject it.";
+  }
+  if (approval.execution_status === "succeeded") {
+    return approval.result_summary ?? "Executed successfully.";
+  }
+  return null;
 }

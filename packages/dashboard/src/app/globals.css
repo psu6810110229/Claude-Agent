@@ -1262,13 +1262,15 @@ button.danger:hover:not(:disabled) {
 }
 
 .badge.done,
-.badge.approved {
+.badge.approved,
+.badge.succeeded {
   background: var(--ok-soft);
   color: var(--ok);
 }
 
 .badge.danger,
-.badge.rejected {
+.badge.rejected,
+.badge.failed {
   background: var(--rose-soft);
   color: var(--rose);
 }
@@ -1340,6 +1342,14 @@ pre.payload {
 .brief-panel,
 .approval-card {
   overflow: hidden;
+}
+
+.approval-card.failed {
+  box-shadow: inset 0 0 0 1px rgba(255, 69, 88, 0.22), var(--shadow-soft);
+}
+
+.execution-note {
+  color: var(--rose);
 }
 
 .segmented {
@@ -1673,8 +1683,21 @@ pre.payload {
   background: var(--rose-soft);
 }
 
+.chat-approval.failed {
+  background: rgba(255, 69, 88, 0.12);
+}
+
+.approval-execution-note {
+  display: block;
+  margin-top: 4px;
+  color: var(--rose);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .chat-approval-actions {
   display: inline-flex;
+  align-items: center;
   flex-shrink: 0;
   gap: 6px;
 }

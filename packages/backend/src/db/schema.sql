@@ -21,12 +21,16 @@ CREATE TABLE IF NOT EXISTS memory_index (
 );
 
 CREATE TABLE IF NOT EXISTS approval (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  action_type TEXT NOT NULL,
-  payload     TEXT,
-  status      TEXT NOT NULL DEFAULT 'pending',
-  created_at  TEXT NOT NULL,
-  updated_at  TEXT NOT NULL
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  action_type      TEXT NOT NULL,
+  payload          TEXT,
+  status           TEXT NOT NULL DEFAULT 'pending',
+  execution_status TEXT NOT NULL DEFAULT 'not_started',
+  executed_at      TEXT,
+  execution_error  TEXT,
+  result_summary   TEXT,
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS activity_log (

@@ -148,12 +148,12 @@ export default function HomePage() {
       if (result.approvals.length > 0) {
         mergeApprovals(result.approvals);
         notifyPendingApprovals(result.approvals.length);
-      }
-      setMessages((prev) => [...prev, briefToMessage(result)]);
-    } catch (err) {
-      setSendError(err instanceof ApiError ? err.message : String(err));
-      notify({
-        kind: "error",
+    }
+    setMessages((prev) => [...prev, briefToMessage(result)]);
+  } catch (err) {
+    setSendError(err instanceof ApiError ? err.message : String(err));
+    notify({
+      kind: "error",
         title: "สร้าง brief ไม่สำเร็จ",
         description: err instanceof ApiError ? err.message : String(err),
       });
@@ -194,6 +194,11 @@ export default function HomePage() {
             : "ยกเลิกงานที่รออนุมัติแล้ว",
       });
     } catch (err) {
+      try {
+        mergeApprovals(await listApprovals());
+      } catch {
+        // Keep the original approval error visible if refresh also fails.
+      }
       setSendError(err instanceof ApiError ? err.message : String(err));
       notify({
         kind: "error",
@@ -519,14 +524,25 @@ function InlineApproval({
   onApproval: (id: number, decision: "approve" | "reject") => void;
 }) {
   const status = approval?.status ?? "pending";
+  const executionStatus = approval?.execution_status ?? "not_started";
   const copy = actionQuestion(approval ?? action);
   const disabled = status !== "pending" || busy;
+  const failed = status === "pending" && executionStatus === "failed";
+  const executionMessage = approval
+    ? approvalExecutionMessage(approval)
+    : null;
 
   return (
-    <div className={`chat-approval ${status}`}>
-      <span>{copy.question}</span>
+    <div className={`chat-approval ${status} ${failed ? "failed" : ""}`}>
+      <span>
+        {copy.question}
+        {executionMessage && (
+          <small className="approval-execution-note">{executionMessage}</small>
+        )}
+      </span>
       {status === "pending" ? (
         <div className="chat-approval-actions">
+          {failed && <span className="badge failed">failed</span>}
           <button
             type="button"
             className="primary"
@@ -544,10 +560,24 @@ function InlineApproval({
           </button>
         </div>
       ) : (
-        <span className={`badge ${status}`}>{status}</span>
+        <span className={`badge ${executionStatus === "succeeded" ? "succeeded" : status}`}>
+          {executionStatus === "succeeded" ? "done" : status}
+        </span>
       )}
     </div>
   );
+}
+
+function approvalExecutionMessage(approval: Approval): string | null {
+  if (approval.execution_status === "failed") {
+    return approval.execution_error
+      ? `Execution failed: ${approval.execution_error}`
+      : "Execution failed. You can retry or reject it.";
+  }
+  if (approval.execution_status === "succeeded") {
+    return approval.result_summary ?? "Executed successfully.";
+  }
+  return null;
 }
 
 function RichText({ text }: { text: string }) {
@@ -630,4 +660,3 @@ function isActionRef(value: unknown): value is ActionRef {
 function indexApprovals(approvals: Approval[]): ApprovalMap {
   return Object.fromEntries(approvals.map((approval) => [approval.id, approval]));
 }
-

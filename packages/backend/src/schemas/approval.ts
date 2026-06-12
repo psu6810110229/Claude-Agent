@@ -68,12 +68,23 @@ export const actionPayloadSchemas = {
 export const approvalStatusSchema = z.enum(["pending", "approved", "rejected"]);
 export type ApprovalStatus = z.infer<typeof approvalStatusSchema>;
 
+export const executionStatusSchema = z.enum([
+  "not_started",
+  "succeeded",
+  "failed",
+]);
+export type ExecutionStatus = z.infer<typeof executionStatusSchema>;
+
 /** A persisted approval row as returned by the API (payload parsed to object). */
 export const approvalSchema = z.object({
   id: z.number().int().positive(),
   action_type: actionTypeSchema,
   payload: z.unknown().nullable(),
   status: approvalStatusSchema,
+  execution_status: executionStatusSchema,
+  executed_at: z.string().nullable(),
+  execution_error: z.string().nullable(),
+  result_summary: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
 });

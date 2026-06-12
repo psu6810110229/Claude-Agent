@@ -121,12 +121,17 @@ export interface CreateMemoryProposalBody {
 }
 
 export type ApprovalStatus = "pending" | "approved" | "rejected";
+export type ExecutionStatus = "not_started" | "succeeded" | "failed";
 
 export interface Approval {
   id: number;
   action_type: ActionType;
   payload: unknown;
   status: ApprovalStatus;
+  execution_status: ExecutionStatus;
+  executed_at: string | null;
+  execution_error: string | null;
+  result_summary: string | null;
   created_at: string;
   updated_at: string;
 }

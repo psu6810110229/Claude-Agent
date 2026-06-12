@@ -15,7 +15,32 @@ export function initDb(): void {
   const schemaPath = path.join(__dirname, "schema.sql");
   const schema = fs.readFileSync(schemaPath, "utf8");
   db.exec(schema);
+  ensureApprovalExecutionColumns();
   ensureMemoryFiles();
+}
+
+function ensureApprovalExecutionColumns(): void {
+  const db = getDb();
+  const columns = new Set(
+    (
+      db
+        .prepare("PRAGMA table_info(approval)")
+        .all() as { name: string }[]
+    ).map((col) => col.name),
+  );
+
+  const additions: Record<string, string> = {
+    execution_status: "TEXT NOT NULL DEFAULT 'not_started'",
+    executed_at: "TEXT",
+    execution_error: "TEXT",
+    result_summary: "TEXT",
+  };
+
+  for (const [name, definition] of Object.entries(additions)) {
+    if (!columns.has(name)) {
+      db.exec(`ALTER TABLE approval ADD COLUMN ${name} ${definition}`);
+    }
+  }
 }
 
 // Allow running directly: `tsx src/db/init.ts`

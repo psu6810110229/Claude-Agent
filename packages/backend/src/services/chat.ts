@@ -6,7 +6,10 @@ import {
   appendMessage,
   listRecentMessages,
 } from "../db/repositories/chatRepo.js";
-import { createApproval } from "../db/repositories/approvalRepo.js";
+import {
+  createApproval,
+  listRecentApprovalOutcomes,
+} from "../db/repositories/approvalRepo.js";
 import { chatOutputSchema } from "../schemas/chat.js";
 import type { AiAction } from "../schemas/aiCommand.js";
 import { buildChatPrompt, type ChatContext } from "./chatPrompt.js";
@@ -93,6 +96,16 @@ async function buildChatContext(
       bucket,
     }));
 
+  const approvalOutcomes = listRecentApprovalOutcomes(10).map((a) => ({
+    id: a.id,
+    action_type: a.action_type,
+    status: a.status,
+    execution_status: a.execution_status,
+    summary: a.result_summary,
+    error: a.execution_error,
+    updated_at: a.updated_at,
+  }));
+
   const { todayStartUtc, todayEndUtc, upcomingEndUtc } = agendaBounds(now);
   let googleEvents: ChatContext["googleEvents"] = [];
   try {
@@ -132,6 +145,7 @@ async function buildChatContext(
     googleEvents,
     events,
     reminders,
+    approvalOutcomes,
     history,
   };
 }

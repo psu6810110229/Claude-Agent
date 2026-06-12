@@ -178,6 +178,13 @@ async function main(): Promise<void> {
     approved.status === 200 && approved.json.status === "approved",
     "approval can be approved via existing route",
   );
+  assert(
+    approved.json.execution_status === "succeeded" &&
+      typeof approved.json.executed_at === "string" &&
+      approved.json.result_summary === "created task #1" &&
+      approved.json.execution_error === null,
+    "approved action records succeeded execution metadata",
+  );
 
   const tasks = await getJson("/api/tasks");
   const found = (tasks.json.tasks as any[]).some(
@@ -223,9 +230,66 @@ async function main(): Promise<void> {
   );
   assert(pendingAfterBad.length === 0, "no pending approvals after bad action type");
 
+  // --- 7. Failed execution stays pending but records failed metadata ---
+  const failingApproval = await postJson("/api/approvals", {
+    action_type: "task.update",
+    payload: { id: 999, title: "Missing task" },
+  });
+  assert(
+    failingApproval.status === 201 &&
+      failingApproval.json.status === "pending" &&
+      failingApproval.json.execution_status === "not_started",
+    "new approval starts pending + not_started",
+  );
+
+  const failedExec = await postJson(
+    `/api/approvals/${failingApproval.json.id}/approve`,
+  );
+  assert(
+    failedExec.status === 422 && failedExec.json.approval.status === "pending",
+    "failed execution returns 422 and keeps approval pending for retry/reject",
+  );
+  assert(
+    failedExec.json.approval.execution_status === "failed" &&
+      failedExec.json.approval.execution_error === "task #999 not found" &&
+      typeof failedExec.json.approval.executed_at === "string",
+    "failed execution records failed metadata and error summary",
+  );
+
+  const activityAfterFailure = await getJson("/api/activity?limit=20");
+  const failureLogged = (activityAfterFailure.json.activity as any[]).some(
+    (a: any) =>
+      a.event_type === "approval.execute_failed" &&
+      String(a.detail).includes("task #999 not found"),
+  );
+  assert(failureLogged, "failed execution creates readable activity");
+
+  let capturedPrompt = "";
+  currentInvoker = async (prompt) => {
+    capturedPrompt = prompt;
+    return JSON.stringify({
+      reply: "I see the latest action outcomes.",
+      actions: [],
+    });
+  };
+  const outcomeChat = await postJson("/api/chat", {
+    message: "What happened with the last approvals?",
+  });
+  assert(
+    outcomeChat.status === 201,
+    "chat still replies after succeeded/failed approvals exist",
+  );
+  assert(
+    capturedPrompt.includes("RECENT APPROVAL / ACTION OUTCOMES") &&
+      capturedPrompt.includes("task.create: succeeded: created task #1") &&
+      capturedPrompt.includes("task.update: failed: task #999 not found"),
+    "chat context includes recent succeeded/failed action summaries",
+  );
+
   // --- 7. AI disabled → 503 fail closed, no messages persisted ---
   currentInvoker = stubDisabled;
-  const histLenBefore = histAfterBad.json.messages.length;
+  const histBeforeDisabled = await getJson("/api/chat/history?limit=100");
+  const histLenBefore = histBeforeDisabled.json.messages.length;
 
   const disabledRes = await postJson("/api/chat", { message: "hello disabled" });
   assert(
