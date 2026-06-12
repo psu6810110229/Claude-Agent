@@ -245,6 +245,19 @@ export const TTS_APPROVAL_NAG_INTERVAL_MS = Number(
   process.env.CLAUDE_AGENT_TTS_APPROVAL_NAG_INTERVAL_MS ?? 120_000,
 );
 
+/**
+ * Step 14 — Auto-execute engine.
+ *
+ * When ON, proposed actions that are reversible/non-destructive are executed
+ * immediately (no manual approve click) and the REAL executor outcome is
+ * reported. Destructive actions (Google delete, *.archive, memory replace) are
+ * NEVER auto-executed — they stay pending and require an explicit confirm.
+ * OFF by default: every action stays pending exactly as before.
+ */
+export const AUTO_EXECUTE_ENABLED = /^(1|true)$/i.test(
+  process.env.CLAUDE_AGENT_AUTO_EXECUTE_ENABLED ?? "",
+);
+
 /** Single source of truth for UTC ISO 8601 timestamps. */
 export function nowIso(): string {
   return new Date().toISOString();

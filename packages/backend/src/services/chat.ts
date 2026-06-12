@@ -6,10 +6,8 @@ import {
   appendMessage,
   listRecentMessages,
 } from "../db/repositories/chatRepo.js";
-import {
-  createApproval,
-  listRecentApprovalOutcomes,
-} from "../db/repositories/approvalRepo.js";
+import { listRecentApprovalOutcomes } from "../db/repositories/approvalRepo.js";
+import { dispatchProposedAction } from "./actionDispatcher.js";
 import { chatOutputSchema } from "../schemas/chat.js";
 import type { AiAction } from "../schemas/aiCommand.js";
 import { buildChatPrompt, type ChatContext } from "./chatPrompt.js";
@@ -227,10 +225,14 @@ export async function runChat(
     };
   }
 
-  // 5. Valid: each action becomes a pending approval.
-  const approvals: Approval[] = check.data.actions.map((action: AiAction) =>
-    createApproval(action.action_type, action.payload),
+  // 5. Valid: each action is dispatched — auto-executed when eligible, else a
+  //    pending approval. The stored approval row carries the real outcome.
+  const dispatched = await Promise.all(
+    check.data.actions.map((action: AiAction) =>
+      dispatchProposedAction(action.action_type, action.payload, "chat"),
+    ),
   );
+  const approvals: Approval[] = dispatched.map((d) => d.approval);
 
   // 6. Persist the exchange (user + assistant). Only reaches here on success,
   //    so history never contains failed/rejected attempts.

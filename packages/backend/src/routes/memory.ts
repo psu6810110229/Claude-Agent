@@ -7,7 +7,7 @@ import {
 } from "../schemas/memory.js";
 import { approvalSchema } from "../schemas/approval.js";
 import { listMemoryEntries } from "../db/repositories/memoryRepo.js";
-import { createApproval } from "../db/repositories/approvalRepo.js";
+import { dispatchProposedAction } from "../services/actionDispatcher.js";
 import { logActivity } from "../db/repositories/activityRepo.js";
 import { readMemory, memoryRelPath } from "../services/memoryStore.js";
 
@@ -40,10 +40,14 @@ export async function memoryRoutes(app: FastifyInstance): Promise<void> {
     if (!body.success) {
       return reply.code(400).send({ error: body.error.issues[0].message });
     }
-    const approval = createApproval("memory.write", body.data);
+    const { mode, approval } = await dispatchProposedAction(
+      "memory.write",
+      body.data,
+      "memory",
+    );
     logActivity(
       "memory.propose",
-      `approval #${approval.id}: ${body.data.mode} memory '${body.data.target}'`,
+      `approval #${approval.id}: ${body.data.mode} memory '${body.data.target}' [${mode}]`,
     );
     return reply.code(201).send(approvalSchema.parse(approval));
   });
