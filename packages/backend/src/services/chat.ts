@@ -7,7 +7,11 @@ import {
   listRecentMessages,
 } from "../db/repositories/chatRepo.js";
 import { listRecentApprovalOutcomes } from "../db/repositories/approvalRepo.js";
-import { dispatchProposedAction } from "./actionDispatcher.js";
+import {
+  dispatchProposedAction,
+  isAutoExecuteEnabled,
+  isAutoExecuteDestructiveEnabled,
+} from "./actionDispatcher.js";
 import { chatOutputSchema } from "../schemas/chat.js";
 import type { AiAction } from "../schemas/aiCommand.js";
 import { buildChatPrompt, type ChatContext } from "./chatPrompt.js";
@@ -30,6 +34,8 @@ import {
   CLAUDE_CONTEXT_TASK_CAP,
   BRIEF_EVENT_CAP,
   BRIEF_REMINDER_CAP,
+  CHAT_GOOGLE_WINDOW_DAYS,
+  CHAT_GOOGLE_EVENT_CAP,
   CHAT_HISTORY_LIMIT,
   nowIso,
 } from "../config.js";
@@ -123,19 +129,26 @@ async function buildChatContext(
     updated_at: a.updated_at,
   }));
 
-  const { todayStartUtc, todayEndUtc, upcomingEndUtc } = agendaBounds(now);
+  // Google recall uses a WIDE window so the model can target far-future events
+  // (e.g. semester dates months out) by their REAL id instead of fabricating one.
+  const { todayStartUtc, todayEndUtc } = agendaBounds(now);
+  const { upcomingEndUtc: wideEndUtc } = agendaBounds(
+    now,
+    CHAT_GOOGLE_WINDOW_DAYS,
+  );
   let googleEvents: ChatContext["googleEvents"] = [];
   try {
     const [gToday, gUpcoming] = await Promise.all([
       fetchGoogle(todayStartUtc, todayEndUtc),
-      fetchGoogle(todayEndUtc, upcomingEndUtc),
+      fetchGoogle(todayEndUtc, wideEndUtc),
     ]);
     googleEvents = [
       ...gToday.map((e) => ({ e, bucket: "today" as const })),
       ...gUpcoming.map((e) => ({ e, bucket: "upcoming" as const })),
     ]
-      .slice(0, BRIEF_EVENT_CAP)
+      .slice(0, CHAT_GOOGLE_EVENT_CAP)
       .map(({ e, bucket }) => ({
+        id: e.id,
         start: e.start,
         title: e.title.slice(0, 120),
         allDay: e.allDay,
@@ -164,6 +177,8 @@ async function buildChatContext(
     reminders,
     approvalOutcomes,
     history,
+    autoExecute: isAutoExecuteEnabled(),
+    autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
   };
 }
 

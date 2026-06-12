@@ -171,7 +171,7 @@ async function main(): Promise<void> {
       readOnlyPrompt.includes("ผมชื่อฟาน") &&
       readOnlyPrompt.includes('"target": "preferences"') &&
       readOnlyPrompt.includes("User's name is <name>.") &&
-      readOnlyPrompt.includes("proposal waiting for approval"),
+      readOnlyPrompt.includes("EXECUTION POLICY"),
     "prompt gives a concrete memory.write pattern for user-name statements",
   );
   assert(

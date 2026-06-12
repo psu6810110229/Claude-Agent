@@ -38,6 +38,10 @@ async function main(): Promise<void> {
 
   assert(AUTO_EXECUTE_ENABLED === true, "AUTO_EXECUTE_ENABLED reads the env flag");
 
+  // requiresConfirmation now reads a DB config override for recoverable
+  // destructive types, so the DB must be initialised first.
+  initDb();
+
   // --- 1. requiresConfirmation classification ---
   assert(
     requiresConfirmation("task.create", { title: "x" }) === false,
@@ -49,7 +53,7 @@ async function main(): Promise<void> {
   );
   assert(
     requiresConfirmation("google_event.delete", { id: "g1" }) === true,
-    "google_event.delete requires confirmation (destructive)",
+    "google_event.delete requires confirmation (destructive, toggle off)",
   );
   assert(
     requiresConfirmation("memory.write", { mode: "replace", target: "preferences", content: "x" }) ===
@@ -62,7 +66,31 @@ async function main(): Promise<void> {
     "memory.write append does not require confirmation",
   );
 
-  initDb();
+  // --- 1b. Destructive-auto-execute toggle exempts ONLY recoverable Google
+  //         delete; archive + memory-replace stay confirm-gated regardless. ---
+  setConfigBool("auto_execute_destructive_enabled", true);
+  assert(
+    requiresConfirmation("google_event.delete", { id: "g1" }) === false,
+    "google_event.delete auto-executes when destructive toggle is on",
+  );
+  assert(
+    requiresConfirmation("task.archive", { id: 1 }) === true,
+    "task.archive STILL requires confirmation even with destructive toggle on",
+  );
+  assert(
+    requiresConfirmation("event.archive", { id: 1 }) === true,
+    "event.archive STILL requires confirmation even with destructive toggle on",
+  );
+  assert(
+    requiresConfirmation("memory.write", { mode: "replace", target: "preferences", content: "x" }) ===
+      true,
+    "memory.write replace STILL requires confirmation with destructive toggle on",
+  );
+  setConfigBool("auto_execute_destructive_enabled", false);
+  assert(
+    requiresConfirmation("google_event.delete", { id: "g1" }) === true,
+    "google_event.delete back to confirm-gated when toggle off",
+  );
 
   // --- 2. Reversible action auto-executes and reports the real outcome ---
   const created = await dispatchProposedAction(

@@ -8,9 +8,17 @@ import {
 import { setConfigBool } from "../db/repositories/configRepo.js";
 import { isGoogleCalendarEnabled } from "../services/googleCalendar.js";
 import { isClaudeAiEnabled } from "../services/claudeClient.js";
-import { isAutoExecuteEnabled } from "../services/actionDispatcher.js";
+import {
+  isAutoExecuteEnabled,
+  isAutoExecuteDestructiveEnabled,
+} from "../services/actionDispatcher.js";
 
-const TOGGLEABLE_KEYS = ["google_calendar", "claude_ai", "auto_execute"] as const;
+const TOGGLEABLE_KEYS = [
+  "google_calendar",
+  "claude_ai",
+  "auto_execute",
+  "auto_execute_destructive",
+] as const;
 type ToggleableKey = (typeof TOGGLEABLE_KEYS)[number];
 
 const toggleBodySchema = z.object({ enabled: z.boolean() });
@@ -48,6 +56,17 @@ function buildSettingsPayload() {
         description:
           "Run reversible actions immediately (no approve click). Destructive " +
           "actions (Google delete, archive, memory replace) still require confirm.",
+      },
+      {
+        key: "auto_execute_destructive",
+        label: "Auto-execute Google delete",
+        enabled: isAutoExecuteDestructiveEnabled(),
+        configured: true,
+        description:
+          "Also run Google Calendar delete/update immediately without confirm. " +
+          "Recoverable — each delete snapshots the event first so it can be " +
+          "restored. Archive + memory-replace still require confirm. " +
+          "Requires Auto-execute to be on.",
       },
     ],
   };
@@ -87,6 +106,10 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
 
     if (key === "auto_execute") {
       setConfigBool("auto_execute_enabled", enabled);
+    }
+
+    if (key === "auto_execute_destructive") {
+      setConfigBool("auto_execute_destructive_enabled", enabled);
     }
 
     return reply.code(200).send({ key, enabled });

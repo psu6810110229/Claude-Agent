@@ -60,6 +60,14 @@ export const aiActionSchema = z.discriminatedUnion("action_type", [
     action_type: z.literal("google_event.create"),
     payload: actionPayloadSchemas["google_event.create"],
   }),
+  z.object({
+    action_type: z.literal("google_event.update"),
+    payload: actionPayloadSchemas["google_event.update"],
+  }),
+  z.object({
+    action_type: z.literal("google_event.delete"),
+    payload: actionPayloadSchemas["google_event.delete"],
+  }),
 ]);
 export type AiAction = z.infer<typeof aiActionSchema>;
 

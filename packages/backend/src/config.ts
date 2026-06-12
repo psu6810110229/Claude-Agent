@@ -106,6 +106,20 @@ export const UPCOMING_WINDOW_DAYS = 7;
 /** Cap on events included in a brief's compact context. */
 export const BRIEF_EVENT_CAP = 20;
 
+/**
+ * Chat recall uses a WIDER Google Calendar window than the 7-day agenda so the
+ * model can see (and therefore target by real id) semester-scale events months
+ * out. Without this, update/delete proposals for far-future events have no real
+ * id in context and the model is tempted to fabricate one. Capped to bound the
+ * prompt size.
+ */
+export const CHAT_GOOGLE_WINDOW_DAYS = Number(
+  process.env.CLAUDE_AGENT_CHAT_GOOGLE_WINDOW_DAYS ?? 120,
+);
+export const CHAT_GOOGLE_EVENT_CAP = Number(
+  process.env.CLAUDE_AGENT_CHAT_GOOGLE_EVENT_CAP ?? 50,
+);
+
 /** Cap on reminders included in a brief's compact context. */
 export const BRIEF_REMINDER_CAP = 20;
 
@@ -256,6 +270,17 @@ export const TTS_APPROVAL_NAG_INTERVAL_MS = Number(
  */
 export const AUTO_EXECUTE_ENABLED = /^(1|true)$/i.test(
   process.env.CLAUDE_AGENT_AUTO_EXECUTE_ENABLED ?? "",
+);
+
+/**
+ * Step 14 follow-up — allow RECOVERABLE destructive actions (currently only
+ * `google_event.delete`, which snapshots the prior event into `undo_json`) to
+ * auto-execute without a confirm click. OFF by default so destructive auto-exec
+ * stays opt-in even when AUTO_EXECUTE is on. Archive + memory-replace remain
+ * confirm-gated regardless of this flag.
+ */
+export const AUTO_EXECUTE_DESTRUCTIVE_ENABLED = /^(1|true)$/i.test(
+  process.env.CLAUDE_AGENT_AUTO_EXECUTE_DESTRUCTIVE_ENABLED ?? "",
 );
 
 /** Single source of truth for UTC ISO 8601 timestamps. */

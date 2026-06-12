@@ -8,7 +8,10 @@ import { logActivity } from "../db/repositories/activityRepo.js";
 import { getConfigBool } from "../db/repositories/configRepo.js";
 import { executeAction, ExecutorError } from "./executor.js";
 import { getActionMeta } from "./actionRegistry.js";
-import { AUTO_EXECUTE_ENABLED } from "../config.js";
+import {
+  AUTO_EXECUTE_ENABLED,
+  AUTO_EXECUTE_DESTRUCTIVE_ENABLED,
+} from "../config.js";
 
 /**
  * Whether auto-execute is on. A runtime DB override (Settings page, key
@@ -20,6 +23,26 @@ export function isAutoExecuteEnabled(): boolean {
   if (dbValue !== null) return dbValue;
   return AUTO_EXECUTE_ENABLED;
 }
+
+/**
+ * Whether RECOVERABLE destructive actions may auto-execute. Runtime DB override
+ * (Settings key `auto_execute_destructive_enabled`) wins; else env default.
+ * Read per-dispatch so the Settings toggle takes effect without a restart.
+ */
+export function isAutoExecuteDestructiveEnabled(): boolean {
+  const dbValue = getConfigBool("auto_execute_destructive_enabled");
+  if (dbValue !== null) return dbValue;
+  return AUTO_EXECUTE_DESTRUCTIVE_ENABLED;
+}
+
+/**
+ * Destructive actions that are RECOVERABLE (executor snapshots prior state into
+ * `undo_json`) and therefore eligible to auto-execute when both auto-execute and
+ * the destructive-auto-execute toggle are on. Deliberately narrow: archive +
+ * memory-replace are excluded and always stay confirm-gated.
+ */
+const RECOVERABLE_DESTRUCTIVE_TYPES: ReadonlySet<ActionType> =
+  new Set<ActionType>(["google_event.delete"]);
 
 /**
  * Step 14 — action dispatcher.
@@ -61,7 +84,17 @@ export function requiresConfirmation(
   actionType: ActionType,
   payload: unknown,
 ): boolean {
-  if (getActionMeta(actionType).policies.includes("destructive")) return true;
+  if (getActionMeta(actionType).policies.includes("destructive")) {
+    // Recoverable destructive (e.g. google_event.delete) may auto-execute when
+    // the opt-in toggle is on; it still snapshots undo_json for recovery.
+    if (
+      isAutoExecuteDestructiveEnabled() &&
+      RECOVERABLE_DESTRUCTIVE_TYPES.has(actionType)
+    ) {
+      return false;
+    }
+    return true;
+  }
   if (ALWAYS_CONFIRM_TYPES.has(actionType)) return true;
   if (
     actionType === "memory.write" &&

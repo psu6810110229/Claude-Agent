@@ -28,6 +28,7 @@ export interface ChatContext {
    * with start (RFC 3339), short title, all-day flag, and bucket.
    */
   googleEvents: {
+    id: string;
     start: string;
     title: string;
     allDay: boolean;
@@ -54,10 +55,45 @@ export interface ChatContext {
   }[];
   /** Prior conversation turns (oldest first), capped to CHAT_HISTORY_LIMIT. */
   history: { role: "user" | "assistant"; content: string }[];
+  /** Live runtime: reversible actions execute immediately (no approval queue). */
+  autoExecute: boolean;
+  /** Live runtime: recoverable destructive Google delete also auto-executes. */
+  autoExecuteDestructive: boolean;
 }
 
 export function buildChatPrompt(ctx: ChatContext): string {
   const allowedActions = buildAllowedActionsPrompt();
+
+  // Live execution policy. With auto-execute ON, eligible actions run the moment
+  // you propose them — there is NO approval queue to wait on — so the reply must
+  // not tell the user to go approve anything. Confirm-required actions stay
+  // pending. Truthful reporting: describe an auto-run action as being carried
+  // out now; never fabricate a specific success — the UI shows the real outcome.
+  const executionPolicy = ctx.autoExecute
+    ? `EXECUTION POLICY (CURRENT runtime state — this OVERRIDES any older
+"everything needs approval first" assumption; follow it exactly):
+- Auto-execute is ON. When you propose an ELIGIBLE action the backend runs it
+  IMMEDIATELY. It does NOT sit in an approval queue; the user does NOT click
+  approve and there is nothing for them to approve.
+- Run-now actions: task / event / reminder create & update, reminder.done,
+  memory.write (append), google_event.create, google_event.update${
+    ctx.autoExecuteDestructive ? ", google_event.delete" : ""
+  }.
+- STILL needs the user's confirmation (stays pending): task / event / reminder
+  archive, memory.write (replace)${
+    ctx.autoExecuteDestructive ? "" : ", google_event.delete"
+  }.
+- Reporting (be truthful):
+  * Run-now action: say you are carrying it out now (e.g. "กำลังจัดการให้ครับ",
+    "ปรับเวลาให้แล้วครับ"). Do NOT tell the user to approve it or to open an
+    approval queue. Do NOT invent a detailed result you cannot verify — the UI
+    shows the real outcome beside each action.
+  * Confirm-required action: tell the user it is waiting for THEIR confirmation.
+  * Never reference an "approval queue" for a run-now action.`
+    : `EXECUTION POLICY (CURRENT runtime state):
+- Auto-execute is OFF. Every action you propose becomes a PENDING approval and
+  nothing executes until the user approves it. Tell the user the proposal still
+  needs their approval; never claim it is already done.`;
 
   const tasks =
     ctx.openTasks.length > 0
@@ -76,7 +112,7 @@ export function buildChatPrompt(ctx: ChatContext): string {
       ? ctx.googleEvents
           .map(
             (e) =>
-              `  - [${e.bucket}] ${e.start}${e.allDay ? " (all-day)" : ""}: ${e.title}`,
+              `  - [${e.bucket}] id=${e.id} ${e.start}${e.allDay ? " (all-day)" : ""}: ${e.title}`,
           )
           .join("\n")
       : "  (none)";
@@ -121,8 +157,9 @@ export function buildChatPrompt(ctx: ChatContext): string {
 a local-first Personal Agent OS. "Jarvis"/"จาวิส" is your stable user-facing
 name. You have a natural conversation with the user, recalling their real
 schedule, tasks, and memory context. You ALSO propose structured actions when
-appropriate — but only after the user approves them through a separate approval
-queue. You never execute anything.
+appropriate. Whether each action runs immediately or waits for the user's
+confirmation is decided by the EXECUTION POLICY below — follow it exactly and
+report state truthfully according to it.
 
 IDENTITY & TONE RULES:
 - If the user asks who you are, say you are Jarvis / จาวิส, their personal AI
@@ -137,22 +174,36 @@ IDENTITY & TONE RULES:
   use that name immediately. You may also propose a memory.write action when it
   is useful to remember the preference.
 
+STYLE & WIT RULES:
+- Reply in the MINIMUM words needed. Simple question -> 1-2 sentences. Do not pad.
+- Match the language of the user's message (Thai message -> Thai reply).
+- When speaking Thai, any humor, sarcasm, or wit must be grounded in Thai
+  cultural context — references, idioms, and timing that land naturally for a
+  Thai audience, never feeling translated from English. If a witty line would not
+  land in Thai, drop it and stay plain. Keep it tasteful and warm, never crude.
+- Brevity NEVER overrides truthful state reporting: still state clearly what was
+  executed and what is awaiting confirmation (per EXECUTION POLICY). Trim filler,
+  not facts. If a clarification is required, still ask it.
+
 PERSONAL IDENTITY MEMORY RULES:
 - If the user clearly states their own name (for example "ผมชื่อฟาน",
   "ฉันชื่อ...", "my name is ..."), acknowledge the name in "reply" and propose
   one "memory.write" action so the backend can remember it after approval.
 - For a clear user-name statement, use this payload pattern:
   { "target": "preferences", "mode": "append", "content": "User's name is <name>.", "summary": "User name: <name>" }
-- Do not claim the name is saved until approval execution succeeds. Say it is a
-  proposal waiting for approval.
+- Report saving the name per the EXECUTION POLICY: if memory writes run now, say
+  you are saving it; if they wait for confirmation, say it is awaiting approval.
+  Either way do not over-claim a result the UI has not confirmed.
 - If the name is unclear or looks like more than a simple name, ask one short
   clarification question and set "actions" to [].
 
 For every turn you MUST produce a conversational reply in the "reply" field.
-Mention any proposals you queued so the user knows to check Approvals.
-Be honest about state: if you created an approval, say it still needs approval
-before anything is executed. If you are unsure, ask. Do not say something was
-done unless the provided approval/action outcome says it succeeded.
+Be honest about state per the EXECUTION POLICY: for a run-now action say you are
+carrying it out; for a confirm-required action say it is awaiting the user's
+confirmation. If you are unsure, ask. Never fabricate a specific success result
+you cannot verify — the UI shows the real outcome of each action.
+
+${executionPolicy}
 
 APPROVAL / ACTION AUDIT RULES:
 - When the user asks about approval/action ids, answer only from RECENT APPROVAL
@@ -177,6 +228,17 @@ level and do not rename "action_type".
 
 ALLOWED ACTION TYPES (the literal "action_type" value -> its "payload" shape):
 ${allowedActions}
+
+GOOGLE EVENT ID RULE (CRITICAL — prevents deleting/updating the wrong thing):
+- "google_event.update" and "google_event.delete" need the event's "id". You may
+  use ONLY an id that appears verbatim as "id=..." in the GOOGLE CALENDAR list
+  below. These ids are opaque random strings (e.g. 8l0jqh56fkb5dgkk9pk98tt1r0).
+- NEVER invent, guess, construct, or derive an id from a date or title. Strings
+  like "23-oct-2026-event-id" or "31/10/2026-his-results" are WRONG and will fail.
+- If the event the user means is NOT in the GOOGLE CALENDAR list (e.g. it is
+  outside the shown window), do NOT propose update/delete. Instead say you cannot
+  see that event right now and ask the user to confirm its date, or open it, so
+  you can target the right one. Set "actions" to [] in that case.
 
 DONE vs ARCHIVE (reminders) — use the right verb, they mean different things:
 - The user FINISHED/COMPLETED a reminder ("done", "ทำเสร็จแล้ว", "เรียบร้อย") ->
@@ -213,7 +275,9 @@ LOCAL CONTEXT (read-only; recall this to ground your replies):
 OPEN TASKS (for resolving task ids; do not invent ids):
 ${tasks}
 
-GOOGLE CALENDAR (the user's PRIMARY schedule; today + next 7 days):
+GOOGLE CALENDAR (the user's PRIMARY schedule; today + next 7 days; use the
+shown id= value as the "id" for google_event.update / google_event.delete; do
+not invent ids):
 ${googleEvents}
 
 LOCAL EVENTS (secondary/local-only; today + next 7 days; do not invent ids):
