@@ -11,6 +11,7 @@ import { useData } from "@/lib/useData";
 import { formatTs } from "@/lib/format";
 import { ErrorBanner, Empty } from "@/components/States";
 import { useToast } from "@/components/ToastProvider";
+import { humanLabel, summarizePayload } from "@/lib/actionDisplay";
 import type { Approval } from "@/lib/types";
 
 function ApprovalsSkeleton() {
@@ -104,13 +105,14 @@ function ApprovalCard({
   run: (fn: () => Promise<unknown>, success: "approve" | "reject") => Promise<void>;
 }) {
   const pending = approval.status === "pending";
+  const summary = summarizePayload(approval);
   return (
     <section className="panel approval-card">
       <div className="row">
         <span className={`badge ${approval.status}`}>{approval.status}</span>
         <span className="grow">
-          <strong className="item-title">{approval.action_type}</strong>
-          <span className="item-meta">#{approval.id}</span>
+          <strong className="item-title">{humanLabel(approval.action_type)}</strong>
+          {summary && <span className="item-meta">{summary}</span>}
         </span>
         <span className="ts">{formatTs(approval.created_at)}</span>
         {pending && (
@@ -135,9 +137,14 @@ function ApprovalCard({
         )}
       </div>
       {approval.payload != null && (
-        <pre className="payload">
-          {JSON.stringify(approval.payload, null, 2)}
-        </pre>
+        <details className="payload-details">
+          <summary>
+            <span className="item-meta">{approval.action_type} · #{approval.id}</span>
+          </summary>
+          <pre className="payload">
+            {JSON.stringify(approval.payload, null, 2)}
+          </pre>
+        </details>
       )}
     </section>
   );
