@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { realClaudeInvoker, type ClaudeInvoker } from "./claudeClient.js";
-import { CLAUDE_MODEL } from "../config.js";
+import {
+  realGeminiInvoker,
+  isGeminiConfigured,
+} from "./geminiClient.js";
+import { CLAUDE_MODEL, GEMINI_MODEL } from "../config.js";
 
 /**
  * Roadmap 11, Phase 1 — Provider abstraction.
@@ -80,11 +84,21 @@ export const claudeProvider: AiProvider = {
 };
 
 /**
- * Provider registry. Gemini is intentionally absent until Phase 3 — requesting
- * it before then fails closed via `selectProvider`, never silently downgrades.
+ * Gemini provider (Phase 3). `isAvailable()` delegates to `isGeminiConfigured()`
+ * so requesting Gemini without GEMINI_ENABLED + GEMINI_API_KEY fails closed with
+ * a clear `"unavailable"` reason rather than silently falling back to Claude.
  */
+export const geminiProvider: AiProvider = {
+  id: "gemini",
+  model: GEMINI_MODEL,
+  isAvailable: isGeminiConfigured,
+  invoke: realGeminiInvoker,
+};
+
+/** Provider registry. Both providers registered; availability gates access. */
 const registry: Partial<Record<AiProviderId, AiProvider>> = {
   claude: claudeProvider,
+  gemini: geminiProvider,
 };
 
 /** Look up a registered provider by id (undefined if not registered yet). */
@@ -96,12 +110,12 @@ export function getProvider(id: AiProviderId): AiProvider | undefined {
 export const DEFAULT_PROVIDER_ID: AiProviderId = "claude";
 
 /**
- * Pick a provider and record the reason. Phase 1 policy:
+ * Pick a provider and record the reason. Phase 3 policy:
  * - no request -> default Claude.
  * - explicit Claude -> Claude.
- * - explicit Gemini (or anything not yet registered/available) -> fail closed
- *   with a clear reason. Auto mode is added in Phase 4; for now it resolves to
- *   the default provider so callers can already pass `mode` without breaking.
+ * - explicit Gemini -> Gemini when isGeminiConfigured(); otherwise fail closed
+ *   with `"unavailable"` (never silently substitutes Claude).
+ * - Auto mode resolves to the default provider; real Auto rules arrive in Phase 4.
  *
  * Fails closed by throwing `ProviderError` rather than substituting a different
  * provider, so a manual choice is never silently swapped.

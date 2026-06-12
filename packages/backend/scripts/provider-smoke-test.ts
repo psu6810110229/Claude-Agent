@@ -46,23 +46,29 @@ async function main(): Promise<void> {
     "manual claude selection records requested + selected claude",
   );
 
-  // --- 3. Explicit Gemini fails closed (not registered in Phase 1) ---
+  // --- 3. Explicit Gemini fails closed when not configured (Phase 3: registered
+  //        but unavailable — reason is "unavailable", not "unknown-provider") ---
   let geminiThrew = false;
   try {
     selectProvider({ mode: "manual", requestedProvider: "gemini" });
   } catch (err) {
     geminiThrew = true;
     assert(
-      err instanceof ProviderError && err.reason === "unknown-provider",
-      "manual gemini throws ProviderError(unknown-provider)",
+      err instanceof ProviderError && err.reason === "unavailable",
+      "manual gemini (no key/env) throws ProviderError('unavailable')",
     );
   }
-  assert(geminiThrew, "manual gemini fails closed instead of downgrading");
+  assert(geminiThrew, "manual gemini without config fails closed instead of downgrading");
 
-  // --- 4. Gemini is not silently substituted with Claude ---
+  // --- 4. Gemini IS registered (Phase 3) but unavailable when not configured ---
+  const geminiProv = getProvider("gemini");
   assert(
-    getProvider("gemini") === undefined,
-    "gemini provider is not registered yet",
+    geminiProv !== undefined,
+    "gemini provider is registered in Phase 3",
+  );
+  assert(
+    geminiProv !== undefined && !geminiProv.isAvailable(),
+    "geminiProvider.isAvailable() false when GEMINI_ENABLED/GEMINI_API_KEY absent",
   );
   assert(
     getProvider("claude") === claudeProvider,

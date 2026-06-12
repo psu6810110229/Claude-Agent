@@ -184,6 +184,30 @@ export const DESKTOP_NOTIFICATIONS_ENABLED = /^(1|true)$/i.test(
 );
 
 /**
+ * Roadmap 11 Phase 3 — Gemini provider.
+ *
+ * Gemini is OFF unless both GEMINI_ENABLED=1 and GEMINI_API_KEY are set.
+ * Missing either disables Gemini cleanly; the backend never logs the key.
+ */
+
+/** Gemini integration is OFF unless explicitly enabled. */
+export const GEMINI_ENABLED = /^(1|true)$/i.test(
+  process.env.GEMINI_ENABLED ?? "",
+);
+
+/** Gemini API key. Gitignored; never logged. Empty string = not configured. */
+export const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? "";
+
+/** Gemini model to use for proposal calls. */
+export const GEMINI_MODEL =
+  process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
+
+/** Hard timeout for a single Gemini API call (ms). */
+export const GEMINI_TIMEOUT_MS = Number(
+  process.env.GEMINI_TIMEOUT_MS ?? 60_000,
+);
+
+/**
  * Step 12 — Conversational chat agent.
  *
  * Number of recent chat messages fed back into the prompt as conversation

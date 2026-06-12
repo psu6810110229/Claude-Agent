@@ -21,6 +21,7 @@ import {
 } from "./agenda.js";
 import { unwrapJsonOutput } from "./jsonOutput.js";
 import { ClaudeError, type ClaudeInvoker } from "./claudeClient.js";
+import { GeminiError } from "./geminiClient.js";
 import {
   realGoogleEventsFetcher,
   type GoogleEventsFetcher,
@@ -179,7 +180,7 @@ export async function runChat(
       timeoutMs: CLAUDE_BRIEF_TIMEOUT_MS,
     });
   } catch (err) {
-    if (err instanceof ClaudeError) {
+    if (err instanceof ClaudeError || err instanceof GeminiError) {
       return {
         kind: "failed",
         reason: err.reason,
