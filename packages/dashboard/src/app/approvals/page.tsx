@@ -321,7 +321,8 @@ function approvalExecutionMessage(approval: Approval): string | null {
       : "Execution failed. Retry approval or reject it.";
   }
   if (approval.execution_status === "succeeded") {
-    return approval.result_summary ?? "Executed successfully.";
+    const base = approval.result_summary ?? "Executed successfully.";
+    return approval.undo_json ? `${base} · snapshot saved (undo available)` : base;
   }
   return null;
 }

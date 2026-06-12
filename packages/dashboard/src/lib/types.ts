@@ -31,7 +31,9 @@ export type ActionType =
   | "reminder.update"
   | "reminder.done"
   | "reminder.archive"
-  | "google_event.create";
+  | "google_event.create"
+  | "google_event.update"
+  | "google_event.delete";
 
 // --- Events & reminders (Step 9) ------------------------------------------
 
@@ -132,6 +134,8 @@ export interface Approval {
   executed_at: string | null;
   execution_error: string | null;
   result_summary: string | null;
+  /** Prior-state JSON snapshot for reversible undo (Step 14); null otherwise. */
+  undo_json: string | null;
   created_at: string;
   updated_at: string;
 }

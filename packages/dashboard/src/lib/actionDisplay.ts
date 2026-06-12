@@ -28,6 +28,8 @@ export const ACTION_TYPES: readonly ActionType[] = [
   "reminder.done",
   "reminder.archive",
   "google_event.create",
+  "google_event.update",
+  "google_event.delete",
 ];
 
 export function isActionType(value: string): value is ActionType {
@@ -48,6 +50,8 @@ const HUMAN_LABELS: Record<ActionType, string> = {
   "reminder.done": "Mark reminder done",
   "reminder.archive": "Archive reminder",
   "google_event.create": "Create Google Calendar event",
+  "google_event.update": "Update Google Calendar event",
+  "google_event.delete": "Delete Google Calendar event",
 };
 
 export function humanLabel(actionType: ActionType): string {
@@ -108,10 +112,17 @@ export function actionQuestion(action: ActionLike): ActionQuestion {
     case "task.update":
     case "event.update":
     case "reminder.update":
+    case "google_event.update":
       return {
         question: "ต้องการอัปเดตรายการนี้ไหม",
         approve: "อัปเดต",
         reject: "ไม่อัปเดต",
+      };
+    case "google_event.delete":
+      return {
+        question: "ยืนยันลบอีเวนต์นี้จาก Google Calendar ไหม (ลบจริง กู้คืนได้จาก snapshot)",
+        approve: "ลบ",
+        reject: "ไม่ลบ",
       };
     case "task.archive":
     case "event.archive":
@@ -136,11 +147,12 @@ export function summarizePayload(action: ActionLike): string | null {
   if (!payload) return null;
 
   const id = numberField(payload, "id");
+  const strId = stringField(payload, "id");
   const title = stringField(payload, "title");
   const target = stringField(payload, "target");
   const time = stringField(payload, "starts_at") ?? stringField(payload, "due_at");
   const parts = [
-    id != null ? `#${id}` : null,
+    id != null ? `#${id}` : strId ? `#${strId}` : null,
     title ?? target ?? null,
     time ? formatTs(time) : null,
   ].filter(Boolean);
