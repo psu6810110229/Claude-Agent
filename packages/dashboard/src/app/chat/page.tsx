@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ApiError, getChatHistory, resetChat, sendChat } from "@/lib/api";
 import { formatTs } from "@/lib/format";
 import { ErrorBanner, Loading } from "@/components/States";
+import { BriefPanel } from "@/components/BriefPanel";
 import type { ChatMessage, ChatResult } from "@/lib/types";
 
 export default function ChatPage() {
@@ -191,6 +192,8 @@ export default function ChatPage() {
             {sending ? "Sending…" : "Send"}
           </button>
         </form>
+
+        <BriefPanel />
       </div>
     </>
   );

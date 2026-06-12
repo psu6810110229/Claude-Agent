@@ -11,6 +11,7 @@ import {
 import { useResource } from "@/lib/useResource";
 import { formatTs } from "@/lib/format";
 import { ErrorBanner, Loading, Empty } from "@/components/States";
+import { CommandBar } from "@/components/CommandBar";
 import type { Task } from "@/lib/types";
 
 export default function TasksPage() {
@@ -52,6 +53,10 @@ export default function TasksPage() {
           <p className="lede">Open, complete, edit, and archive local tasks.</p>
         </div>
       </header>
+
+      <div className="section">
+        <CommandBar onProposed={reload} />
+      </div>
 
       <form className="composer" onSubmit={onCreate}>
         <input
