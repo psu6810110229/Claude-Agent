@@ -1,5 +1,11 @@
 # Test Plan
 
+## Status
+
+Skipped as an implementation sprint after 00-08 manual testing passed. Keep this file as a regression checklist and testing reference for future backend/dashboard changes.
+
+Automated coverage can be added later when a specific risk or regression justifies it. Do not block post-09 planning on this file alone.
+
 ## Future Test Track: Multi-Provider Agents
 
 Do not add these tests before the 00-09 foundation is implemented.

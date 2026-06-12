@@ -1,5 +1,27 @@
 # Lessons Learned
 
+## 2026-06-12 - Skip Test Plan As Implementation Sprint
+
+### Symptom
+
+Roadmaps 00-08 were completed, manual testing passed, and `docs/capability-contract.md` was written.
+
+### Root Cause
+
+`docs/roadmaps/09-test-plan.md` is a planning/checklist document, not a feature implementation sprint. Treating it as a blocking implementation step would slow down post-09 planning without adding immediate product behavior.
+
+### Fix
+
+Skip 09 as an implementation sprint. Keep it as a regression checklist and add automated tests later only when they target a concrete risk or regression.
+
+### Test Added Or Updated
+
+No automated test added. Manual testing for 00-08 passed per Fran.
+
+### Follow-Up
+
+Post-09 work can start from the capability contract and the multi-provider agent notes, while preserving approval-gated execution and stub-only automated tests for future provider work.
+
 ## 2026-06-12 - Future Multi-Provider Agent Direction
 
 ### Symptom

@@ -1,5 +1,9 @@
 # Sprint 10: Capability Foundation
 
+## Completion Note
+
+00-08 are complete. The capability contract is documented in `docs/capability-contract.md`.
+
 ## Future Note: Post-09 Provider and Agent Foundation
 
 Do not add Gemini, new secrets, new external connectors, or multi-step agent execution in this sprint.
