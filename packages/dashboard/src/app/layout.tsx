@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
-import { Nav } from "@/components/Nav";
-import { NotificationCenter } from "@/components/NotificationCenter";
+import { Sidebar } from "@/components/Sidebar";
+import { TopBar } from "@/components/TopBar";
+import { SidebarSchedule } from "@/components/SidebarSchedule";
+import { SidebarSystem } from "@/components/SidebarSystem";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Claude_Agent",
-  description: "Local-first Personal Agent OS dashboard",
+  title: "J.A.R.V.I.S",
+  description: "Personal AI operating system",
 };
 
 export default function RootLayout({
@@ -20,23 +22,14 @@ export default function RootLayout({
           dev-only hydration mismatch. This suppresses only this element's
           attribute diff, not its children. */}
       <body suppressHydrationWarning>
-        <div className="layout">
-          <aside className="sidebar">
-            <div className="brand">
-              <div className="brand-mark" aria-hidden="true">
-                CA
-              </div>
-              <div style={{ flex: 1 }}>
-                <h1>Claude_Agent</h1>
-                <p>Personal Agent OS</p>
-              </div>
-              <NotificationCenter />
-            </div>
-            <Nav />
-          </aside>
-          <main className="main">
-            <div className="main-inner">{children}</div>
-          </main>
+        <div className="shell">
+          <Sidebar schedule={<SidebarSchedule />} system={<SidebarSystem />} />
+          <div className="content">
+            <TopBar />
+            <main className="main">
+              <div className="main-inner">{children}</div>
+            </main>
+          </div>
         </div>
       </body>
     </html>

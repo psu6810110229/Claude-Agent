@@ -145,31 +145,9 @@ export function NotificationCenter() {
             ? `${unreadCount} unread notification${unreadCount !== 1 ? "s" : ""}`
             : "Notifications"
         }
-        style={{
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          color: "var(--muted)",
-          padding: "4px 6px",
-          borderRadius: "var(--radius)",
-          display: "flex",
-          alignItems: "center",
-          gap: 4,
-        }}
+        className="icon-btn"
       >
         <BellIcon hasBadge={unreadCount > 0} />
-        {unreadCount > 0 && (
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              color: "var(--rose)",
-              lineHeight: 1,
-            }}
-          >
-            {unreadCount}
-          </span>
-        )}
       </button>
 
       {open && (
@@ -179,10 +157,11 @@ export function NotificationCenter() {
             top: dropPos?.top ?? 0,
             left: Math.max(8, dropPos?.left ?? 0),
             width: 300,
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius)",
-            boxShadow: "var(--shadow)",
+            background: "rgba(26, 27, 32, 0.92)",
+            backdropFilter: "blur(30px) saturate(150%)",
+            WebkitBackdropFilter: "blur(30px) saturate(150%)",
+            borderRadius: 16,
+            boxShadow: "var(--shadow), var(--inner-light)",
             zIndex: 100,
             overflow: "hidden",
           }}
