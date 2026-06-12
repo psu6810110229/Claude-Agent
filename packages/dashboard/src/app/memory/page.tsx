@@ -108,15 +108,17 @@ export default function MemoryPage() {
             {entries && entries.length > 0 && (
               <div className="panel">
                 {entries.map((entry: MemoryEntry) => (
-                  <div className="row" key={entry.id}>
+                  <div className="row entry-row" key={entry.id}>
                     <span className="grow">
-                      <strong className="item-title">{entry.slug}</strong>
-                      <span className="item-meta">{entry.path}</span>
+                      <span className="entry-head">
+                        <strong className="item-title">{entry.slug}</strong>
+                        <span className="ts">{formatTs(entry.updated_at)}</span>
+                      </span>
                       {entry.summary && (
-                        <span className="item-meta">{entry.summary}</span>
+                        <span className="entry-sub">{entry.summary}</span>
                       )}
+                      <span className="entry-sub entry-path">{entry.path}</span>
                     </span>
-                    <span className="ts">{formatTs(entry.updated_at)}</span>
                   </div>
                 ))}
               </div>
@@ -175,21 +177,56 @@ export default function MemoryPage() {
               />
             )}
             <form onSubmit={onPropose}>
-              <div className="form-row">
-                <label htmlFor="memory-mode">Mode</label>
-                <select
-                  id="memory-mode"
-                  value={mode}
-                  onChange={(e) => setMode(e.target.value as MemoryWriteMode)}
-                  disabled={busy}
-                >
-                  <option value="append">append</option>
-                  <option value="replace">replace</option>
-                </select>
+              <div className="field-grid">
+                <div className="field">
+                  <label htmlFor="propose-target">Target</label>
+                  <select
+                    id="propose-target"
+                    value={target}
+                    onChange={(e) => setTarget(e.target.value as MemoryTarget)}
+                    disabled={busy}
+                  >
+                    {TARGETS.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="field">
+                  <label id="memory-mode-label">Mode</label>
+                  <div
+                    className="segmented"
+                    role="radiogroup"
+                    aria-labelledby="memory-mode-label"
+                  >
+                    {(["append", "replace"] as const).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        role="radio"
+                        aria-checked={mode === m}
+                        className={`segment${mode === m ? " active" : ""}`}
+                        onClick={() => setMode(m)}
+                        disabled={busy}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <div className="form-row">
+
+              <div className="field">
+                <label htmlFor="propose-content">Content</label>
                 <textarea
-                  placeholder={`New content for "${target}" (${mode})...`}
+                  id="propose-content"
+                  placeholder={
+                    mode === "append"
+                      ? `Lines to add to "${target}"...`
+                      : `Replacement content for "${target}"...`
+                  }
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   rows={6}
@@ -197,20 +234,30 @@ export default function MemoryPage() {
                   disabled={busy}
                 />
               </div>
-              <div className="form-row">
+
+              <div className="field">
+                <label htmlFor="propose-summary">Summary (optional)</label>
                 <input
-                  placeholder="Short summary (optional)"
+                  id="propose-summary"
+                  placeholder="Why this change?"
                   value={summary}
                   onChange={(e) => setSummary(e.target.value)}
                   maxLength={200}
                   disabled={busy}
                 />
+              </div>
+
+              <div className="card-footer">
+                <span className="muted">
+                  Queued as a pending approval — nothing is written until you
+                  approve it.
+                </span>
                 <button
                   type="submit"
                   className="primary"
                   disabled={busy || draft.trim() === ""}
                 >
-                  Send to approvals
+                  {busy ? "Sending…" : "Send to approvals"}
                 </button>
               </div>
             </form>

@@ -1102,6 +1102,71 @@ pre.payload {
   margin-top: 0;
 }
 
+/* --- Memory entries: stacked rows, no inline collisions ------------------- */
+
+.entry-row {
+  align-items: flex-start;
+}
+
+.entry-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.entry-sub {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.entry-path {
+  font-size: 11.5px;
+  opacity: 0.75;
+}
+
+/* --- Labelled form fields (propose-edit card) ----------------------------- */
+
+.field {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.field > label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 620;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+  align-items: start;
+}
+
+.field .segmented {
+  justify-self: start;
+}
+
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 4px;
+}
+
+.card-footer .muted {
+  font-size: 12px;
+}
+
 /* --- Placeholder pages (Files / Notepad / Projects) ---------------------- */
 
 .placeholder-hero {
