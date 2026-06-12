@@ -3,12 +3,19 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ApiError, getChatHistory, resetChat, sendChat } from "@/lib/api";
+import {
+  ApiError,
+  generateDailyBrief,
+  generateEveningBrief,
+  getChatHistory,
+  resetChat,
+  sendChat,
+} from "@/lib/api";
 import { formatTs } from "@/lib/format";
 import { ErrorBanner } from "@/components/States";
 import { Orb, type OrbState } from "@/components/Orb";
 import { JarvisInput } from "@/components/JarvisInput";
-import type { ChatMessage, ChatResult } from "@/lib/types";
+import type { BriefResult, BriefType, ChatMessage, ChatResult } from "@/lib/types";
 
 /** Time-of-day greeting in the user's timezone (Asia/Bangkok). */
 function greetingNow(): string {
@@ -32,8 +39,9 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [briefBusy, setBriefBusy] = useState<BriefType | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [lastResult, setLastResult] = useState<ChatResult | null>(null);
+  const [lastResult, setLastResult] = useState<ChatResult | BriefResult | null>(null);
   const [resetting, setResetting] = useState(false);
   const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -59,6 +67,7 @@ export default function HomePage() {
   }, [messages, sending]);
 
   async function doSend(text: string) {
+    if (briefBusy) return;
     setOrbState("thinking");
     setSending(true);
     setSendError(null);
@@ -91,13 +100,36 @@ export default function HomePage() {
     }
   }
 
+  async function runBrief(type: BriefType) {
+    if (sending || briefBusy) return;
+    setOrbState("thinking");
+    setBriefBusy(type);
+    setSendError(null);
+    setLastResult(null);
+    setLastFailedMessage(null);
+
+    try {
+      const result =
+        type === "daily"
+          ? await generateDailyBrief()
+          : await generateEveningBrief();
+      setLastResult(result);
+      setMessages((prev) => [...prev, briefToMessage(result)]);
+    } catch (err) {
+      setSendError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBriefBusy(null);
+      setOrbState("idle");
+    }
+  }
+
   async function onRetry() {
     if (!lastFailedMessage || sending) return;
     await doSend(lastFailedMessage);
   }
 
   async function onNewSession() {
-    if (sending || resetting) return;
+    if (sending || briefBusy || resetting) return;
     if (!window.confirm("Archive this session and start fresh? Old messages are kept in the DB but won't appear in chat or be sent to Claude.")) return;
     setResetting(true);
     try {
@@ -118,7 +150,7 @@ export default function HomePage() {
         <button
           className="secondary"
           onClick={onNewSession}
-          disabled={sending || resetting}
+          disabled={sending || briefBusy !== null || resetting}
           title="Archive this session - old messages stay in DB but won't be sent to Claude"
         >
           {resetting ? "Resetting..." : "New session"}
@@ -165,6 +197,15 @@ export default function HomePage() {
               </div>
             )}
 
+            {briefBusy && (
+              <div className="chat-bubble assistant typing">
+                <span className="chat-role">Jarvis</span>
+                <span className="chat-content muted">
+                  Generating {briefBusy === "daily" ? "Daily Brief" : "Evening Brief"}...
+                </span>
+              </div>
+            )}
+
             <div ref={bottomRef} />
           </div>
 
@@ -190,7 +231,9 @@ export default function HomePage() {
       >
         <JarvisInput
           onSubmit={doSend}
-          disabled={sending}
+          onBrief={runBrief}
+          disabled={sending || briefBusy !== null}
+          briefBusy={briefBusy}
           onFocusChange={(focused) =>
             setOrbState((s) =>
               s === "thinking" ? s : focused ? "listening" : "idle",
@@ -200,6 +243,23 @@ export default function HomePage() {
       </motion.div>
     </div>
   );
+}
+
+function briefToMessage(result: BriefResult): ChatMessage {
+  const label = result.type === "daily" ? "Daily Brief" : "Evening Brief";
+  const now = new Date().toISOString();
+  const notes = result.notes ? `\n\nNotes: ${result.notes}` : "";
+
+  return {
+    id: -Date.now(),
+    role: "assistant",
+    content: `${label}\n\n${result.summary}${notes}`,
+    actions_json:
+      result.approvals.length > 0 ? JSON.stringify(result.approvals) : null,
+    status: "active",
+    created_at: now,
+    updated_at: now,
+  };
 }
 
 function ChatSkeleton() {
