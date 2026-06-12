@@ -158,6 +158,22 @@ async function main(): Promise<void> {
       readOnlyPrompt.includes('set "actions" to []'),
     "prompt explicitly allows read-only chat answers without tool/action proposals",
   );
+  assert(
+    readOnlyPrompt.includes("You are Jarvis") &&
+      readOnlyPrompt.includes("Never say you have no name") &&
+      readOnlyPrompt.includes('"ผม" and "ครับ"') &&
+      readOnlyPrompt.includes("chief-of-staff reasoning") &&
+      readOnlyPrompt.includes("Never expose internal implementation labels"),
+    "prompt pins Jarvis identity, Thai tone, and hides internal role labels",
+  );
+  assert(
+    readOnlyPrompt.includes("PERSONAL IDENTITY MEMORY RULES") &&
+      readOnlyPrompt.includes("ผมชื่อฟาน") &&
+      readOnlyPrompt.includes('"target": "preferences"') &&
+      readOnlyPrompt.includes("User's name is <name>.") &&
+      readOnlyPrompt.includes("proposal waiting for approval"),
+    "prompt gives a concrete memory.write pattern for user-name statements",
+  );
 
   // --- 2. History persisted: GET /api/chat/history returns 2 rows ---
   const hist1 = await getJson("/api/chat/history?limit=10");

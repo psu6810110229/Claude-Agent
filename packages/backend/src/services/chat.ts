@@ -66,6 +66,9 @@ function chatFailureMessage(reason: string): string {
   if (reason === "timeout") {
     return "ผมยังตอบรายการนี้ไม่สำเร็จครับ ระบบใช้เวลานานเกินไป ลองส่งใหม่แบบสั้นลงได้";
   }
+  if (reason === "rate-limit") {
+    return "Gemini ใช้โควต้าครบชั่วคราวครับ ลองใหม่ภายหลังหรือสลับไปใช้ Claude ได้";
+  }
   return "ผมยังตอบข้อความนี้ไม่สำเร็จครับ ลองส่งใหม่อีกครั้งได้";
 }
 

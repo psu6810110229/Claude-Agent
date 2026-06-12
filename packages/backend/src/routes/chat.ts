@@ -111,6 +111,8 @@ async function handleChat(
         ? 504
         : result.reason === "disabled"
           ? 503
+          : result.reason === "rate-limit"
+            ? 429
           : 502;
     // Phase 4 — VISIBLE Auto fallback. The budget allows one provider call per
     // chat command, so we never retry silently. On an Auto failure we surface

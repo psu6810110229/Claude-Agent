@@ -277,7 +277,7 @@ Only after Phase 1 is stable should the dashboard/provider selector be added.
 
 Decided:
 
-- First Gemini default: Gemini 3.5 Flash.
+- First Gemini default: Gemini 3.1 Flash-Lite (`gemini-3.1-flash-lite`) to use the higher daily request quota available for this project.
 - Provider choice should live on each chat request first. A longer session preference can be added later after the UX feels right.
 
 Still UX-led:

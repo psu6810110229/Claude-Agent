@@ -216,15 +216,18 @@ async function main(): Promise<void> {
   ).filter((a: any) => a.status === "pending").length;
 
   currentInvoker = async () => {
-    throw new GeminiError("api-error", "Gemini API unavailable (stub)");
+    throw new GeminiError(
+      "rate-limit",
+      "Gemini API rate limit or quota was exceeded.",
+    );
   };
   const autoFail = await postJson("/api/chat", {
     message: "summarize my tasks", // low-risk → selected gemini
     mode: "auto",
   });
   assert(
-    autoFail.status === 502 && autoFail.json.kind === "error",
-    "auto failure: 502 error (no false success)",
+    autoFail.status === 429 && autoFail.json.kind === "error",
+    "auto rate-limit failure: 429 error (no false success)",
   );
   assert(
     autoFail.json.mode === "auto" &&

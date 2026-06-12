@@ -251,6 +251,39 @@ async function main(): Promise<void> {
     "GeminiError timeout → 504 error",
   );
 
+  currentInvoker = async () => {
+    throw new GeminiError(
+      "rate-limit",
+      "Gemini API rate limit or quota was exceeded.",
+    );
+  };
+  const rateLimit = await postJson("/api/chat", {
+    message: "rate limit test",
+    provider: "gemini",
+  });
+  assert(
+    rateLimit.status === 429 && rateLimit.json.kind === "error",
+    "GeminiError rate-limit → 429 error",
+  );
+  assert(
+    typeof rateLimit.json.error === "string" &&
+      rateLimit.json.error.includes("Gemini") &&
+      !rateLimit.json.error.includes("generativelanguage.googleapis.com"),
+    "rate-limit response is user-safe and does not expose raw Google details",
+  );
+
+  const activityAfterRateLimit = await getJson("/api/activity?limit=5");
+  const rateLimitActivity = (activityAfterRateLimit.json.activity as any[]).find(
+    (a: any) => a.event_type === "chat.message.failed",
+  );
+  assert(
+    rateLimitActivity &&
+      String(rateLimitActivity.detail).includes("rate-limit") &&
+      !String(rateLimitActivity.detail).includes("generativelanguage.googleapis.com") &&
+      !String(rateLimitActivity.detail).includes("QuotaFailure"),
+    "rate-limit activity is sanitized and avoids raw Google API payloads",
+  );
+
   // --- 12. Claude still works alongside Gemini ---
   currentInvoker = async () =>
     JSON.stringify({ reply: "Claude reporting in.", actions: [] });

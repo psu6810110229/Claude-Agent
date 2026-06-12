@@ -25,6 +25,7 @@ import {
 export type GeminiFailureReason =
   | "disabled"
   | "timeout"
+  | "rate-limit"
   | "api-error"
   | "empty";
 
@@ -83,7 +84,13 @@ export const realGeminiInvoker: ClaudeInvoker = async (prompt, opts) => {
     clearTimeout(timer);
     if (err instanceof GeminiError) throw err;
     const msg = err instanceof Error ? err.message : String(err);
-    throw new GeminiError("api-error", `Gemini API error: ${msg}`);
+    if (isRateLimitErrorMessage(msg)) {
+      throw new GeminiError(
+        "rate-limit",
+        "Gemini API rate limit or quota was exceeded.",
+      );
+    }
+    throw new GeminiError("api-error", "Gemini API request failed.");
   }
 
   if (!text.trim()) {
@@ -91,3 +98,12 @@ export const realGeminiInvoker: ClaudeInvoker = async (prompt, opts) => {
   }
   return text;
 };
+
+function isRateLimitErrorMessage(message: string): boolean {
+  return (
+    /\b429\b/.test(message) ||
+    /too many requests/i.test(message) ||
+    /quota/i.test(message) ||
+    /rate.?limit/i.test(message)
+  );
+}
