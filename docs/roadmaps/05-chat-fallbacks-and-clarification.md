@@ -1,5 +1,19 @@
 # Sprint 5: Chat Fallbacks & Clarification
 
+## Future Note: Transparent Provider Fallbacks
+
+Do not add Gemini or automatic model switching in this sprint.
+
+The fallback and clarification language should prepare for a future where Auto mode can choose or retry with another provider. The rule is: no silent model switching.
+
+Future messages should be able to say things like:
+
+- "Gemini hit a rate limit. I can retry with Claude if you want."
+- "Auto chose Gemini for summarization because this is a low-risk read-only step."
+- "Claude handled the recommendation step because the analysis was more complex."
+
+For this sprint, keep the wording provider-neutral, honest about state, and compatible with future provider/step annotations.
+
 ## Goal
 
 ทำให้ Jarvis ตอบอย่างซื่อสัตย์และน่าเชื่อใจเมื่อ:
@@ -77,4 +91,3 @@ npm run build:dashboard
 - ลองสั่ง action ที่ต้อง approval
 - ลอง approve/reject จาก chat
 - ดูว่า Jarvis พูดตรงกับ state จริงและไม่ยาวเกินไป
-

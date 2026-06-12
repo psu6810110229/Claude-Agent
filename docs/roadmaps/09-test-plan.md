@@ -1,5 +1,22 @@
 # Test Plan
 
+## Future Test Track: Multi-Provider Agents
+
+Do not add these tests before the 00-09 foundation is implemented.
+
+When the post-09 Gemini/provider work starts, add focused tests for:
+
+- provider abstraction returns the same proposal schema for Claude and Gemini
+- Manual mode uses only the selected provider
+- Auto mode records the selected provider/model and reason
+- Auto fallback never happens silently; it either records a user-visible reason or asks the user
+- AgentRun/AgentStep budgets stop runaway loops
+- invalid step plans and invalid action proposals fail closed
+- provider rate-limit errors do not create false success activity
+- write actions still require approval regardless of provider
+
+These tests should use stubbed providers only. Do not call live Claude, live Gemini, or real Google APIs from automated tests.
+
 ## Testing Philosophy
 
 โปรเจกต์นี้ควรทดสอบจุดที่เสี่ยงต่อความจริงของข้อมูลและ safety boundary มากกว่าไล่ test ทุก UI pixel
@@ -154,4 +171,3 @@ Each sprint commit should include:
 - focused smoke/test command result if applicable
 - manual visual checklist owner if UI changed
 - lesson note update if any bug was found
-

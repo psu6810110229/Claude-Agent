@@ -1,5 +1,34 @@
 # Lessons Learned
 
+## 2026-06-12 - Future Multi-Provider Agent Direction
+
+### Symptom
+
+We discussed adding Gemini as an additional AI option, with both Manual and Auto model selection, while keeping the system reliable enough for future multi-step JARVIS workflows.
+
+### Root Cause
+
+A simple model dropdown would not be enough for the long-term product direction. Future workflows may need deterministic reads, filtered context, multiple AI analysis steps, transparent provider choice, and approval-gated action proposals.
+
+### Fix
+
+No code or current roadmap implementation was changed for Gemini. The agreed direction is:
+
+- finish roadmaps 00-09 first
+- treat Claude/Gemini as proposal-only providers, not state owners
+- keep the backend orchestrator as owner of AgentRun, AgentStep, state transitions, validation, guardrails, and approvals
+- support Manual provider choice first, then transparent Auto choice later
+- never switch providers silently
+- allow model choice per step in future workflows, with provider/model/reason visible to the user when relevant
+
+### Test Added Or Updated
+
+No automated test yet. Future tests should use stubbed providers and must not call live Claude, live Gemini, or real Google APIs.
+
+### Follow-Up
+
+When 00-09 are complete, create a post-09 roadmap for AI provider abstraction, Gemini provider support, AgentRun/AgentStep, guardrails, step budgets, provider trace, and transparent fallback policy.
+
 ใช้ไฟล์นี้บันทึก bug หรือ insight ที่เจอระหว่าง implementation sprint
 
 ## Entry Template
@@ -78,4 +107,3 @@ Action wording/allowlist ถูก hardcode ซ้ำหลายจุด (back
 ### Follow-Up
 
 ฝั่ง dashboard ยัง hand-mirror list อยู่ (ไม่มี shared types package). Sprint 5 จะทำ approvals board UI เต็มรูปแบบ — ตอนนั้น `humanLabel`/`summarizePayload` ใช้ต่อได้.
-

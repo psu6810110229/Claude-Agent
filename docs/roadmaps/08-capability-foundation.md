@@ -1,5 +1,19 @@
 # Sprint 10: Capability Foundation
 
+## Future Note: Post-09 Provider and Agent Foundation
+
+Do not add Gemini, new secrets, new external connectors, or multi-step agent execution in this sprint.
+
+This sprint should still prepare the safety shape for future provider/orchestrator work:
+
+- keep actions separate from capabilities
+- keep read-only, propose-only, approval-required, create-only, and disabled policies explicit
+- avoid exposing actions to prompts just because they exist in code
+- make it easy for future AgentSteps to declare allowed capabilities before execution
+- preserve Google Calendar create-only behavior
+
+Future Gemini/Claude provider switching should be built above this capability contract, not beside it.
+
 ## Goal
 
 วางโครงให้ Jarvis รองรับ action/capability เพิ่มในอนาคต โดยไม่ทำให้ระบบหลุดจาก approval-gated architecture
@@ -104,4 +118,3 @@ npm run build:dashboard
 ## Manual Visual Test By Fran
 
 ไม่มี visual requirement หลัก ยกเว้นมี UI capability display เพิ่มจริง
-

@@ -1,5 +1,18 @@
 # Sprint 4: Approvals Board UI
 
+## Future Note: Agent-Origin Approvals
+
+Do not add Gemini, provider switching, or agent orchestration UI in this sprint.
+
+Design the board so approval cards can later show a compact origin trace without redesigning the page:
+
+- source: Chat, Brief, Manual, future AgentRun
+- optional provider/model label for future AI-generated proposals
+- optional step label, such as "Step 4: recommendation"
+- clear distinction between proposed action, approved action, running execution, succeeded execution, and failed execution
+
+The board should remain approval-focused. Future model/provider details are context, not the primary UI.
+
 ## Goal
 
 เปลี่ยน Approvals page จาก list/panel เป็น backlog board แบบ GitHub-style columns เพื่อ scan ง่าย
@@ -78,4 +91,3 @@ npm run build:dashboard
 - expand card แล้วอ่าน payload ได้
 - approve/reject แล้ว card ย้าย column หรือ status เปลี่ยนเข้าใจง่าย
 - mobile/desktop ไม่ overlap
-

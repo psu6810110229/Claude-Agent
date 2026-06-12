@@ -1,5 +1,18 @@
 # Sprint 3: Approval Execution State & Chat Context
 
+## Future Note: Multi-Provider Agent Trace
+
+Do not implement Gemini, provider switching, or multi-step agents in this sprint. Those are post-09 work.
+
+When adding approval execution state, leave the model easy to extend with future agent metadata:
+
+- optional `agent_run_id` / `agent_step_id` references, or a separate execution detail table later
+- explicit execution status that is independent from approval decision status
+- result summaries that can be shown to chat/activity without exposing raw payloads
+- failure states that can support retry/fallback decisions without pretending success
+
+Future orchestrated work must still pass through this boundary: AI providers may propose actions, but backend validation and the approval queue remain the only path to execution.
+
 ## Goal
 
 แก้ปัญหา Jarvis ไม่รู้ว่า action ที่เสนอไปถูก approve และ execute สำเร็จแล้วหรือยัง
@@ -104,4 +117,3 @@ npm run build:dashboard
 - Inline approval เปลี่ยนสถานะทันทีหลัง approve
 - ถ้า action fail เห็นข้อความสั้นๆ ว่าทำไม่สำเร็จ
 - Jarvis ไม่บอกว่าทำแล้วถ้ายัง execute ไม่สำเร็จ
-

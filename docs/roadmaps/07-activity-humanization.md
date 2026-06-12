@@ -1,5 +1,20 @@
 # Sprint 7: Activity Humanization
 
+## Future Note: Agent and Provider Activity
+
+Do not add Gemini, provider switching, or agent event types in this sprint.
+
+The activity display should be written so future event types can be mapped without parsing prose:
+
+- `agent.run.started`
+- `agent.step.started`
+- `agent.step.completed`
+- `agent.step.failed`
+- `ai.provider.selected`
+- `ai.provider.fallback_requested`
+
+Future activity should make model selection visible enough to audit, but not turn the main timeline into a developer log. Keep raw provider/model/step IDs in expanded debug details.
+
 ## Goal
 
 เปลี่ยน Activity page จาก log ภาษาเครื่องให้เป็น timeline ที่อ่านแล้วเข้าใจทันทีว่า Jarvis หรือผู้ใช้ทำอะไร
@@ -91,4 +106,3 @@ npm run build:dashboard
 - ดูว่าอ่าน timeline แล้วเข้าใจโดยไม่ต้องแปล event type เอง
 - expand/debug ดู raw detail ได้เมื่อจำเป็น
 - รายการ approve/done/deleted/edited/enable/disable ใช้ภาษาและ toast tone สอดคล้องกัน
-

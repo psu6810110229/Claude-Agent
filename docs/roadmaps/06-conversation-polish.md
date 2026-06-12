@@ -1,5 +1,18 @@
 # Sprint 6: Conversation Polish
 
+## Future Note: Session Model Choice
+
+Do not add Gemini, provider selection, or Auto mode in this sprint.
+
+When polishing chat components, avoid assumptions that there is only one AI provider forever. The UI can stay provider-neutral now, but should not make future additions awkward:
+
+- message metadata should tolerate an optional provider/model label later
+- thinking states should tolerate step-based labels later
+- session handling should leave room for a future session preference: Claude, Gemini, or Auto
+- final answers should be able to show a compact trace only when useful, not as noise in every message
+
+The current sprint remains visual/conversation polish only.
+
 ## Goal
 
 ทำให้ Home chat เป็นประสบการณ์หลักที่อ่านง่ายและรู้สึกเหมือน ChatGPT/Claude มากขึ้น โดยไม่ทำ visual automation
@@ -65,4 +78,3 @@ npm run build:dashboard
 - ตรวจ markdown ไทย เช่น `**ปัจจุบัน:**` แสดง bold จริง
 - ตรวจ thinking/loading ไม่บังเนื้อหา
 - ตรวจ mobile/desktop ด้วยสายตาเอง
-
