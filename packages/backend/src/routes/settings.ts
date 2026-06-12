@@ -5,11 +5,12 @@ import {
   GOOGLE_CLIENT_SECRET_PATH,
   GOOGLE_TOKEN_PATH,
 } from "../config.js";
-import { getConfigBool, setConfigBool } from "../db/repositories/configRepo.js";
+import { setConfigBool } from "../db/repositories/configRepo.js";
 import { isGoogleCalendarEnabled } from "../services/googleCalendar.js";
 import { isClaudeAiEnabled } from "../services/claudeClient.js";
+import { isAutoExecuteEnabled } from "../services/actionDispatcher.js";
 
-const TOGGLEABLE_KEYS = ["google_calendar", "claude_ai"] as const;
+const TOGGLEABLE_KEYS = ["google_calendar", "claude_ai", "auto_execute"] as const;
 type ToggleableKey = (typeof TOGGLEABLE_KEYS)[number];
 
 const toggleBodySchema = z.object({ enabled: z.boolean() });
@@ -36,8 +37,17 @@ function buildSettingsPayload() {
         enabled: isGoogleCalendarEnabled(),
         configured: isCredentialsConfigured(),
         description: isCredentialsConfigured()
-          ? "Toggle Google Calendar read + create access."
+          ? "Toggle Google Calendar read + create/update/delete access."
           : "Credentials not found. Run `npm run google-auth` first.",
+      },
+      {
+        key: "auto_execute",
+        label: "Auto-execute",
+        enabled: isAutoExecuteEnabled(),
+        configured: true,
+        description:
+          "Run reversible actions immediately (no approve click). Destructive " +
+          "actions (Google delete, archive, memory replace) still require confirm.",
       },
     ],
   };
@@ -73,6 +83,10 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
 
     if (key === "claude_ai") {
       setConfigBool("claude_ai_enabled", enabled);
+    }
+
+    if (key === "auto_execute") {
+      setConfigBool("auto_execute_enabled", enabled);
     }
 
     return reply.code(200).send({ key, enabled });

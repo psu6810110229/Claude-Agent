@@ -25,7 +25,11 @@ async function main(): Promise<void> {
   const {
     dispatchProposedAction,
     requiresConfirmation,
+    isAutoExecuteEnabled,
   } = await import("../src/services/actionDispatcher.js");
+  const { setConfigBool } = await import(
+    "../src/db/repositories/configRepo.js"
+  );
   const { AUTO_EXECUTE_ENABLED } = await import("../src/config.js");
   const { getApprovalById } = await import(
     "../src/db/repositories/approvalRepo.js"
@@ -111,6 +115,31 @@ async function main(): Promise<void> {
   assert(
     getApprovalById(failed.approval.id)!.execution_status === "failed",
     "failed approval row is persisted",
+  );
+
+  // --- 5. Runtime DB override (Settings toggle) beats the env flag ---
+  assert(
+    isAutoExecuteEnabled() === true,
+    "isAutoExecuteEnabled() reflects the env flag when DB has no override",
+  );
+  setConfigBool("auto_execute_enabled", false);
+  assert(
+    isAutoExecuteEnabled() === false,
+    "DB override (off) wins over env flag (on)",
+  );
+  const offResult = await dispatchProposedAction(
+    "task.create",
+    { title: "Should stay pending" },
+    "smoke",
+  );
+  assert(
+    offResult.mode === "pending",
+    "with auto-execute toggled off at runtime, actions stay pending",
+  );
+  setConfigBool("auto_execute_enabled", true);
+  assert(
+    isAutoExecuteEnabled() === true,
+    "DB override (on) re-enables auto-execute",
   );
 
   closeDb();

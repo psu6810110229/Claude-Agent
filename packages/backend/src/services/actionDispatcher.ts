@@ -5,9 +5,21 @@ import {
   markApprovalExecutionFailed,
 } from "../db/repositories/approvalRepo.js";
 import { logActivity } from "../db/repositories/activityRepo.js";
+import { getConfigBool } from "../db/repositories/configRepo.js";
 import { executeAction, ExecutorError } from "./executor.js";
 import { getActionMeta } from "./actionRegistry.js";
 import { AUTO_EXECUTE_ENABLED } from "../config.js";
+
+/**
+ * Whether auto-execute is on. A runtime DB override (Settings page, key
+ * `auto_execute_enabled`) wins; otherwise falls back to the env-var default.
+ * Read per-dispatch so the Settings toggle takes effect without a restart.
+ */
+export function isAutoExecuteEnabled(): boolean {
+  const dbValue = getConfigBool("auto_execute_enabled");
+  if (dbValue !== null) return dbValue;
+  return AUTO_EXECUTE_ENABLED;
+}
 
 /**
  * Step 14 — action dispatcher.
@@ -74,7 +86,7 @@ export async function dispatchProposedAction(
 ): Promise<DispatchResult> {
   const approval = createApproval(actionType, payload);
 
-  if (!AUTO_EXECUTE_ENABLED || requiresConfirmation(actionType, payload)) {
+  if (!isAutoExecuteEnabled() || requiresConfirmation(actionType, payload)) {
     return { mode: "pending", approval };
   }
 
