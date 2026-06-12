@@ -72,8 +72,26 @@ export class StubTtsSynthesizer implements TtsSynthesizer {
   }
 }
 
+const sleep = (ms: number): Promise<void> =>
+  new Promise((r) => setTimeout(r, ms));
+
+/** Hard cap on a single Edge synthesis so a hung stream rejects (and retries)
+ * instead of leaving the HTTP request to hang forever. */
+const TTS_ONCE_TIMEOUT_MS = 8000;
+
 function ttsOnce(text: string, prosody: PresetConfig["prosody"]): Promise<Buffer> {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn();
+    };
+    const timer = setTimeout(
+      () => finish(() => reject(new Error("tts stream timeout"))),
+      TTS_ONCE_TIMEOUT_MS,
+    );
     void (async () => {
       try {
         const tts = new MsEdgeTTS();
@@ -81,10 +99,10 @@ function ttsOnce(text: string, prosody: PresetConfig["prosody"]): Promise<Buffer
         const { audioStream } = tts.toStream(text, prosody);
         const chunks: Buffer[] = [];
         audioStream.on("data", (c: Buffer) => chunks.push(c));
-        audioStream.on("end", () => resolve(Buffer.concat(chunks)));
-        audioStream.on("error", reject);
+        audioStream.on("end", () => finish(() => resolve(Buffer.concat(chunks))));
+        audioStream.on("error", (e: Error) => finish(() => reject(e)));
       } catch (e) {
-        reject(e);
+        finish(() => reject(e instanceof Error ? e : new Error(String(e))));
       }
     })();
   });
@@ -92,7 +110,13 @@ function ttsOnce(text: string, prosody: PresetConfig["prosody"]): Promise<Buffer
 
 async function ttsToBuffer(text: string, prosody: PresetConfig["prosody"]): Promise<Buffer> {
   let last: Error = new Error("no attempt");
-  for (let i = 0; i < 4; i++) {
+  // The free Edge endpoint intermittently returns an EMPTY stream when hit
+  // again too quickly (the "first works, second silent" symptom). Backing off
+  // between attempts lets it recover instead of firing 4 instant, equally-empty
+  // retries. Delays apply BEFORE attempts 2..5.
+  const backoffMs = [0, 250, 600, 1200, 2000];
+  for (let i = 0; i < backoffMs.length; i++) {
+    if (backoffMs[i] > 0) await sleep(backoffMs[i]);
     try {
       const b = await ttsOnce(text, prosody);
       if (b.length > 1000) return b;
