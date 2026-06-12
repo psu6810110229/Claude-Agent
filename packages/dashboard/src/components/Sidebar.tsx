@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 import { preload } from "swr";
 import {
   Activity,
   CheckCircle2,
+  ChevronDown,
   FolderKanban,
   Files,
   Home,
@@ -47,6 +49,9 @@ const LINKS = [
   { href: "/",          label: "Home",          icon: Home          },
   { href: "/chat",      label: "Chat",          icon: MessageCircle },
   { href: "/approvals", label: "Approvals",     icon: CheckCircle2  },
+];
+
+const MORE_LINKS = [
   { href: "/tasks",     label: "Tasks",         icon: ListTodo      },
   { href: "/activity",  label: "Activity",      icon: Activity      },
   { href: "/upcoming",  label: "Upcoming",      icon: CalendarDays  },
@@ -64,6 +69,9 @@ export function Sidebar({
   system?: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const [expanded, setExpanded] = useState(false);
+  const secondaryActive = MORE_LINKS.some((l) => pathname === l.href);
+  const showMore = expanded || secondaryActive;
 
   return (
     <aside className="sidebar">
@@ -95,6 +103,43 @@ export function Sidebar({
             </Link>
           );
         })}
+
+        <button
+          type="button"
+          className="nav-toggle"
+          aria-expanded={showMore}
+          aria-controls="sidebar-more-nav"
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <ChevronDown aria-hidden="true" strokeWidth={1.8} />
+          More
+        </button>
+
+        <div
+          id="sidebar-more-nav"
+          className={`nav-more ${showMore ? "open" : ""}`}
+          aria-hidden={!showMore}
+        >
+          <div className="nav-more-inner">
+            {MORE_LINKS.map((l) => {
+              const Icon = l.icon;
+              const active = pathname === l.href;
+              return (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  className={active ? "active" : ""}
+                  aria-current={active ? "page" : undefined}
+                  tabIndex={showMore ? undefined : -1}
+                  onMouseEnter={() => PRELOADERS[l.href]?.()}
+                >
+                  <Icon aria-hidden="true" strokeWidth={1.8} />
+                  {l.label}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
       </nav>
 
       {schedule && (
@@ -113,20 +158,6 @@ export function Sidebar({
         </>
       )}
 
-      <hr className="side-divider" />
-
-      <div className="profile-card">
-        <div className="avatar" aria-hidden="true">
-          F
-        </div>
-        <div style={{ minWidth: 0 }}>
-          <div className="p-name">Fran</div>
-          <div className="p-status">
-            <span className="status-dot" aria-hidden="true" />
-            All systems operational
-          </div>
-        </div>
-      </div>
     </aside>
   );
 }

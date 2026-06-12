@@ -59,6 +59,7 @@
 html {
   background: var(--bg);
   color-scheme: dark;
+  scrollbar-width: none;
 }
 
 body {
@@ -78,6 +79,12 @@ body {
   line-height: 1.55;
   letter-spacing: 0.01em;
   -webkit-font-smoothing: antialiased;
+  -ms-overflow-style: none;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  display: none;
 }
 
 a {
@@ -135,7 +142,7 @@ h3 {
 .sidebar {
   position: sticky;
   top: 16px;
-  width: 280px;
+  width: 308px;
   height: calc(100vh - 32px);
   flex-shrink: 0;
   display: flex;
@@ -149,17 +156,11 @@ h3 {
   padding: 22px 16px 16px;
   overflow-y: auto;
   overflow-x: hidden;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+  scrollbar-width: none;
 }
 
 .sidebar::-webkit-scrollbar {
-  width: 6px;
-}
-
-.sidebar::-webkit-scrollbar-thumb {
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.1);
+  display: none;
 }
 
 .content {
@@ -266,37 +267,78 @@ h3 {
   gap: 2px;
 }
 
-.nav a {
+.nav a,
+.nav-toggle {
   display: flex;
   align-items: center;
   gap: 11px;
+  width: 100%;
   min-height: 38px;
   border-radius: 11px;
+  border: 0;
+  background: transparent;
   color: var(--muted-strong);
   padding: 8px 10px;
+  font: inherit;
   font-size: 13.5px;
   font-weight: 520;
+  text-align: left;
+  cursor: pointer;
   transition:
     background-color 220ms var(--spring),
     color 220ms var(--spring),
     transform 220ms var(--spring);
 }
 
-.nav a svg {
+.nav a svg,
+.nav-toggle svg {
   width: 17px;
   height: 17px;
+  flex-shrink: 0;
   color: var(--muted);
   transition: color 220ms var(--spring);
 }
 
-.nav a:hover {
+.nav a:hover,
+.nav-toggle:hover {
   background: rgba(255, 255, 255, 0.055);
   color: var(--text);
   transform: translateX(1px);
 }
 
-.nav a:hover svg {
+.nav a:hover svg,
+.nav-toggle:hover svg {
   color: var(--text);
+}
+
+.nav-toggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.nav-more {
+  display: grid;
+  grid-template-rows: 0fr;
+  gap: 2px;
+  opacity: 0;
+  overflow: hidden;
+  transform: translateY(-4px);
+  transition:
+    grid-template-rows 260ms var(--spring),
+    opacity 180ms ease,
+    transform 260ms var(--spring);
+}
+
+.nav-more.open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.nav-more-inner {
+  display: grid;
+  gap: 2px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .nav a.active,
@@ -349,13 +391,16 @@ h3 {
 }
 
 .tl-item .tl-title {
-  display: block;
+  display: -webkit-box;
   overflow: hidden;
   color: var(--muted-strong);
   font-size: 12.5px;
   font-weight: 540;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 .tl-item .tl-sub {
@@ -1630,8 +1675,20 @@ pre.payload {
     gap: 6px;
   }
 
-  .nav a {
+  .nav a,
+  .nav-toggle {
     flex: 0 0 auto;
+    width: auto;
+  }
+
+  .nav-more {
+    flex: 1 0 100%;
+  }
+
+  .nav-more-inner {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
   }
 
   .side-schedule,
