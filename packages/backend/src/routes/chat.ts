@@ -211,10 +211,11 @@ async function handleChat(
       const out = verify(sessionId, unlockSecret);
       if (out.ok) {
         logActivity("chat.identity.verified", "owner verified via inline credentials");
-        message = message.substring(removeLength).trim();
-        if (message.length === 0) {
-          message = "ปลดล็อกเรียบร้อยแล้ว"; // Generic safe prompt for Claude to acknowledge
+        let remainder = message.substring(removeLength).trim();
+        if (remainder.length === 0) {
+          remainder = "มีอะไรให้ช่วยไหม"; // Generic safe prompt for Claude to acknowledge
         }
+        message = `[System: ผู้ใช้เพิ่งยืนยันตัวตนด้วยรหัสสำเร็จ ตอนนี้คุณสามารถเข้าถึงข้อมูลส่วนตัวและดำเนินการต่อได้เลย] ${remainder}`;
       }
     }
   }
