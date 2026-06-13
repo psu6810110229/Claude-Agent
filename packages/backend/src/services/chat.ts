@@ -41,7 +41,7 @@ import {
   nowIso,
 } from "../config.js";
 import { classifySensitivity } from "./privacyClassifier.js";
-import { isGuardEnabled, getChallengeQuestion } from "./identityVerifier.js";
+import { isGuardEnabled } from "./identityVerifier.js";
 
 /**
  * Chat orchestration (Step 12). Proposal-only pipeline with conversation
@@ -70,7 +70,7 @@ export type ChatResult =
       /** Step 15: true when guard on, requester unverified, and asked for private data. */
       verificationRequired?: boolean;
       /** Step 15: the challenge question to show in the verify panel. */
-      challengeQuestion?: string | null;
+
       /** Step 15: "private" if the user probed the owner's private specifics. */
       sensitivity?: "private" | "normal";
     }
@@ -367,7 +367,6 @@ export async function runChat(
   const modelPrivate = check.data.sensitivity === "private";
   const verificationRequired =
     isGuardEnabled() && !verified && (kw.private || modelPrivate);
-  const challengeQuestion = verificationRequired ? getChallengeQuestion() : undefined;
 
   return {
     kind: "replied",
@@ -380,7 +379,7 @@ export async function runChat(
     clarificationChoices: check.data.clarification_choices,
     notes: check.data.notes,
     verificationRequired: verificationRequired || undefined,
-    challengeQuestion,
+
     sensitivity: check.data.sensitivity,
   };
 }

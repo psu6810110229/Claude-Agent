@@ -102,15 +102,10 @@ export default function HomePage() {
   const [activeClarification, setActiveClarification] =
     useState<ClarificationPrompt | null>(null);
   const [muted, setMuted] = useState(false);
-  // Step 15 — privacy guard
+  // Step 15 — privacy guard (conversational flow)
   const [verified, setVerified] = useState(false);
   const [guardEnabled, setGuardEnabled] = useState(false);
-  const [showVerifyPanel, setShowVerifyPanel] = useState(false);
-  const [challengeQuestion, setChallengeQuestion] = useState<string | null>(null);
-  const [verifyPin, setVerifyPin] = useState("");
-  const [verifyAnswer, setVerifyAnswer] = useState("");
-  const [verifyError, setVerifyError] = useState<string | null>(null);
-  const [verifyBusy, setVerifyBusy] = useState(false);
+  const [pendingVerificationPrompt, setPendingVerificationPrompt] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const followupTimerRef = useRef<number | null>(null);
@@ -138,7 +133,6 @@ export default function HomePage() {
     void getChallenge()
       .then((res) => {
         setGuardEnabled(res.guardEnabled);
-        if (res.question) setChallengeQuestion(res.question);
       })
       .catch(() => {});
   }, []);
@@ -228,7 +222,7 @@ export default function HomePage() {
     }
   }
 
-  async function doSend(text: string) {
+  async function doSend(text: string, isRetry = false) {
     if (briefBusy) return;
     clearFollowup();
     const previousIds = new Set(messages.map((message) => message.id));
@@ -239,16 +233,80 @@ export default function HomePage() {
     setLastFailedMessage(null);
     setActiveClarification(null);
 
-    const optimisticUser: ChatMessage = {
-      id: -Date.now(),
-      role: "user",
-      content: text,
-      actions_json: null,
-      status: "active",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, optimisticUser]);
+    let shouldFallThrough = false;
+    
+    // Conversational Privacy Guard flow
+    if (pendingVerificationPrompt && !isRetry) {
+      try {
+        const res = await verifyIdentity(sessionIdRef.current ?? "", text);
+        if (res.kind === "verified") {
+          const optimisticUser: ChatMessage = {
+            id: -Date.now(),
+            role: "user",
+            content: text,
+            actions_json: null,
+            status: "active",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, optimisticUser]);
+          
+          setVerified(true);
+          const originalPrompt = pendingVerificationPrompt;
+          setPendingVerificationPrompt(null);
+          
+          const successMsg: ChatMessage = fallbackAssistantMessage("✅ ปลดล็อกสำเร็จครับ กำลังดำเนินการต่อ...");
+          setMessages((prev) => [...prev, successMsg]);
+          if (!muted) void speak("เรียบร้อยครับ ดำเนินการต่อเลย");
+          
+          // Re-run original prompt, mark as retry to prevent duplicate user bubble
+          await doSend(originalPrompt, true);
+          return;
+        } else if (res.kind === "denied" && res.reason === "locked") {
+          const optimisticUser: ChatMessage = {
+            id: -Date.now(),
+            role: "user",
+            content: text,
+            actions_json: null,
+            status: "active",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, optimisticUser]);
+          
+          const errorText = "❌ ยืนยันตัวตนไม่สำเร็จหลายครั้ง กรุณารอสักครู่แล้วลองใหม่ครับ";
+          const failMsg: ChatMessage = fallbackAssistantMessage(errorText);
+          setMessages((prev) => [...prev, failMsg]);
+          if (!muted) void speak("รหัสผิดหลายครั้ง พักก่อนนะครับ");
+          
+          setSending(false);
+          setOrbState("idle");
+          setPendingVerificationPrompt(null);
+          return;
+        } else {
+          // Wrong PIN or Phrase, but it might be natural language.
+          // Fall through to let Claude reply conversationally!
+          setPendingVerificationPrompt(null);
+          shouldFallThrough = true;
+        }
+      } catch {
+        setPendingVerificationPrompt(null);
+        shouldFallThrough = true;
+      }
+    }
+
+    if (!isRetry) {
+      const optimisticUser: ChatMessage = {
+        id: -Date.now(),
+        role: "user",
+        content: text,
+        actions_json: null,
+        status: "active",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, optimisticUser]);
+    }
 
     try {
       const result = await sendChat(text, provider, sessionIdRef.current ?? undefined);
@@ -257,8 +315,41 @@ export default function HomePage() {
       // then reveal the text and start the voice in the same tick so they land
       // together. The result report (if any) is queued AFTER, non-overlapping.
       if (result.verificationRequired) {
-        setShowVerifyPanel(true);
-        if (result.challengeQuestion) setChallengeQuestion(result.challengeQuestion);
+        setPendingVerificationPrompt(text);
+        
+        const updated = await getChatHistory(100);
+        const reqMsg: ChatMessage = fallbackAssistantMessage("🔒 ข้อมูลถูกจำกัดการเข้าถึงครับ กรุณาพิมพ์ รหัส PIN หรือ คำลับ เพื่อดำเนินการต่อครับ");
+        
+        const freshAssistant = [...updated]
+          .reverse()
+          .find((message) => message.role === "assistant" && !previousIds.has(message.id));
+          
+        setMessages([...updated, reqMsg]);
+        
+        if (freshAssistant) {
+          setRevealingMessageIds((prev) => new Set(prev).add(freshAssistant.id));
+          setMessageProvider((prev) => ({
+            ...prev,
+            [freshAssistant.id]: result.provider,
+          }));
+        }
+
+        const speechText = result.spoken ?? result.reply;
+        if (!muted) {
+          if (speechText) {
+             const speech = prepareSpeech(speechText);
+             await speech.ready;
+             speech.play();
+             // chain the lock nag after the natural reply
+             void speak("ระบบล็อคอยู่ครับ ขอดูรหัสพินหรือคำลับก่อนนะครับ");
+          } else {
+             void speak("ระบบล็อคอยู่ครับ ขอดูรหัสพินหรือคำลับก่อนนะครับ");
+          }
+        }
+        
+        setSending(false);
+        setOrbState("idle");
+        return;
       }
       const historyP = getChatHistory(100);
       const speech = !muted ? prepareSpeech(result.spoken ?? result.reply) : null;
@@ -432,7 +523,7 @@ export default function HomePage() {
       setActiveClarification(null);
       setConfirmingReset(false);
       setVerified(false);
-      setShowVerifyPanel(false);
+      setPendingVerificationPrompt(null);
       notify({
         kind: "success",
         title: "New session",
@@ -462,16 +553,10 @@ export default function HomePage() {
           {resetting ? "Resetting..." : "New session"}
         </button>
         {guardEnabled && (
-          <button
-            type="button"
+          <div
             className={`jarvis-lock-btn ${verified ? "verified" : ""}`}
-            onClick={() => {
-              if (verified) return;
-              setShowVerifyPanel((prev) => !prev);
-            }}
-            title={verified ? "ยืนยันตัวตนแล้ว" : "ยืนยันตัวตน (owner verification)"}
-            aria-label={verified ? "ยืนยันตัวตนแล้ว" : "ยืนยันตัวตน"}
-            aria-pressed={verified}
+            title={verified ? "ยืนยันตัวตนแล้ว" : "ระบบล็อกความปลอดภัยการเข้าถึงข้อมูลส่วนตัว"}
+            aria-label={verified ? "ยืนยันตัวตนแล้ว" : "ระบบล็อก"}
           >
             {verified ? (
               <Unlock strokeWidth={1.8} aria-hidden="true" />
@@ -479,111 +564,11 @@ export default function HomePage() {
               <Lock strokeWidth={1.8} aria-hidden="true" />
             )}
             <span className="jarvis-lock-label">
-              {verified ? "ยืนยันแล้ว" : "ยืนยัน"}
+              {verified ? "ยืนยันแล้ว" : "ล็อก"}
             </span>
-          </button>
+          </div>
         )}
       </div>
-
-      {/* Step 15 — owner verify panel */}
-      {guardEnabled && showVerifyPanel && !verified && (
-        <form
-          className="jarvis-verify-panel"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (!sessionIdRef.current) return;
-            setVerifyBusy(true);
-            setVerifyError(null);
-            try {
-              const res = await verifyIdentity(
-                sessionIdRef.current,
-                verifyPin,
-                verifyAnswer,
-              );
-              if (res.kind === "verified") {
-                setVerified(true);
-                setShowVerifyPanel(false);
-                notify({ kind: "success", title: "ยืนยันตัวตนสำเร็จ", description: "เข้าถึงข้อมูลส่วนตัวได้แล้วครับ" });
-              } else if (res.kind === "disabled") {
-                setShowVerifyPanel(false);
-              } else {
-                setVerifyError(res.error);
-              }
-            } catch {
-              setVerifyError("ยืนยันไม่สำเร็จ — ลองใหม่อีกครั้งครับ");
-            } finally {
-              setVerifyPin("");
-              setVerifyAnswer("");
-              setVerifyBusy(false);
-            }
-          }}
-          aria-label="ยืนยันตัวตน"
-        >
-          <div className="jarvis-verify-header">
-            <Lock size={15} aria-hidden="true" />
-            <span>ยืนยันตัวตน</span>
-            <button
-              type="button"
-              className="jarvis-verify-close"
-              aria-label="ปิด"
-              onClick={() => {
-                setShowVerifyPanel(false);
-                setVerifyError(null);
-                setVerifyPin("");
-                setVerifyAnswer("");
-              }}
-            >
-              ✕
-            </button>
-          </div>
-
-          <label className="jarvis-verify-label" htmlFor="verify-pin">
-            PIN
-          </label>
-          <input
-            id="verify-pin"
-            type="password"
-            autoComplete="current-password"
-            placeholder="รหัส PIN"
-            value={verifyPin}
-            onChange={(e) => setVerifyPin(e.target.value)}
-            disabled={verifyBusy}
-            required
-          />
-
-          {challengeQuestion && (
-            <>
-              <label className="jarvis-verify-label" htmlFor="verify-answer">
-                {challengeQuestion}
-              </label>
-              <input
-                id="verify-answer"
-                type="text"
-                autoComplete="off"
-                placeholder="คำตอบ"
-                value={verifyAnswer}
-                onChange={(e) => setVerifyAnswer(e.target.value)}
-                disabled={verifyBusy}
-                required
-              />
-            </>
-          )}
-
-          {verifyError && (
-            <p className="jarvis-verify-error" role="alert">
-              {verifyError}
-            </p>
-          )}
-
-          <button
-            type="submit"
-            className="jarvis-verify-submit"
-            disabled={verifyBusy || !verifyPin || !verifyAnswer}
-          >
-            {verifyBusy ? "กำลังตรวจสอบ…" : "ยืนยันตัวตน"}
-          </button>
-        </form>
-      )}
 
       <div className="jarvis-stage">
         {!hasConversation && !loading && (

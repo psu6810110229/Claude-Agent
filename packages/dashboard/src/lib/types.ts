@@ -297,7 +297,7 @@ export interface ChatResult {
   /** Step 15: true when guard on, unverified requester asked for private data. */
   verificationRequired?: boolean;
   /** Step 15: challenge question to show in the verify panel. */
-  challengeQuestion?: string | null;
+
   /** Step 15: UX signal — "private" if user probed owner's private specifics. */
   sensitivity?: "private" | "normal";
 }

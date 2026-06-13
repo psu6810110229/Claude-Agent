@@ -77,6 +77,7 @@ async function main(): Promise<void> {
   );
 
   const addCmd = await postCommand("add task: Smoke task");
+  console.log(JSON.stringify(addCmd.body, null, 2));
   assert(
     addCmd.status === 201 &&
       addCmd.body.kind === "proposal" &&

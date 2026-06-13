@@ -80,13 +80,12 @@ export const chatOutputSchema = z
 export type ChatOutput = z.infer<typeof chatOutputSchema>;
 
 /**
- * Step 15 — request schema for POST /api/chat/verify. The PIN/answer are compared
+ * Step 15 — request schema for POST /api/chat/verify. The PIN/phrase is compared
  * only in identityVerifier and never logged. sessionId binds the unlock to one tab.
  */
 export const chatVerifyRequestSchema = z.object({
   sessionId: z.string().trim().min(8).max(128),
-  pin: z.string().min(1).max(256),
-  answer: z.string().min(1).max(512),
+  input: z.string().min(1).max(256),
 });
 
 /**

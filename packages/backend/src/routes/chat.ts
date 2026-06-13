@@ -8,6 +8,7 @@ import { logActivity } from "../db/repositories/activityRepo.js";
 import { archiveActiveMessages, listRecentMessages } from "../db/repositories/chatRepo.js";
 import { runChat } from "../services/chat.js";
 import { runChatFollowup } from "../services/chatFollowup.js";
+import { normalizeDictation } from "../services/textNormalizer.js";
 import type { ClaudeInvoker } from "../services/claudeClient.js";
 import {
   selectProvider,
@@ -24,9 +25,9 @@ import {
   isVerified,
   verify,
   isGuardEnabled,
-  getChallengeQuestion,
   clearVerified,
 } from "../services/identityVerifier.js";
+import { OWNER_SECRET_PHRASE, OWNER_PIN } from "../config.js";
 
 /** Plugin options. Both injectables let tests stub Claude / Google Calendar. */
 export interface ChatRouteOptions {
@@ -56,7 +57,7 @@ export async function chatRoutes(
   app.get("/api/chat/challenge", async (_req, reply) => {
     return reply.code(200).send({
       guardEnabled: isGuardEnabled(),
-      question: getChallengeQuestion(),
+      question: null,
     });
   });
 
@@ -68,8 +69,8 @@ export async function chatRoutes(
     if (!body.success) {
       return reply.code(400).send({ kind: "error", error: "คำขอไม่ถูกต้อง" });
     }
-    const { sessionId, pin, answer } = body.data;
-    const out = verify(sessionId, pin, answer); // NEVER log pin/answer
+    const { sessionId, input } = body.data;
+    const out = verify(sessionId, input); // NEVER log pin/phrase
     if (out.ok) {
       logActivity("chat.identity.verified", "owner verified for a chat session");
       return reply.code(200).send({ kind: "verified" });
@@ -164,13 +165,60 @@ async function handleChat(
       .send({ kind: "error", error: body.error.issues[0].message });
   }
 
+  let message = body.data.message;
   const {
-    message,
     provider: requestedProvider,
     mode: requestedMode,
     sessionId,
   } = body.data;
   const mode = requestedMode ?? "manual";
+  
+  // Step 16: Dictation normalization
+  message = normalizeDictation(message);
+
+  // Step 16: Auto-bypass via PIN or Secret Phrase
+  if (isGuardEnabled() && sessionId) {
+    const cleanMsg = message.trim().toLowerCase();
+    let matchedInline = false;
+    let removeLength = 0;
+    let unlockSecret = "";
+
+    // 1. Check PIN
+    if (OWNER_PIN && cleanMsg === OWNER_PIN.trim().toLowerCase()) {
+      matchedInline = true;
+      unlockSecret = OWNER_PIN;
+      removeLength = cleanMsg.length;
+    }
+    // 2. Check Secret Phrase
+    else if (OWNER_SECRET_PHRASE) {
+      const phrase = OWNER_SECRET_PHRASE.trim().toLowerCase();
+      if (cleanMsg.startsWith(phrase)) {
+        matchedInline = true;
+        unlockSecret = OWNER_SECRET_PHRASE;
+        removeLength = OWNER_SECRET_PHRASE.length;
+      } else if (cleanMsg.startsWith("จาวิส " + phrase)) {
+        matchedInline = true;
+        unlockSecret = OWNER_SECRET_PHRASE;
+        removeLength = "จาวิส ".length + OWNER_SECRET_PHRASE.length;
+      } else if (cleanMsg.startsWith("จาวิส" + phrase)) {
+        matchedInline = true;
+        unlockSecret = OWNER_SECRET_PHRASE;
+        removeLength = "จาวิส".length + OWNER_SECRET_PHRASE.length;
+      }
+    }
+
+    if (matchedInline) {
+      const out = verify(sessionId, unlockSecret);
+      if (out.ok) {
+        logActivity("chat.identity.verified", "owner verified via inline credentials");
+        message = message.substring(removeLength).trim();
+        if (message.length === 0) {
+          message = "ปลดล็อกเรียบร้อยแล้ว"; // Generic safe prompt for Claude to acknowledge
+        }
+      }
+    }
+  }
+
   logActivity("chat.message.received", message.slice(0, 120));
 
   // Roadmap 11 Phase 2/4 — provider selection. Manual resolves the requested
@@ -201,7 +249,7 @@ async function handleChat(
 
   // Tests inject `aiInvoker`; otherwise invoke the selected provider directly.
   const invoke = injectedInvoker ?? resolved.provider.invoke;
-  const verified = isVerified(sessionId);
+  const verified = isVerified(sessionId, true); // `true` updates the idle timeout
   const result = await runChat(message, invoke, fetchGoogle, { verified, sessionId });
 
   // Spawn/timeout/disabled/empty: fail closed, no approvals, no history written.
@@ -268,7 +316,7 @@ async function handleChat(
     clarification_choices: result.clarificationChoices,
     notes: result.notes,
     verificationRequired: result.verificationRequired || undefined,
-    challengeQuestion: result.challengeQuestion ?? null,
+
     sensitivity: result.sensitivity ?? "normal",
   });
 }

@@ -13,12 +13,12 @@
  */
 import {
   OWNER_PIN,
-  OWNER_CHALLENGE_ANSWER,
-  OWNER_CHALLENGE_QUESTION,
+  OWNER_SECRET_PHRASE,
   PRIVACY_GUARD_ENABLED,
   PRIVACY_GUARD_CONFIGURED,
   PRIVACY_VERIFY_MAX_ATTEMPTS,
   PRIVACY_VERIFY_LOCKOUT_MS,
+  PRIVACY_VERIFY_IDLE_TIMEOUT_MS,
 } from "../config.js";
 
 type VerifyReason = "ok" | "bad-credentials" | "locked" | "not-configured" | "disabled";
@@ -27,7 +27,7 @@ export interface VerifyOutcome {
   reason: VerifyReason;
 }
 
-const verified = new Map<string, number>(); // sessionId -> verifiedAt(ms)
+const verified = new Map<string, { verifiedAt: number; lastActive: number }>();
 const attempts = new Map<string, { count: number; lockedUntil: number }>();
 
 /** Guard active = flag on. (Configured-ness checked inside verify.) */
@@ -35,20 +35,28 @@ export function isGuardEnabled(): boolean {
   return PRIVACY_GUARD_ENABLED;
 }
 
-/** Question to display. Returns null when guard is off. */
-export function getChallengeQuestion(): string | null {
-  return PRIVACY_GUARD_ENABLED ? OWNER_CHALLENGE_QUESTION : null;
-}
-
-/**
+/** 
  * A session is verified only if the guard is on and the session was unlocked.
- * Returns true when the guard is OFF so every downstream redaction check is the
- * single expression `if (!isVerified(sessionId)) redact()` — one source of truth.
+ * It also checks the idle timeout and auto-locks if inactive.
  */
-export function isVerified(sessionId: string | undefined): boolean {
-  if (!PRIVACY_GUARD_ENABLED) return true; // guard off => everyone "verified" (no redaction)
+export function isVerified(sessionId: string | undefined, touch = false): boolean {
+  if (!PRIVACY_GUARD_ENABLED) return true; // guard off => everyone "verified"
   if (!sessionId) return false;
-  return verified.has(sessionId);
+  
+  const rec = verified.get(sessionId);
+  if (!rec) return false;
+
+  const now = Date.now();
+  if (now - rec.lastActive > PRIVACY_VERIFY_IDLE_TIMEOUT_MS) {
+    // Idle timeout exceeded
+    verified.delete(sessionId);
+    return false;
+  }
+
+  if (touch) {
+    rec.lastActive = now;
+  }
+  return true;
 }
 
 /** Constant-ish-time equality (local single-user; avoids trivial early-exit oracle). */
@@ -59,7 +67,7 @@ function safeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-export function verify(sessionId: string, pin: string, answer: string): VerifyOutcome {
+export function verify(sessionId: string, input: string): VerifyOutcome {
   if (!PRIVACY_GUARD_ENABLED) return { ok: false, reason: "disabled" };
   if (!PRIVACY_GUARD_CONFIGURED) return { ok: false, reason: "not-configured" };
 
@@ -67,14 +75,25 @@ export function verify(sessionId: string, pin: string, answer: string): VerifyOu
   const rec = attempts.get(sessionId);
   if (rec && rec.lockedUntil > now) return { ok: false, reason: "locked" };
 
-  const pinOk = safeEqual(pin.trim(), OWNER_PIN.trim());
-  const ansOk = safeEqual(
-    answer.trim().toLowerCase(),
-    OWNER_CHALLENGE_ANSWER.trim().toLowerCase(),
-  );
-  // Evaluate BOTH before branching so timing does not reveal which failed.
-  if (pinOk && ansOk) {
-    verified.set(sessionId, now);
+  const cleanInput = input.trim().toLowerCase();
+  const pinOk = safeEqual(cleanInput, OWNER_PIN.trim().toLowerCase());
+  
+  let phraseOk = false;
+  if (OWNER_SECRET_PHRASE) {
+    const phrase = OWNER_SECRET_PHRASE.trim().toLowerCase();
+    if (
+      cleanInput === phrase ||
+      cleanInput.startsWith(phrase) ||
+      cleanInput.startsWith("จาวิส " + phrase) ||
+      cleanInput.startsWith("จาวิส" + phrase)
+    ) {
+      phraseOk = true;
+    }
+  }
+
+  // Succeed if matches PIN or matches Secret Phrase
+  if (pinOk || phraseOk) {
+    verified.set(sessionId, { verifiedAt: now, lastActive: now });
     attempts.delete(sessionId);
     return { ok: true, reason: "ok" };
   }

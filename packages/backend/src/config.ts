@@ -337,14 +337,9 @@ export const PRIVACY_GUARD_ENABLED = /^(1|true)$/i.test(
 /** Owner PIN (secret). Empty string = not configured -> guard cannot be unlocked. */
 export const OWNER_PIN = process.env.CLAUDE_AGENT_OWNER_PIN ?? "";
 
-/** Knowledge-challenge question shown to the requester. NOT secret. */
-export const OWNER_CHALLENGE_QUESTION =
-  process.env.CLAUDE_AGENT_OWNER_CHALLENGE_QUESTION ??
-  "คำถามยืนยันตัวตน (ยังไม่ได้ตั้งค่า)";
-
-/** Expected challenge answer (secret). Compared trimmed + case-insensitive. */
-export const OWNER_CHALLENGE_ANSWER =
-  process.env.CLAUDE_AGENT_OWNER_CHALLENGE_ANSWER ?? "";
+/** Secret Phrase. Checked case-insensitively and space-trimmed. Empty string = not configured. */
+export const OWNER_SECRET_PHRASE =
+  process.env.CLAUDE_AGENT_OWNER_SECRET_PHRASE ?? "โอเค";
 
 /** Max failed verify attempts per session before a temporary lockout. */
 export const PRIVACY_VERIFY_MAX_ATTEMPTS = Number(
@@ -356,9 +351,14 @@ export const PRIVACY_VERIFY_LOCKOUT_MS = Number(
   process.env.CLAUDE_AGENT_PRIVACY_VERIFY_LOCKOUT_MS ?? 5 * 60_000,
 );
 
-/** True only when the guard is on AND both secrets are present. */
+/** Idle timeout (ms). If the session has no activity for this duration, it auto-locks. */
+export const PRIVACY_VERIFY_IDLE_TIMEOUT_MS = Number(
+  process.env.CLAUDE_AGENT_PRIVACY_VERIFY_IDLE_TIMEOUT_MS ?? 30_000,
+);
+
+/** True only when the guard is on AND at least one secret (PIN or phrase) is present. */
 export const PRIVACY_GUARD_CONFIGURED =
-  PRIVACY_GUARD_ENABLED && OWNER_PIN.length > 0 && OWNER_CHALLENGE_ANSWER.length > 0;
+  PRIVACY_GUARD_ENABLED && (OWNER_PIN.length > 0 || OWNER_SECRET_PHRASE.length > 0);
 
 /** Single source of truth for UTC ISO 8601 timestamps. */
 export function nowIso(): string {

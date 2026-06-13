@@ -257,12 +257,11 @@ export function resetChat(sessionId?: string): Promise<{ kind: "reset"; archived
 /** Verify owner identity. Returns `verified`, `denied` (with error), or `disabled`. */
 export function verifyIdentity(
   sessionId: string,
-  pin: string,
-  answer: string,
+  input: string,
 ): Promise<VerifyResult> {
   return request<VerifyResult>("/api/chat/verify", {
     method: "POST",
-    body: JSON.stringify({ sessionId, pin, answer }),
+    body: JSON.stringify({ sessionId, input }),
   });
 }
 
