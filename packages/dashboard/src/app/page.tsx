@@ -124,7 +124,13 @@ export default function HomePage() {
   useEffect(() => {
     let id = sessionStorage.getItem("chatSessionId");
     if (!id) {
-      id = crypto.randomUUID();
+      id = (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
+        ? crypto.randomUUID()
+        : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+            const r = (Math.random() * 16) | 0;
+            const v = c === "x" ? r : (r & 0x3) | 0x8;
+            return v.toString(16);
+          });
       sessionStorage.setItem("chatSessionId", id);
     }
     sessionIdRef.current = id;
@@ -628,18 +634,28 @@ export default function HomePage() {
             ))}
 
             {sending && (
-              <div className="chat-bubble assistant typing">
-                <span className="chat-role">Jarvis</span>
-                <ThinkingContent status={thinkingStatus} />
+              <div className="chat-bubble-wrapper assistant">
+                <div className="chat-avatar assistant-avatar" aria-hidden="true">
+                  <span className="avatar-text">J</span>
+                </div>
+                <div className="chat-bubble assistant typing">
+                  <span className="chat-role-label">Jarvis</span>
+                  <ThinkingContent status={thinkingStatus} />
+                </div>
               </div>
             )}
 
             {briefBusy && (
-              <div className="chat-bubble assistant typing">
-                <span className="chat-role">Jarvis</span>
-                <ThinkingContent
-                  status={`กำลังสร้าง ${briefBusy === "daily" ? "Daily Brief" : "Evening Brief"}`}
-                />
+              <div className="chat-bubble-wrapper assistant">
+                <div className="chat-avatar assistant-avatar" aria-hidden="true">
+                  <span className="avatar-text">J</span>
+                </div>
+                <div className="chat-bubble assistant typing">
+                  <span className="chat-role-label">Jarvis</span>
+                  <ThinkingContent
+                    status={`กำลังสร้าง ${briefBusy === "daily" ? "Daily Brief" : "Evening Brief"}`}
+                  />
+                </div>
               </div>
             )}
 
@@ -990,36 +1006,49 @@ function ChatBubble({
   const actions = parseActions(msg.actions_json);
 
   return (
-    <div
-      className={`chat-bubble ${isUser ? "user" : "assistant"} ${
-        groupedIndex > 0 ? "grouped" : ""
-      }`}
-    >
-      <RichText
-        text={msg.content}
-        reveal={revealing && !isUser}
-        onRevealDone={() => onRevealDone(msg.id)}
-      />
-      {actions.length > 0 && (
-        <div className="chat-approval-stack">
-          {actions.map((action) => (
-            <InlineApproval
-              key={action.id}
-              action={action}
-              approval={approvalMap[action.id]}
-              busy={approvalBusy === action.id}
-              onApproval={onApproval}
-            />
-          ))}
+    <div className={`chat-bubble-wrapper ${isUser ? "user" : "assistant"}`}>
+      {!isUser && groupedIndex === 0 && (
+        <div className="chat-avatar assistant-avatar" aria-hidden="true">
+          <span className="avatar-text">J</span>
         </div>
       )}
-      {!isUser && clarification && (
-        <ClarificationPanel
-          prompt={clarification}
-          onChoice={onClarificationChoice}
-          onSkip={onClarificationSkip}
-        />
+      {!isUser && groupedIndex > 0 && (
+        <div className="chat-avatar-spacer" />
       )}
+      <div
+        className={`chat-bubble ${isUser ? "user" : "assistant"} ${
+          groupedIndex > 0 ? "grouped" : ""
+        }`}
+      >
+        {!isUser && groupedIndex === 0 && (
+          <span className="chat-role-label">Jarvis</span>
+        )}
+        <RichText
+          text={msg.content}
+          reveal={revealing && !isUser}
+          onRevealDone={() => onRevealDone(msg.id)}
+        />
+        {actions.length > 0 && (
+          <div className="chat-approval-stack">
+            {actions.map((action) => (
+              <InlineApproval
+                key={action.id}
+                action={action}
+                approval={approvalMap[action.id]}
+                busy={approvalBusy === action.id}
+                onApproval={onApproval}
+              />
+            ))}
+          </div>
+        )}
+        {!isUser && clarification && (
+          <ClarificationPanel
+            prompt={clarification}
+            onChoice={onClarificationChoice}
+            onSkip={onClarificationSkip}
+          />
+        )}
+      </div>
     </div>
   );
 }

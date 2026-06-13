@@ -70,8 +70,7 @@ async function runGuardOn() {
   process.env.CLAUDE_AGENT_DB_PATH = TEST_DB_PATH;
   process.env.CLAUDE_AGENT_PRIVACY_GUARD_ENABLED = "1";
   process.env.CLAUDE_AGENT_OWNER_PIN = "123456";
-  process.env.CLAUDE_AGENT_OWNER_CHALLENGE_QUESTION = "Pet?";
-  process.env.CLAUDE_AGENT_OWNER_CHALLENGE_ANSWER = "dog";
+  process.env.CLAUDE_AGENT_OWNER_SECRET_PHRASE = "โอเค";
   process.env.CLAUDE_AGENT_PRIVACY_VERIFY_MAX_ATTEMPTS = "3";
   process.env.CLAUDE_AGENT_PRIVACY_VERIFY_LOCKOUT_MS = "1000";
 
@@ -123,27 +122,35 @@ async function runGuardOn() {
   // Assertion 3: Redaction completeness
   assert(!lastPrompt.includes("Secret task of owner"), "Redaction completeness check passed");
 
-  // Assertion 4: Verify needs BOTH
+  // Assertion 4: Verify inputs
   const v1 = await fetch(`${BASE}/api/chat/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sessionId: "session-1", pin: "Wrong", answer: "dog" }),
+    body: JSON.stringify({ sessionId: "session-1", input: "Wrong" }),
   });
-  assert(v1.status === 401, "wrong pin right answer is 401");
+  assert(v1.status === 401, "wrong PIN/phrase is 401");
 
   const v2 = await fetch(`${BASE}/api/chat/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sessionId: "session-1", pin: "123456", answer: "Wrong" }),
+    body: JSON.stringify({ sessionId: "session-1", input: "โอเค" }),
   });
-  assert(v2.status === 401, "right pin wrong answer is 401");
+  assert(v2.status === 200, "correct Secret Phrase verifies successfully");
+
+  // Reset verification state of session-1 so we can verify via PIN too
+  const resetRes = await fetch(`${BASE}/api/chat/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionId: "session-1" }),
+  });
+  assert(resetRes.status === 200, "reset session clears verification state");
 
   const v3 = await fetch(`${BASE}/api/chat/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sessionId: "session-1", pin: "123456", answer: "dog" }),
+    body: JSON.stringify({ sessionId: "session-1", input: "123456" }),
   });
-  assert(v3.status === 200, "correct PIN and answer verifies successfully");
+  assert(v3.status === 200, "correct PIN verifies successfully");
 
   // Assertion 5: After verify, same sessionId gets full context
   const r2 = await fetch(`${BASE}/api/chat`, {
@@ -163,12 +170,12 @@ async function runGuardOn() {
   await r3.json();
   assert(!lastPrompt.includes("Secret task of owner"), "different session ID remains unverified and redacted");
 
-  // Assertion 7: No secret leakage (PIN/answer never in prompt or logged activity)
-  assert(!lastPrompt.includes("123456") && !lastPrompt.includes("dog"), "secrets never appear in prompt");
+  // Assertion 7: No secret leakage (PIN/phrase never in prompt or logged activity)
+  assert(!lastPrompt.includes("123456") && !lastPrompt.includes("โอเค"), "secrets never appear in prompt");
   const logs = getDb().prepare("SELECT detail FROM activity_log").all() as { detail: string | null }[];
   for (const l of logs) {
     if (l.detail) {
-      assert(!l.detail.includes("123456") && !l.detail.includes("dog"), "secrets never appear in logs");
+      assert(!l.detail.includes("123456") && !l.detail.includes("โอเค"), "secrets never appear in logs");
     }
   }
   console.log("  PASS: secrets never logged in activity_log");
@@ -177,17 +184,17 @@ async function runGuardOn() {
   const rLock = await fetch(`${BASE}/api/chat/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sessionId: "sess-lock", pin: "Wrong", answer: "Wrong" }),
+    body: JSON.stringify({ sessionId: "sess-lock", input: "Wrong" }),
   });
   const rLock2 = await fetch(`${BASE}/api/chat/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sessionId: "sess-lock", pin: "Wrong", answer: "Wrong" }),
+    body: JSON.stringify({ sessionId: "sess-lock", input: "Wrong" }),
   });
   const rLock3 = await fetch(`${BASE}/api/chat/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sessionId: "sess-lock", pin: "Wrong", answer: "Wrong" }),
+    body: JSON.stringify({ sessionId: "sess-lock", input: "Wrong" }),
   });
   assert(rLock3.status === 429, "lockout returns 429 after max attempts");
 
@@ -206,7 +213,7 @@ async function runGuardUnconfigured() {
   process.env.CLAUDE_AGENT_DB_PATH = TEST_DB_PATH;
   process.env.CLAUDE_AGENT_PRIVACY_GUARD_ENABLED = "1";
   process.env.CLAUDE_AGENT_OWNER_PIN = ""; // missing
-  process.env.CLAUDE_AGENT_OWNER_CHALLENGE_ANSWER = ""; // missing
+  process.env.CLAUDE_AGENT_OWNER_SECRET_PHRASE = ""; // missing
 
   const serverPath = pathToFileURL("d:/Fran's Folder/Project-archive/Claude_Agent/packages/backend/src/server.js").href;
   const initPath = pathToFileURL("d:/Fran's Folder/Project-archive/Claude_Agent/packages/backend/src/db/init.js").href;
@@ -238,7 +245,7 @@ async function runGuardUnconfigured() {
   const v = await fetch(`${BASE}/api/chat/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sessionId: "sess-unc", pin: "Wrong", answer: "Wrong" }),
+    body: JSON.stringify({ sessionId: "sess-unc", input: "Wrong" }),
   });
   assert(v.status === 503, "unconfigured returns 503");
   const b = await v.json();

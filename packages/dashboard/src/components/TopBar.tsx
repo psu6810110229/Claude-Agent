@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Brain, Settings, User } from "lucide-react";
+import { Brain, Settings, User, Menu } from "lucide-react";
 import { NotificationCenter } from "@/components/NotificationCenter";
+import { useShell } from "@/components/Shell";
 
 /**
  * Minimal top bar: notifications, settings, profile menu — top right only.
@@ -12,6 +13,7 @@ import { NotificationCenter } from "@/components/NotificationCenter";
 export function TopBar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const { setDrawerOpen } = useShell();
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -26,6 +28,17 @@ export function TopBar() {
 
   return (
     <header className="topbar" ref={wrapRef}>
+      <button 
+        type="button" 
+        className="icon-btn mobile-menu-btn" 
+        onClick={() => setDrawerOpen(true)}
+        aria-label="Open menu"
+      >
+        <Menu aria-hidden="true" strokeWidth={1.8} />
+      </button>
+
+      <div style={{ flex: 1 }} />
+
       <NotificationCenter />
 
       <Link href="/settings" className="icon-btn" aria-label="Settings">
