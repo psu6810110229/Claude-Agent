@@ -315,10 +315,13 @@ export async function getChatHistory(limit = 50): Promise<ChatMessage[]> {
  * even when it stays silent); on any client error it degrades to `silent` so the
  * caller never has to handle an error for a nudge the user did not request.
  */
-export async function requestChatFollowup(): Promise<FollowupResult> {
+export async function requestChatFollowup(
+  sessionId?: string,
+): Promise<FollowupResult> {
   try {
     return await request<FollowupResult>("/api/chat/followup", {
       method: "POST",
+      ...(sessionId ? { body: JSON.stringify({ sessionId }) } : {}),
     });
   } catch {
     return { kind: "silent" };

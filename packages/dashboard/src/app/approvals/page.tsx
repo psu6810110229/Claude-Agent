@@ -173,7 +173,11 @@ function ApprovalColumn({
   run: (approval: Approval, decision: ApprovalDecision) => Promise<void>;
 }) {
   return (
-    <section className={`approval-column ${column.key}`}>
+    <section
+      className={`approval-column ${column.key}${
+        approvals.length === 0 ? " empty" : ""
+      }`}
+    >
       <div className="approval-column-head">
         <div>
           <h3>{column.title}</h3>

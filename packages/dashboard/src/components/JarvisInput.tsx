@@ -100,6 +100,22 @@ export function JarvisInput({
 
           {menuOpen && (
             <div className="ji-menu" role="menu">
+              {onProviderChange && (
+                <div className="ji-menu-provider" role="group" aria-label="AI provider">
+                  {PROVIDER_OPTIONS.map((opt) => (
+                    <button
+                      type="button"
+                      key={opt.id}
+                      className={provider === opt.id ? "active" : ""}
+                      aria-pressed={provider === opt.id}
+                      disabled={disabled}
+                      onClick={() => onProviderChange(opt.id)}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
               <button
                 type="button"
                 role="menuitem"

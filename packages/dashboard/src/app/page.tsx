@@ -204,7 +204,7 @@ export default function HomePage() {
     if (sending || briefBusy || resetting) return;
     const previousIds = new Set(messages.map((message) => message.id));
     try {
-      const result = await requestChatFollowup();
+      const result = await requestChatFollowup(sessionIdRef.current ?? undefined);
       if (result.kind !== "followup") return;
       if (result.approvals.length > 0) {
         mergeApprovals(result.approvals);
@@ -268,10 +268,6 @@ export default function HomePage() {
           const originalPrompt = pendingVerificationPrompt;
           setPendingVerificationPrompt(null);
           
-          const successMsg: ChatMessage = fallbackAssistantMessage("✅ ปลดล็อกสำเร็จครับ กำลังดำเนินการต่อ...");
-          setMessages((prev) => [...prev, successMsg]);
-          if (!muted) void speak("เรียบร้อยครับ ดำเนินการต่อเลย");
-          
           // Re-run original prompt, mark as retry to prevent duplicate user bubble
           await doSend(originalPrompt, true);
           return;
@@ -331,14 +327,13 @@ export default function HomePage() {
         setPendingVerificationPrompt(text);
         
         const updated = await getChatHistory(100);
-        const reqMsg: ChatMessage = fallbackAssistantMessage("🔒 ข้อมูลถูกจำกัดการเข้าถึงครับ กรุณาพิมพ์ รหัส PIN หรือ คำลับ เพื่อดำเนินการต่อครับ");
-        
+
         const freshAssistant = [...updated]
           .reverse()
           .find((message) => message.role === "assistant" && !previousIds.has(message.id));
-          
-        setMessages([...updated, reqMsg]);
-        
+
+        setMessages(updated);
+
         if (freshAssistant) {
           setRevealingMessageIds((prev) => new Set(prev).add(freshAssistant.id));
           setMessageProvider((prev) => ({
@@ -348,16 +343,10 @@ export default function HomePage() {
         }
 
         const speechText = result.spoken ?? result.reply;
-        if (!muted) {
-          if (speechText) {
-             const speech = prepareSpeech(speechText);
-             await speech.ready;
-             speech.play();
-             // chain the lock nag after the natural reply
-             void speak("ระบบล็อคอยู่ครับ ขอดูรหัสพินหรือคำลับก่อนนะครับ");
-          } else {
-             void speak("ระบบล็อคอยู่ครับ ขอดูรหัสพินหรือคำลับก่อนนะครับ");
-          }
+        if (!muted && speechText) {
+          const speech = prepareSpeech(speechText);
+          await speech.ready;
+          speech.play();
         }
         
         setSending(false);
