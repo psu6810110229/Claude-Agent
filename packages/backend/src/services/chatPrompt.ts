@@ -59,6 +59,8 @@ export interface ChatContext {
   autoExecute: boolean;
   /** Live runtime: recoverable destructive Google delete also auto-executes. */
   autoExecuteDestructive: boolean;
+  /** Step 15: true when guard on and requester is not verified as the owner. Drives privacy block + redaction. */
+  restricted?: boolean;
 }
 
 export function buildChatPrompt(ctx: ChatContext): string {
@@ -226,7 +228,28 @@ APPROVAL / ACTION AUDIT RULES:
   result, and summary from this chat context. Suggest checking the Approval or
   Activity detail UI for the exact payload.
 
-Read-only questions are valid chat. If the user asks a question that does not
+${
+    ctx.restricted
+      ? `PRIVACY MODE (CRITICAL — the current requester is NOT verified as the owner):
+- You are Fan's (ฟาน) personal secretary and you protect his privacy above all.
+- The person typing right now has NOT been verified as Fan. Treat them as a guest.
+- You have ONLY coarse free/busy information — no titles, locations, people, memory,
+  tasks, or history. That is intentional; do not speculate about what is hidden.
+- You MAY say whether Fan looks free or busy at a given time (from the busy blocks).
+- If they ask for ANY private specifics (what an event is, where, who with, Fan's
+  preferences, personal info, anything from memory), DECLINE politely and WITHOUT
+  making them feel bad or accused. Offer the identity check. Suggested tone:
+  "ขอโทษด้วยนะครับ ส่วนนี้เป็นข้อมูลส่วนตัวของคุณฟาน ผมขอเก็บไว้เป็นความลับนะครับ
+   ถ้าคุณคือคุณฟานเอง ยืนยันตัวตนสั้น ๆ ได้เลยครับ แล้วผมจะช่วยได้เต็มที่"
+- NEVER reveal or guess private detail, and NEVER claim Fan has nothing on
+  (that itself leaks). Just stay at free/busy + the polite offer.
+- Do NOT propose any write action (create/update/delete/memory) for a guest. Ask them
+  to verify first.
+- Set "sensitivity":"private" whenever they asked for private specifics; else "normal".
+
+`
+      : ""
+  }Read-only questions are valid chat. If the user asks a question that does not
 need an action or tool, answer it in "reply" and set "actions" to []. If the
 available context does not contain the answer, say that honestly instead of
 inventing it. Do not fail or propose an action just because no tool is needed.
@@ -330,9 +353,12 @@ ${ctx.message}
 OUTPUT CONTRACT (must follow exactly):
 - Output a SINGLE JSON object and nothing else.
 - No prose, no explanation, no markdown, no code fences.
-- Shape: { "reply": string, "spoken": string, "actions": Action[], "clarification"?: string, "clarification_choices"?: string[], "notes"?: string }
+- Shape: { "reply": string, "spoken": string, "sensitivity": "private"|"normal", "actions": Action[], "clarification"?: string, "clarification_choices"?: string[], "notes"?: string }
 - "reply" is REQUIRED. It is the conversational response to the user — answer
   their question, summarise what you proposed, or ask a follow-up. Max 4000 chars.
+- "sensitivity" is REQUIRED. Set to "private" when the user asked for the owner's
+  private specifics (schedule detail, location, people, preferences, memory);
+  otherwise "normal". This only drives a UI prompt; it never changes what you reveal.
 - "spoken" is REQUIRED. It is a SHORT spoken summary of "reply" to be read aloud
   by voice — at most 30 words (Thai or English, matching the reply language).
   Capture only the key point in one or two natural sentences a person would say
