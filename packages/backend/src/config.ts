@@ -351,9 +351,14 @@ export const PRIVACY_VERIFY_LOCKOUT_MS = Number(
   process.env.CLAUDE_AGENT_PRIVACY_VERIFY_LOCKOUT_MS ?? 5 * 60_000,
 );
 
-/** Idle timeout (ms). If the session has no activity for this duration, it auto-locks. */
+/**
+ * Idle timeout (ms). If the session has no activity for this duration, it
+ * auto-locks. Default 30 min — long enough that a verified owner is not
+ * re-prompted mid-conversation after a short pause (the old 30 s default made
+ * the guard feel like it "forgot" the code). Override via env for stricter envs.
+ */
 export const PRIVACY_VERIFY_IDLE_TIMEOUT_MS = Number(
-  process.env.CLAUDE_AGENT_PRIVACY_VERIFY_IDLE_TIMEOUT_MS ?? 30_000,
+  process.env.CLAUDE_AGENT_PRIVACY_VERIFY_IDLE_TIMEOUT_MS ?? 30 * 60_000,
 );
 
 /** True only when the guard is on AND at least one secret (PIN or phrase) is present. */
