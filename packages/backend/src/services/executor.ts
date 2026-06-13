@@ -12,6 +12,17 @@ import { createTask, updateTask, archiveTask } from "../db/repositories/taskRepo
 import { writeMemory } from "./memoryStore.js";
 import { upsertMemoryEntry } from "../db/repositories/memoryRepo.js";
 import {
+  createFact,
+  updateFact,
+  archiveFact,
+  getFact,
+} from "../db/repositories/factRepo.js";
+import type {
+  FactRememberPayload,
+  FactUpdatePayload,
+  FactForgetPayload,
+} from "../schemas/fact.js";
+import {
   createEvent,
   updateEvent,
   archiveEvent,
@@ -203,6 +214,37 @@ export async function executeAction(
         }
         throw err;
       }
+    }
+    case "fact.remember": {
+      const data = parsed.data as FactRememberPayload;
+      // createFact dedupes an identical active fact (touches updated_at).
+      const fact = createFact(data, "chat");
+      return { summary: `remembered fact #${fact.id}` };
+    }
+    case "fact.update": {
+      const data = parsed.data as FactUpdatePayload;
+      const { id, ...fields } = data;
+      const prior = getFact(id);
+      if (!prior) throw new ExecutorError(`fact #${id} not found`);
+      const fact = updateFact(id, fields);
+      if (!fact) throw new ExecutorError(`fact #${id} not found`);
+      // Snapshot prior state so the edit is recoverable (like google update).
+      return {
+        summary: `updated fact #${fact.id}`,
+        undoJson: JSON.stringify(prior),
+      };
+    }
+    case "fact.forget": {
+      const data = parsed.data as FactForgetPayload;
+      const prior = getFact(data.id);
+      if (!prior) throw new ExecutorError(`fact #${data.id} not found`);
+      const fact = archiveFact(data.id);
+      if (!fact) throw new ExecutorError(`fact #${data.id} not found`);
+      // Soft-archive only; snapshot enables restore.
+      return {
+        summary: `forgot fact #${fact.id}`,
+        undoJson: JSON.stringify(prior),
+      };
     }
   }
 }

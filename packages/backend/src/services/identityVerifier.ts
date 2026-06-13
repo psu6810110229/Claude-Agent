@@ -20,6 +20,7 @@ import {
   PRIVACY_VERIFY_LOCKOUT_MS,
   PRIVACY_VERIFY_IDLE_TIMEOUT_MS,
 } from "../config.js";
+import { getConfigString, setConfigString } from "../db/repositories/configRepo.js";
 
 type VerifyReason = "ok" | "bad-credentials" | "locked" | "not-configured" | "disabled";
 export interface VerifyOutcome {
@@ -27,8 +28,54 @@ export interface VerifyOutcome {
   reason: VerifyReason;
 }
 
-const verified = new Map<string, { verifiedAt: number; lastActive: number }>();
+type VerifiedRec = { verifiedAt: number; lastActive: number };
+
+/**
+ * Per-session verified state. Held in memory for speed but ALSO persisted to the
+ * `config` table (key below) so it survives a backend restart — without this, a
+ * dev `tsx watch` reload (or any restart) wiped every verified session, so a
+ * just-unlocked owner's very next message re-locked ("the replay has no
+ * password" symptom). Only the opaque sessionId + timestamps are stored — NEVER
+ * the PIN/phrase. The hard privacy boundary remains context redaction (chat.ts).
+ */
+const verified = new Map<string, VerifiedRec>();
 const attempts = new Map<string, { count: number; lockedUntil: number }>();
+
+const VERIFIED_CONFIG_KEY = "verified_sessions";
+let hydrated = false;
+
+/** Lazily load persisted verified sessions once per process (DB must be ready). */
+function ensureHydrated(): void {
+  if (hydrated) return;
+  hydrated = true;
+  try {
+    const raw = getConfigString(VERIFIED_CONFIG_KEY);
+    if (!raw) return;
+    const obj = JSON.parse(raw) as Record<string, VerifiedRec>;
+    for (const [sid, rec] of Object.entries(obj)) {
+      if (
+        rec &&
+        typeof rec.verifiedAt === "number" &&
+        typeof rec.lastActive === "number"
+      ) {
+        verified.set(sid, rec);
+      }
+    }
+  } catch {
+    // Corrupt/absent persisted state is non-fatal: start from an empty map.
+  }
+}
+
+/** Write the current verified map back to the config table (best-effort). */
+function persist(): void {
+  try {
+    const obj: Record<string, VerifiedRec> = {};
+    for (const [sid, rec] of verified) obj[sid] = rec;
+    setConfigString(VERIFIED_CONFIG_KEY, JSON.stringify(obj));
+  } catch {
+    // Persistence is best-effort; in-memory state still works for this process.
+  }
+}
 
 /** Guard active = flag on. (Configured-ness checked inside verify.) */
 export function isGuardEnabled(): boolean {
@@ -42,7 +89,8 @@ export function isGuardEnabled(): boolean {
 export function isVerified(sessionId: string | undefined, touch = false): boolean {
   if (!PRIVACY_GUARD_ENABLED) return true; // guard off => everyone "verified"
   if (!sessionId) return false;
-  
+  ensureHydrated();
+
   const rec = verified.get(sessionId);
   if (!rec) return false;
 
@@ -50,11 +98,13 @@ export function isVerified(sessionId: string | undefined, touch = false): boolea
   if (now - rec.lastActive > PRIVACY_VERIFY_IDLE_TIMEOUT_MS) {
     // Idle timeout exceeded
     verified.delete(sessionId);
+    persist();
     return false;
   }
 
   if (touch) {
     rec.lastActive = now;
+    persist();
   }
   return true;
 }
@@ -70,6 +120,7 @@ function safeEqual(a: string, b: string): boolean {
 export function verify(sessionId: string, input: string): VerifyOutcome {
   if (!PRIVACY_GUARD_ENABLED) return { ok: false, reason: "disabled" };
   if (!PRIVACY_GUARD_CONFIGURED) return { ok: false, reason: "not-configured" };
+  ensureHydrated();
 
   const now = Date.now();
   const rec = attempts.get(sessionId);
@@ -94,6 +145,7 @@ export function verify(sessionId: string, input: string): VerifyOutcome {
   // Succeed if matches PIN or matches Secret Phrase
   if (pinOk || phraseOk) {
     verified.set(sessionId, { verifiedAt: now, lastActive: now });
+    persist();
     attempts.delete(sessionId);
     return { ok: true, reason: "ok" };
   }
@@ -109,11 +161,15 @@ export function verify(sessionId: string, input: string): VerifyOutcome {
 
 /** Drop a session's verified state (called on chat reset). */
 export function clearVerified(sessionId: string | undefined): void {
-  if (sessionId) verified.delete(sessionId);
+  if (sessionId) {
+    verified.delete(sessionId);
+    persist();
+  }
 }
 
 /** Test-only: wipe all in-memory state. */
 export function __resetForTest(): void {
   verified.clear();
   attempts.clear();
+  hydrated = false;
 }

@@ -17,6 +17,7 @@ import { actionTypeSchema, type ActionType } from "../schemas/approval.js";
 export type CapabilityId =
   | "tasks"
   | "memory.write"
+  | "memory.facts"
   | "local.events"
   | "reminders"
   | "google.calendar.create"
@@ -65,6 +66,11 @@ export const capabilityRegistry: Record<CapabilityId, CapabilityMeta> = {
   "memory.write": {
     capability: "memory.write",
     humanLabel: "Memory write",
+    policies: ["approval-required", "local-only"],
+  },
+  "memory.facts": {
+    capability: "memory.facts",
+    humanLabel: "Memory facts",
     policies: ["approval-required", "local-only"],
   },
   "local.events": {
@@ -240,6 +246,38 @@ export const actionRegistry: Record<ActionType, ActionMeta> = {
     payloadShape: '{ "id": string }  (id from the calendar read)',
     riskLevel: "high",
     policies: ["approval-required", "external-service", "destructive"],
+    promptExposure: "allowed",
+  },
+  "fact.remember": {
+    actionType: "fact.remember",
+    capability: "memory.facts",
+    domain: "memory",
+    humanLabel: "Remember a fact",
+    payloadShape:
+      '{ "content": string (one sentence about the user), "keywords"?: string (lowercase recall tags, space-separated), "category"?: "identity"|"preference"|"relationship"|"routine"|"project"|"general", "pinned"?: boolean (true for core identity like the user\'s name) }',
+    riskLevel: "low",
+    policies: ["approval-required", "local-only"],
+    promptExposure: "allowed",
+  },
+  "fact.update": {
+    actionType: "fact.update",
+    capability: "memory.facts",
+    domain: "memory",
+    humanLabel: "Update a fact",
+    payloadShape:
+      '{ "id": number, "content"?: string, "keywords"?: string, "category"?: <category>, "pinned"?: boolean }  (id from the known facts list; at least one field)',
+    riskLevel: "low",
+    policies: ["approval-required", "local-only"],
+    promptExposure: "allowed",
+  },
+  "fact.forget": {
+    actionType: "fact.forget",
+    capability: "memory.facts",
+    domain: "memory",
+    humanLabel: "Forget a fact",
+    payloadShape: '{ "id": number }  (id from the known facts list)',
+    riskLevel: "medium",
+    policies: ["approval-required", "local-only"],
     promptExposure: "allowed",
   },
 };

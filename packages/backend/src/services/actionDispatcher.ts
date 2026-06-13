@@ -68,11 +68,19 @@ export interface DispatchResult {
   approval: Approval;
 }
 
-/** Local-DB archives are reversible-ish but treated as confirm-required. */
+/**
+ * Local-DB archives are reversible-ish but treated as confirm-required. Fact
+ * edits/forgets are the "replace/forget ยืนยัน" case (Step 16): editing or
+ * removing an existing memory always needs an explicit confirm, even with
+ * auto-execute on. `fact.remember` (append a new fact) is NOT here, so it
+ * auto-executes when auto-execute is on.
+ */
 const ALWAYS_CONFIRM_TYPES: ReadonlySet<ActionType> = new Set<ActionType>([
   "task.archive",
   "event.archive",
   "reminder.archive",
+  "fact.update",
+  "fact.forget",
 ]);
 
 /**

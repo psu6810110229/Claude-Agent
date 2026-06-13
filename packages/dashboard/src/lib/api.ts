@@ -13,10 +13,12 @@ import type {
   FollowupResult,
   CommandMode,
   CommandResult,
+  CreateFactProposalBody,
   CreateMemoryProposalBody,
   GoogleEventListResponse,
   MemoryContent,
   MemoryEntry,
+  MemoryFact,
   MemoryTarget,
   Notification,
   Reminder,
@@ -147,6 +149,31 @@ export function createMemoryProposal(
   return request<Approval>("/api/memory/proposals", {
     method: "POST",
     body: JSON.stringify(body),
+  });
+}
+
+// --- Memory facts (Step 16, real memory) ---------------------------------
+
+export async function listFacts(): Promise<MemoryFact[]> {
+  const data = await request<{ facts: MemoryFact[] }>("/api/facts");
+  return data.facts;
+}
+
+/** Teach a new fact; returns the resulting approval (may already be executed). */
+export function createFactProposal(
+  payload: CreateFactProposalBody,
+): Promise<Approval> {
+  return request<Approval>("/api/facts/proposals", {
+    method: "POST",
+    body: JSON.stringify({ action_type: "fact.remember", payload }),
+  });
+}
+
+/** Propose forgetting a fact (always confirm-gated); returns the pending approval. */
+export function forgetFact(id: number): Promise<Approval> {
+  return request<Approval>("/api/facts/proposals", {
+    method: "POST",
+    body: JSON.stringify({ action_type: "fact.forget", payload: { id } }),
   });
 }
 

@@ -797,7 +797,14 @@ h3 {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  padding: 20px 28px 0;
+  padding: 16px 28px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(8, 8, 8, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
 }
 
 .icon-btn {
@@ -1955,24 +1962,15 @@ pre.payload {
   position: relative;
   overflow: hidden;
   min-width: min(360px, 88%);
-  background: rgba(255, 255, 255, 0.052);
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  padding: 8px 0 !important;
   animation: thinking-bubble 2.4s ease-in-out infinite;
 }
 
 .chat-bubble.typing::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    110deg,
-    transparent 0%,
-    rgba(10, 132, 255, 0.08) 42%,
-    rgba(139, 92, 246, 0.08) 52%,
-    transparent 64%
-  );
-  transform: translateX(-120%);
-  animation: thinking-sheen 2.8s var(--spring-soft) infinite;
-  pointer-events: none;
+  display: none !important;
 }
 
 .chat-role {
@@ -2297,6 +2295,14 @@ pre.payload {
   display: flex;
   justify-content: flex-start;
   margin-bottom: 8px;
+  position: sticky;
+  top: 69px;
+  z-index: 99;
+  background: rgba(8, 8, 8, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  padding: 8px 0;
+  margin-top: -8px;
 }
 
 .jarvis-stage {

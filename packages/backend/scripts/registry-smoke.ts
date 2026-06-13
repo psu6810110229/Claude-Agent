@@ -135,6 +135,7 @@ const chatPrompt = buildChatPrompt({
   message: "registry smoke",
   openTasks: [],
   memorySummaries: [],
+  facts: [],
   nowUtc: "2026-06-12T00:00:00.000Z",
   nowBangkok: "2026-06-12 07:00",
   googleEvents: [],
@@ -142,6 +143,8 @@ const chatPrompt = buildChatPrompt({
   reminders: [],
   approvalOutcomes: [],
   history: [],
+  autoExecute: false,
+  autoExecuteDestructive: false,
 });
 const briefPrompt = buildBriefPrompt("daily", {
   openTasks: [],

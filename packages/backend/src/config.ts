@@ -351,14 +351,35 @@ export const PRIVACY_VERIFY_LOCKOUT_MS = Number(
   process.env.CLAUDE_AGENT_PRIVACY_VERIFY_LOCKOUT_MS ?? 5 * 60_000,
 );
 
-/** Idle timeout (ms). If the session has no activity for this duration, it auto-locks. */
+/**
+ * Idle timeout (ms). If the session has no activity for this duration, it
+ * auto-locks. Default 30 min — long enough that a verified owner is not
+ * re-prompted mid-conversation after a short pause (the old 30 s default made
+ * the guard feel like it "forgot" the code). Override via env for stricter envs.
+ */
 export const PRIVACY_VERIFY_IDLE_TIMEOUT_MS = Number(
-  process.env.CLAUDE_AGENT_PRIVACY_VERIFY_IDLE_TIMEOUT_MS ?? 30_000,
+  process.env.CLAUDE_AGENT_PRIVACY_VERIFY_IDLE_TIMEOUT_MS ?? 30 * 60_000,
 );
 
 /** True only when the guard is on AND at least one secret (PIN or phrase) is present. */
 export const PRIVACY_GUARD_CONFIGURED =
   PRIVACY_GUARD_ENABLED && (OWNER_PIN.length > 0 || OWNER_SECRET_PHRASE.length > 0);
+
+/**
+ * Step 16 — real memory (fact store). Facts are durable, recallable statements
+ * about the user. Local-only like the memory files, so no enable flag: auto-
+ * capture is governed by the existing auto-execute flag; recall is always on.
+ */
+
+/** Max characters in a single fact's content (safety cap; local single-user). */
+export const FACT_CONTENT_MAX = Number(
+  process.env.CLAUDE_AGENT_FACT_CONTENT_MAX ?? 500,
+);
+
+/** Max facts recalled into a prompt (pinned facts always included, then top-scored). */
+export const FACT_RECALL_CAP = Number(
+  process.env.CLAUDE_AGENT_FACT_RECALL_CAP ?? 20,
+);
 
 /** Single source of truth for UTC ISO 8601 timestamps. */
 export function nowIso(): string {

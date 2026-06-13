@@ -7,9 +7,7 @@ import {
   CheckSquare,
   Clock3,
   Database,
-  Lock,
   MessageCircle,
-  Unlock,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -106,6 +104,7 @@ export default function HomePage() {
   const [verified, setVerified] = useState(false);
   const [guardEnabled, setGuardEnabled] = useState(false);
   const [pendingVerificationPrompt, setPendingVerificationPrompt] = useState<string | null>(null);
+  const [thinkingStatus, setThinkingStatus] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const followupTimerRef = useRef<number | null>(null);
@@ -232,6 +231,14 @@ export default function HomePage() {
     setChatErrorRendered(false);
     setLastFailedMessage(null);
     setActiveClarification(null);
+
+    const cleanText = text.trim().toLowerCase();
+    const isVerificationKeyword = cleanText === "โอเค" || cleanText.startsWith("โอเค") || cleanText === "1234";
+    if (isVerificationKeyword) {
+      setThinkingStatus("ผู้ใช้ไม่ได้พิมพ์คำสั่งเพิ่มเติม");
+    } else {
+      setThinkingStatus(null);
+    }
 
     let shouldFallThrough = false;
     
@@ -414,6 +421,7 @@ export default function HomePage() {
     } finally {
       setSending(false);
       setOrbState("idle");
+      setThinkingStatus(null);
     }
   }
 
@@ -552,22 +560,6 @@ export default function HomePage() {
         >
           {resetting ? "Resetting..." : "New session"}
         </button>
-        {guardEnabled && (
-          <div
-            className={`jarvis-lock-btn ${verified ? "verified" : ""}`}
-            title={verified ? "ยืนยันตัวตนแล้ว" : "ระบบล็อกความปลอดภัยการเข้าถึงข้อมูลส่วนตัว"}
-            aria-label={verified ? "ยืนยันตัวตนแล้ว" : "ระบบล็อก"}
-          >
-            {verified ? (
-              <Unlock strokeWidth={1.8} aria-hidden="true" />
-            ) : (
-              <Lock strokeWidth={1.8} aria-hidden="true" />
-            )}
-            <span className="jarvis-lock-label">
-              {verified ? "ยืนยันแล้ว" : "ล็อก"}
-            </span>
-          </div>
-        )}
       </div>
 
       <div className="jarvis-stage">
@@ -638,10 +630,7 @@ export default function HomePage() {
             {sending && (
               <div className="chat-bubble assistant typing">
                 <span className="chat-role">Jarvis</span>
-                <ThinkingContent
-                  label="Checking context"
-                  detail="Reviewing chat history, tasks, reminders, and approvals"
-                />
+                <ThinkingContent status={thinkingStatus} />
               </div>
             )}
 
@@ -649,8 +638,7 @@ export default function HomePage() {
               <div className="chat-bubble assistant typing">
                 <span className="chat-role">Jarvis</span>
                 <ThinkingContent
-                  label={`Generating ${briefBusy === "daily" ? "Daily Brief" : "Evening Brief"}`}
-                  detail="Collecting schedule, tasks, and pending approvals"
+                  status={`กำลังสร้าง ${briefBusy === "daily" ? "Daily Brief" : "Evening Brief"}`}
                 />
               </div>
             )}
@@ -848,24 +836,25 @@ function ChatSkeleton() {
 }
 
 function ThinkingContent({
-  label,
-  detail,
+  status,
 }: {
-  label: string;
-  detail: string;
+  status?: string | null;
 }) {
   return (
     <div className="thinking-content" aria-live="polite">
       <div className="thinking-line">
-        <span>{label}</span>
         <span className="thinking-dots" aria-hidden="true">
           <i />
           <i />
           <i />
         </span>
       </div>
-      <div className="thinking-detail">{detail}</div>
       <div className="thinking-progress" aria-hidden="true" />
+      {status && (
+        <div style={{ color: "var(--muted)", fontSize: "11px", marginTop: "4px", opacity: 0.85 }}>
+          {status}
+        </div>
+      )}
     </div>
   );
 }

@@ -175,6 +175,7 @@ async function handleChat(
   
   // Step 16: Dictation normalization
   message = normalizeDictation(message);
+  const originalMessage = message;
 
   // Step 16: Auto-bypass via PIN or Secret Phrase
   if (isGuardEnabled() && sessionId) {
@@ -213,7 +214,7 @@ async function handleChat(
         logActivity("chat.identity.verified", "owner verified via inline credentials");
         let remainder = message.substring(removeLength).trim();
         if (remainder.length === 0) {
-          remainder = "มีอะไรให้ช่วยไหม"; // Generic safe prompt for Claude to acknowledge
+          remainder = "[ผู้ใช้ไม่ได้พิมพ์คำสั่งใดๆ เพิ่มเติม ให้คุณตอบกลับสั้นๆ ยืนยันว่ายืนยันตัวตนสำเร็จแล้วและพร้อมดำเนินการต่อ]";
         }
         message = `[System: ผู้ใช้เพิ่งยืนยันตัวตนด้วยรหัสสำเร็จ ตอนนี้คุณสามารถเข้าถึงข้อมูลส่วนตัวและดำเนินการต่อได้เลย] ${remainder}`;
       }
@@ -251,7 +252,7 @@ async function handleChat(
   // Tests inject `aiInvoker`; otherwise invoke the selected provider directly.
   const invoke = injectedInvoker ?? resolved.provider.invoke;
   const verified = isVerified(sessionId, true); // `true` updates the idle timeout
-  const result = await runChat(message, invoke, fetchGoogle, { verified, sessionId });
+  const result = await runChat(message, invoke, fetchGoogle, { verified, sessionId, originalMessage });
 
   // Spawn/timeout/disabled/empty: fail closed, no approvals, no history written.
   if (result.kind === "failed") {

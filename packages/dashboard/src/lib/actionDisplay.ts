@@ -30,6 +30,9 @@ export const ACTION_TYPES: readonly ActionType[] = [
   "google_event.create",
   "google_event.update",
   "google_event.delete",
+  "fact.remember",
+  "fact.update",
+  "fact.forget",
 ];
 
 export function isActionType(value: string): value is ActionType {
@@ -52,6 +55,9 @@ const HUMAN_LABELS: Record<ActionType, string> = {
   "google_event.create": "Create Google Calendar event",
   "google_event.update": "Update Google Calendar event",
   "google_event.delete": "Delete Google Calendar event",
+  "fact.remember": "Remember a fact",
+  "fact.update": "Update a fact",
+  "fact.forget": "Forget a fact",
 };
 
 export function humanLabel(actionType: ActionType): string {
@@ -75,6 +81,7 @@ export function actionQuestion(action: ActionLike): ActionQuestion {
   const title = stringField(payload, "title");
   const target = stringField(payload, "summary") ?? stringField(payload, "target");
   const time = stringField(payload, "starts_at") ?? stringField(payload, "due_at");
+  const content = stringField(payload, "content");
   const detail = [title, time ? formatTs(time) : null].filter(Boolean).join(" - ");
 
   switch (action.action_type) {
@@ -131,6 +138,24 @@ export function actionQuestion(action: ActionLike): ActionQuestion {
         question: "ต้องการเก็บรายการนี้ถาวรไหม",
         approve: "เก็บ",
         reject: "ไม่เก็บ",
+      };
+    case "fact.remember":
+      return {
+        question: `ต้องการให้ผมจำ${content ? ` "${content}"` : "เรื่องนี้"} ไว้ไหม`,
+        approve: "จำไว้",
+        reject: "ไม่จำ",
+      };
+    case "fact.update":
+      return {
+        question: `ต้องการแก้ความจำนี้${content ? `เป็น "${content}"` : ""}ไหม`,
+        approve: "แก้",
+        reject: "ไม่แก้",
+      };
+    case "fact.forget":
+      return {
+        question: "ต้องการให้ผมลืมความจำนี้ไหม (เก็บ snapshot ไว้ กู้คืนได้)",
+        approve: "ลืม",
+        reject: "ไม่ลืม",
       };
     default:
       return {
