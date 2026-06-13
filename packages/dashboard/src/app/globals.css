@@ -1962,24 +1962,15 @@ pre.payload {
   position: relative;
   overflow: hidden;
   min-width: min(360px, 88%);
-  background: rgba(255, 255, 255, 0.052);
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  padding: 8px 0 !important;
   animation: thinking-bubble 2.4s ease-in-out infinite;
 }
 
 .chat-bubble.typing::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    110deg,
-    transparent 0%,
-    rgba(10, 132, 255, 0.08) 42%,
-    rgba(139, 92, 246, 0.08) 52%,
-    transparent 64%
-  );
-  transform: translateX(-120%);
-  animation: thinking-sheen 2.8s var(--spring-soft) infinite;
-  pointer-events: none;
+  display: none !important;
 }
 
 .chat-role {

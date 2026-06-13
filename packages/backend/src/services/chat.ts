@@ -278,7 +278,7 @@ export async function runChat(
   message: string,
   invoke: ClaudeInvoker,
   fetchGoogle: GoogleEventsFetcher = realGoogleEventsFetcher,
-  opts: { verified?: boolean; sessionId?: string } = {},
+  opts: { verified?: boolean; sessionId?: string; originalMessage?: string } = {},
 ): Promise<ChatResult> {
   const verified = opts.verified ?? true;
   const kw = classifySensitivity(message);
@@ -350,7 +350,7 @@ export async function runChat(
 
   // 6. Persist the exchange (user + assistant). Only reaches here on success,
   //    so history never contains failed/rejected attempts.
-  appendMessage("user", message);
+  appendMessage("user", opts.originalMessage ?? message);
   const actionsJson =
     approvals.length > 0
       ? JSON.stringify(
