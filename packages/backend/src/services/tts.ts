@@ -6,8 +6,19 @@ import { spawn } from "node:child_process";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import ffmpegPath from "ffmpeg-static";
 import { logActivity } from "../db/repositories/activityRepo.js";
+import { getConfigBool } from "../db/repositories/configRepo.js";
 import { TTS_ENABLED, TTS_PRESET } from "../config.js";
 import type { TtsPreset } from "../schemas/tts.js";
+
+/**
+ * Runtime gate for speech synthesis: DB config override (Settings toggle) wins;
+ * falls back to the env seed default. Gates both /api/tts and scheduler voice.
+ */
+export function isTtsEnabled(): boolean {
+  const dbValue = getConfigBool("tts_enabled");
+  if (dbValue !== null) return dbValue;
+  return TTS_ENABLED;
+}
 
 const VOICE = "en-AU-WilliamMultilingualNeural";
 const DEFAULT_PRESET: TtsPreset = "warm";
@@ -144,7 +155,7 @@ function applyFx(inFile: string, outFile: string, fx: string[]): Promise<void> {
 
 class RealTtsSynthesizer implements TtsSynthesizer {
   async synthesize(text: string, preset?: TtsPreset): Promise<Buffer | null> {
-    if (!TTS_ENABLED) return null;
+    if (!isTtsEnabled()) return null;
 
     const resolvedPreset: TtsPreset =
       (preset ?? (PRESETS[TTS_PRESET as TtsPreset] ? (TTS_PRESET as TtsPreset) : DEFAULT_PRESET));

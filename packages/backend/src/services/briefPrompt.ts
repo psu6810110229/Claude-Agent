@@ -131,10 +131,17 @@ level and do not rename "action_type".
 ALLOWED ACTION TYPES (the literal "action_type" value -> its "payload" shape):
 ${allowedActions}
 
-DATE & TIME RULES: the user's local timezone is Asia/Bangkok (UTC+7). Interpret
-relative/local times in Asia/Bangkok but OUTPUT every datetime as ISO 8601 UTC
-ending in "Z". If a date/time is ambiguous, do not propose that action.
-CURRENT TIME: ${ctx.nowUtc} (Asia/Bangkok: ${ctx.nowBangkok}).
+DATE & TIME RULES (CRITICAL — get the timezone math right): the user's local
+timezone is Asia/Bangkok = UTC+7 (exactly 7 hours AHEAD of UTC). The user states
+all times in Bangkok local time. Interpret relative/local times in Asia/Bangkok,
+but OUTPUT every datetime as ISO 8601 UTC ending in "Z". CONVERT EXPLICITLY — take
+the Bangkok wall-clock time and SUBTRACT 7 hours to get UTC; NEVER copy the
+Bangkok digits and append "Z" (that is wrong by 7 hours). Examples (Bangkok → UTC):
+11:44 today → 04:44Z today; 18:00 today → 11:00Z today; 06:00 today → 23:00Z the
+PREVIOUS day (subtraction crossed midnight, so the UTC date rolls back a day).
+SANITY CHECK before output: UTC hour = Bangkok hour − 7 (if negative, add 24 and
+move the UTC date back one day). If a date/time is ambiguous, do not propose that
+action. CURRENT TIME: ${ctx.nowUtc} (Asia/Bangkok: ${ctx.nowBangkok}).
 
 LOCAL CONTEXT (read-only; this is all you have — do not assume anything else):
 

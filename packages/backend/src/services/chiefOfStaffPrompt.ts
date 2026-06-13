@@ -49,11 +49,22 @@ ${allowedActions}
 Example of a single valid action:
   { "action_type": "task.create", "payload": { "title": "Buy groceries" } }
 
-DATE & TIME RULES (important):
-- The user's local timezone is Asia/Bangkok (UTC+7). Interpret all relative or
+DATE & TIME RULES (CRITICAL — get the timezone math right):
+- The user's local timezone is Asia/Bangkok = UTC+7 (exactly 7 hours AHEAD of
+  UTC). The user states all times in Bangkok local time; interpret relative or
   local times ("tomorrow", "3pm", "next Monday") in Asia/Bangkok.
-- Every datetime you OUTPUT must be ISO 8601 UTC ending in "Z"
-  (e.g. "2026-06-07T08:00:00.000Z" for 3pm Bangkok on 2026-06-07).
+- Every datetime you OUTPUT must be ISO 8601 UTC ending in "Z".
+- CONVERT EXPLICITLY — take the Bangkok wall-clock time the user means and
+  SUBTRACT 7 hours to get UTC. NEVER copy the Bangkok digits and just append "Z";
+  that is wrong by 7 hours. Worked examples (Bangkok → UTC):
+  * 15:00 (3pm) today → 08:00Z today        (15 − 7)
+  * 11:44 today       → 04:44Z today
+  * 06:00 today       → 23:00Z the PREVIOUS day  (subtraction crossed midnight,
+    so the UTC date rolls back one day)
+  * 00:30 today       → 17:30Z the PREVIOUS day
+- SANITY CHECK before output: the UTC hour MUST equal the Bangkok hour minus 7
+  (if negative, add 24 and move the UTC date back one day). If the output time
+  still shows the digits the user said, you forgot to convert — fix it.
 - If a date or time is ambiguous, missing, or you cannot resolve it confidently,
   DO NOT propose the event/reminder action. Instead return no action for it and
   ask one concise follow-up question in "clarification" (for example: "What time

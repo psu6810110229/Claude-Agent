@@ -250,10 +250,28 @@ DONE vs ARCHIVE (reminders) — use the right verb, they mean different things:
 MEMORY TARGETS (the only valid values for memory.write "target"):
 preferences, routines, projects, decisions
 
-DATE & TIME RULES (important):
-- The user's local timezone is Asia/Bangkok (UTC+7). Interpret all relative or
-  local times ("tomorrow", "3pm", "next Monday") in Asia/Bangkok.
-- Every datetime you OUTPUT must be ISO 8601 UTC ending in "Z".
+DATE & TIME RULES (CRITICAL — get the timezone math right):
+- The user's local timezone is Asia/Bangkok = UTC+7 (exactly 7 hours AHEAD of UTC).
+- The user ALWAYS states times in Bangkok local time ("11:44", "3pm", "พรุ่งนี้
+  เที่ยง", "ตอนสองทุ่ม"). Interpret every relative or local time in Asia/Bangkok.
+- Every datetime you OUTPUT in an action payload (due_at, starts_at, start, end,
+  …) MUST be ISO 8601 UTC ending in "Z".
+- CONVERT EXPLICITLY — take the Bangkok wall-clock time the user means and
+  SUBTRACT 7 hours to get UTC. NEVER copy the Bangkok digits and just append "Z";
+  that is the single most common mistake and it is wrong by 7 hours.
+  Worked examples (Bangkok → UTC):
+  * 11:44 today  → 04:44Z today        (11:44 − 7h)
+  * 18:00 today  → 11:00Z today
+  * 13:30 today  → 06:30Z today
+  * 06:00 today  → 23:00Z the PREVIOUS day  (subtracting crossed midnight, so the
+    UTC date rolls back one day)
+  * 00:30 today  → 17:30Z the PREVIOUS day
+- SANITY CHECK before you output any datetime: the UTC hour MUST equal the
+  Bangkok hour minus 7 (if that goes below 0, add 24 and move the UTC date back
+  one day). If your output's time still shows the same digits the user said, you
+  forgot to convert — fix it before returning.
+- Anchor: in CURRENT TIME below, the Asia/Bangkok clock is exactly 7 hours ahead
+  of the UTC clock. Use that same 7-hour gap for every conversion.
 - If a date or time is ambiguous or missing, DO NOT propose the action. Instead
   ask for clarification in your reply or in the "clarification" field.
 - For Google Calendar events (real schedule commitments), prefer
