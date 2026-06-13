@@ -321,6 +321,45 @@ export const AUTO_EXECUTE_DESTRUCTIVE_ENABLED = /^(1|true)$/i.test(
   process.env.CLAUDE_AGENT_AUTO_EXECUTE_DESTRUCTIVE_ENABLED ?? "",
 );
 
+/**
+ * Step 15 — Privacy guard & owner identity verification.
+ *
+ * When ON, an UNVERIFIED chat requester only receives coarse free/busy context
+ * (private memory/schedule detail is redacted before the prompt is built) and is
+ * offered an identity check. Verification needs BOTH the PIN and the challenge
+ * answer. Secrets are read here, compared only in identityVerifier, and NEVER
+ * logged or placed in any prompt. OFF by default: behavior identical to today.
+ */
+export const PRIVACY_GUARD_ENABLED = /^(1|true)$/i.test(
+  process.env.CLAUDE_AGENT_PRIVACY_GUARD_ENABLED ?? "",
+);
+
+/** Owner PIN (secret). Empty string = not configured -> guard cannot be unlocked. */
+export const OWNER_PIN = process.env.CLAUDE_AGENT_OWNER_PIN ?? "";
+
+/** Knowledge-challenge question shown to the requester. NOT secret. */
+export const OWNER_CHALLENGE_QUESTION =
+  process.env.CLAUDE_AGENT_OWNER_CHALLENGE_QUESTION ??
+  "คำถามยืนยันตัวตน (ยังไม่ได้ตั้งค่า)";
+
+/** Expected challenge answer (secret). Compared trimmed + case-insensitive. */
+export const OWNER_CHALLENGE_ANSWER =
+  process.env.CLAUDE_AGENT_OWNER_CHALLENGE_ANSWER ?? "";
+
+/** Max failed verify attempts per session before a temporary lockout. */
+export const PRIVACY_VERIFY_MAX_ATTEMPTS = Number(
+  process.env.CLAUDE_AGENT_PRIVACY_VERIFY_MAX_ATTEMPTS ?? 5,
+);
+
+/** Lockout duration after too many failed attempts (ms). Default 5 min. */
+export const PRIVACY_VERIFY_LOCKOUT_MS = Number(
+  process.env.CLAUDE_AGENT_PRIVACY_VERIFY_LOCKOUT_MS ?? 5 * 60_000,
+);
+
+/** True only when the guard is on AND both secrets are present. */
+export const PRIVACY_GUARD_CONFIGURED =
+  PRIVACY_GUARD_ENABLED && OWNER_PIN.length > 0 && OWNER_CHALLENGE_ANSWER.length > 0;
+
 /** Single source of truth for UTC ISO 8601 timestamps. */
 export function nowIso(): string {
   return new Date().toISOString();

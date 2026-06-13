@@ -1,7 +1,7 @@
 import { buildServer } from "./server.js";
 import { initDb } from "./db/init.js";
 import { closeDb } from "./db/connection.js";
-import { HOST, PORT } from "./config.js";
+import { HOST, PORT, PRIVACY_GUARD_ENABLED, PRIVACY_GUARD_CONFIGURED } from "./config.js";
 import { startScheduler } from "./services/scheduler.js";
 import { realDesktopNotifier } from "./services/desktopNotifier.js";
 import { realTtsSynthesizer } from "./services/tts.js";
@@ -27,6 +27,14 @@ async function main(): Promise<void> {
   // HTTP-only tests are unaffected.
   const scheduler = startScheduler(realDesktopNotifier, voice);
   app.log.info("Scheduler interval running (firing gated by runtime flag)");
+
+  // Step 15 — fail-closed: guard on but secrets missing hides private data and
+  // makes unlock impossible until configured. Warn loudly; never log the secrets.
+  if (PRIVACY_GUARD_ENABLED && !PRIVACY_GUARD_CONFIGURED) {
+    app.log.warn(
+      "privacy guard ON but PIN/answer not configured — private data stays hidden, cannot unlock",
+    );
+  }
 
   const shutdown = async (): Promise<void> => {
     scheduler.stop();
