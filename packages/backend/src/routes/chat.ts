@@ -213,7 +213,7 @@ async function handleChat(
         logActivity("chat.identity.verified", "owner verified via inline credentials");
         let remainder = message.substring(removeLength).trim();
         if (remainder.length === 0) {
-          remainder = "มีอะไรให้ช่วยไหม"; // Generic safe prompt for Claude to acknowledge
+          remainder = "[ผู้ใช้ไม่ได้พิมพ์คำสั่งใดๆ เพิ่มเติม ให้คุณตอบกลับสั้นๆ ยืนยันว่ายืนยันตัวตนสำเร็จแล้วและพร้อมดำเนินการต่อ]";
         }
         message = `[System: ผู้ใช้เพิ่งยืนยันตัวตนด้วยรหัสสำเร็จ ตอนนี้คุณสามารถเข้าถึงข้อมูลส่วนตัวและดำเนินการต่อได้เลย] ${remainder}`;
       }
