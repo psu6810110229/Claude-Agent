@@ -40,6 +40,8 @@ import {
   CHAT_HISTORY_LIMIT,
   nowIso,
 } from "../config.js";
+import { classifySensitivity } from "./privacyClassifier.js";
+import { isGuardEnabled, getChallengeQuestion } from "./identityVerifier.js";
 
 /**
  * Chat orchestration (Step 12). Proposal-only pipeline with conversation
@@ -65,6 +67,12 @@ export type ChatResult =
       clarification?: string;
       clarificationChoices?: string[];
       notes?: string;
+      /** Step 15: true when guard on, requester unverified, and asked for private data. */
+      verificationRequired?: boolean;
+      /** Step 15: the challenge question to show in the verify panel. */
+      challengeQuestion?: string | null;
+      /** Step 15: "private" if the user probed the owner's private specifics. */
+      sensitivity?: "private" | "normal";
     }
   | { kind: "rejected"; message: string; detail?: string }
   | { kind: "failed"; reason: string; message: string; userMessage: string };
@@ -142,6 +150,7 @@ const invalidOutputMessage =
 export async function buildChatContext(
   message: string,
   fetchGoogle: GoogleEventsFetcher,
+  verified: boolean = true,
 ): Promise<ChatContext> {
   const openTasks = listTasks()
     .filter((t) => t.status === "open")
@@ -224,6 +233,30 @@ export async function buildChatContext(
     content: m.content,
   }));
 
+  const GENERIC_BUSY = "ไม่ว่าง (รายละเอียดส่วนตัว)";
+  const GENERIC_TASK = "งานส่วนตัว";
+  const GENERIC_REMINDER = "เตือนความจำส่วนตัว";
+
+  // §7 HARD redaction gate: when unverified, private strings never reach the prompt.
+  // This is the real security boundary — not the model's behaviour.
+  if (!verified) {
+    return {
+      message,
+      nowUtc: nowIso(),
+      nowBangkok: bangkokWallClock(now),
+      openTasks: openTasks.map((t) => ({ id: t.id, title: GENERIC_TASK })),
+      memorySummaries: [],
+      googleEvents: googleEvents.map((e) => ({ ...e, title: GENERIC_BUSY })),
+      events: events.map((e) => ({ ...e, title: GENERIC_BUSY })),
+      reminders: reminders.map((r) => ({ ...r, title: GENERIC_REMINDER })),
+      approvalOutcomes: [],
+      history: [],
+      autoExecute: isAutoExecuteEnabled(),
+      autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
+      restricted: true,
+    };
+  }
+
   return {
     message,
     openTasks,
@@ -237,6 +270,7 @@ export async function buildChatContext(
     history,
     autoExecute: isAutoExecuteEnabled(),
     autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
+    restricted: false,
   };
 }
 
@@ -244,9 +278,13 @@ export async function runChat(
   message: string,
   invoke: ClaudeInvoker,
   fetchGoogle: GoogleEventsFetcher = realGoogleEventsFetcher,
+  opts: { verified?: boolean; sessionId?: string } = {},
 ): Promise<ChatResult> {
+  const verified = opts.verified ?? true;
+  const kw = classifySensitivity(message);
+
   // 1. Build context (reads history BEFORE this turn, so history is prior turns).
-  const ctx = await buildChatContext(message, fetchGoogle);
+  const ctx = await buildChatContext(message, fetchGoogle, verified);
 
   // 2. Invoke Claude. Any spawn/timeout/disabled error fails closed.
   let raw: string;
@@ -299,12 +337,15 @@ export async function runChat(
   }
 
   // 5. Valid: each action is dispatched — auto-executed when eligible, else a
-  //    pending approval. The stored approval row carries the real outcome.
-  const dispatched = await Promise.all(
-    check.data.actions.map((action: AiAction) =>
-      dispatchProposedAction(action.action_type, action.payload, "chat"),
-    ),
-  );
+  //    pending approval. Unverified requesters: skip dispatch entirely (defense
+  //    in depth — prompt also instructs the model not to propose writes for guests).
+  const dispatched: DispatchResult[] = verified
+    ? await Promise.all(
+        check.data.actions.map((action: AiAction) =>
+          dispatchProposedAction(action.action_type, action.payload, "chat"),
+        ),
+      )
+    : [];
   const approvals: Approval[] = dispatched.map((d) => d.approval);
 
   // 6. Persist the exchange (user + assistant). Only reaches here on success,
@@ -323,6 +364,11 @@ export async function runChat(
   const report = buildActionReport(dispatched);
   if (report) appendMessage("assistant", report.text);
 
+  const modelPrivate = check.data.sensitivity === "private";
+  const verificationRequired =
+    isGuardEnabled() && !verified && (kw.private || modelPrivate);
+  const challengeQuestion = verificationRequired ? getChallengeQuestion() : undefined;
+
   return {
     kind: "replied",
     reply: check.data.reply,
@@ -333,5 +379,8 @@ export async function runChat(
     clarification: check.data.clarification,
     clarificationChoices: check.data.clarification_choices,
     notes: check.data.notes,
+    verificationRequired: verificationRequired || undefined,
+    challengeQuestion,
+    sensitivity: check.data.sensitivity,
   };
 }
