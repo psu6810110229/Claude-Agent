@@ -797,7 +797,14 @@ h3 {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  padding: 20px 28px 0;
+  padding: 16px 28px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(8, 8, 8, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
 }
 
 .icon-btn {
@@ -2297,6 +2304,14 @@ pre.payload {
   display: flex;
   justify-content: flex-start;
   margin-bottom: 8px;
+  position: sticky;
+  top: 69px;
+  z-index: 99;
+  background: rgba(8, 8, 8, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  padding: 8px 0;
+  margin-top: -8px;
 }
 
 .jarvis-stage {

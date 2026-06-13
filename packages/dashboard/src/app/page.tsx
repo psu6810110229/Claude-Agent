@@ -7,9 +7,7 @@ import {
   CheckSquare,
   Clock3,
   Database,
-  Lock,
   MessageCircle,
-  Unlock,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -552,22 +550,6 @@ export default function HomePage() {
         >
           {resetting ? "Resetting..." : "New session"}
         </button>
-        {guardEnabled && (
-          <div
-            className={`jarvis-lock-btn ${verified ? "verified" : ""}`}
-            title={verified ? "ยืนยันตัวตนแล้ว" : "ระบบล็อกความปลอดภัยการเข้าถึงข้อมูลส่วนตัว"}
-            aria-label={verified ? "ยืนยันตัวตนแล้ว" : "ระบบล็อก"}
-          >
-            {verified ? (
-              <Unlock strokeWidth={1.8} aria-hidden="true" />
-            ) : (
-              <Lock strokeWidth={1.8} aria-hidden="true" />
-            )}
-            <span className="jarvis-lock-label">
-              {verified ? "ยืนยันแล้ว" : "ล็อก"}
-            </span>
-          </div>
-        )}
       </div>
 
       <div className="jarvis-stage">
