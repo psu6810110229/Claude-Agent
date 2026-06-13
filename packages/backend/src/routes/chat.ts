@@ -3,10 +3,12 @@ import { chatRequestSchema, chatHistoryQuerySchema } from "../schemas/chat.js";
 import { logActivity } from "../db/repositories/activityRepo.js";
 import { archiveActiveMessages, listRecentMessages } from "../db/repositories/chatRepo.js";
 import { runChat } from "../services/chat.js";
+import { runChatFollowup } from "../services/chatFollowup.js";
 import type { ClaudeInvoker } from "../services/claudeClient.js";
 import {
   selectProvider,
   otherAvailableProvider,
+  getProvider,
   ProviderError,
   type AiProviderId,
 } from "../services/aiProvider.js";
@@ -39,6 +41,35 @@ export async function chatRoutes(
   app.post("/api/chat", async (req, reply) =>
     handleChat(req, opts.aiInvoker, fetchGoogle, reply),
   );
+
+  // Idle proactive follow-up. Gemini-first (the user's primary provider); falls
+  // back to Claude only if Gemini is not configured. Fails QUIET: any problem
+  // returns kind:"silent" with 200 so the dashboard never shows an error for a
+  // nudge the user did not explicitly request.
+  app.post("/api/chat/followup", async (_req, reply) => {
+    const invoke =
+      opts.aiInvoker ?? pickFollowupProvider()?.invoke;
+    if (!invoke) {
+      return reply.code(200).send({ kind: "silent" });
+    }
+    const result = await runChatFollowup(invoke, fetchGoogle);
+    if (result.kind === "silent") {
+      return reply.code(200).send({ kind: "silent" });
+    }
+    for (const approval of result.approvals) {
+      logActivity(
+        "chat.followup.proposed",
+        `approval #${approval.id} (${approval.action_type}) from follow-up`,
+      );
+    }
+    logActivity("chat.followup.spoke", `${result.approvals.length} proposal(s)`);
+    return reply.code(200).send({
+      kind: "followup",
+      reply: result.reply,
+      spoken: result.spoken ?? null,
+      approvals: result.approvals,
+    });
+  });
 
   app.post("/api/chat/reset", async (_req, reply) => {
     const archived = archiveActiveMessages();
@@ -155,6 +186,8 @@ async function handleChat(
     kind: "chat",
     reply: result.reply,
     spoken: result.spoken ?? null,
+    resultReport: result.resultReport ?? null,
+    resultSpoken: result.resultSpoken ?? null,
     mode,
     provider: resolved.selection.selectedProvider,
     selectedModel: resolved.selection.selectedModel ?? null,
@@ -165,6 +198,18 @@ async function handleChat(
     clarification_choices: result.clarificationChoices,
     notes: result.notes,
   });
+}
+
+/**
+ * Provider for the idle follow-up: Gemini first (the user's primary provider),
+ * else Claude. Returns undefined only if neither is usable (then we stay silent).
+ */
+function pickFollowupProvider() {
+  const gemini = getProvider("gemini");
+  if (gemini?.isAvailable()) return gemini;
+  const claude = getProvider("claude");
+  if (claude?.isAvailable()) return claude;
+  return undefined;
 }
 
 /** User-facing message when a manually requested provider is not usable yet. */

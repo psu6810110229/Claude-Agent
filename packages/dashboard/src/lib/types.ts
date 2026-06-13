@@ -277,6 +277,10 @@ export interface ChatResult {
   reply: string;
   /** Short spoken summary of `reply` for TTS; null when the model omitted it. */
   spoken?: string | null;
+  /** Truthful outcome line posted AFTER the ack reply; null for pure Q&A. */
+  resultReport?: string | null;
+  /** Short spoken form of resultReport for sequential TTS; null when none. */
+  resultSpoken?: string | null;
   /** Routing mode the backend applied. */
   mode: AiProviderMode;
   /** Provider that actually produced this reply. */
@@ -291,6 +295,20 @@ export interface ChatResult {
   clarification_choices?: string[];
   notes?: string;
 }
+
+/**
+ * POST /api/chat/followup result. The backend stays QUIET (`silent`) unless it
+ * has a useful proactive nudge; on `followup` the assistant message is already
+ * persisted, so the dashboard just refetches history + plays the spoken form.
+ */
+export type FollowupResult =
+  | { kind: "silent" }
+  | {
+      kind: "followup";
+      reply: string;
+      spoken?: string | null;
+      approvals: Approval[];
+    };
 
 // --- Settings -------------------------------------------------------------
 

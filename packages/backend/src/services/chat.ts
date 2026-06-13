@@ -11,6 +11,7 @@ import {
   dispatchProposedAction,
   isAutoExecuteEnabled,
   isAutoExecuteDestructiveEnabled,
+  type DispatchResult,
 } from "./actionDispatcher.js";
 import { chatOutputSchema } from "../schemas/chat.js";
 import type { AiAction } from "../schemas/aiCommand.js";
@@ -56,6 +57,10 @@ export type ChatResult =
       kind: "replied";
       reply: string;
       spoken?: string;
+      /** Deterministic, truthful outcome line posted AFTER the ack reply. */
+      resultReport?: string;
+      /** Short spoken form of resultReport for sequential TTS. */
+      resultSpoken?: string;
       approvals: Approval[];
       clarification?: string;
       clarificationChoices?: string[];
@@ -63,6 +68,54 @@ export type ChatResult =
     }
   | { kind: "rejected"; message: string; detail?: string }
   | { kind: "failed"; reason: string; message: string; userMessage: string };
+
+/**
+ * Build a TRUTHFUL, deterministic outcome message from the real dispatch
+ * results. The chat `reply` is only an acknowledgement (it is generated before
+ * execution), so this is what actually tells the user whether the work
+ * succeeded, failed (with the real error), or is awaiting their confirmation.
+ * Returns null when there were no actions (pure Q&A — nothing to report).
+ */
+function buildActionReport(
+  dispatched: DispatchResult[],
+): { text: string; spoken: string } | null {
+  if (dispatched.length === 0) return null;
+
+  const executed = dispatched.filter((d) => d.mode === "executed");
+  const failed = dispatched.filter((d) => d.mode === "failed");
+  const pending = dispatched.filter((d) => d.mode === "pending");
+
+  const lines: string[] = [];
+  if (executed.length > 0) {
+    lines.push(
+      executed.length === 1
+        ? "✅ เรียบร้อยครับ ผมจัดการให้แล้ว"
+        : `✅ เรียบร้อยครับ ผมจัดการให้แล้ว ${executed.length} รายการ`,
+    );
+  }
+  for (const f of failed) {
+    const reason = f.approval.execution_error?.trim();
+    lines.push(
+      reason
+        ? `⚠️ มีรายการที่ทำไม่สำเร็จครับ: ${reason}`
+        : "⚠️ มีรายการที่ทำไม่สำเร็จครับ ลองอีกครั้งได้",
+    );
+  }
+  if (pending.length > 0) {
+    lines.push(
+      `📝 อีก ${pending.length} รายการผมเตรียมไว้ให้แล้ว รอคุณกดยืนยันนะครับ`,
+    );
+  }
+  if (lines.length === 0) return null;
+
+  // Spoken: drop emoji + raw error detail; keep the gist for voice.
+  const spokenParts: string[] = [];
+  if (executed.length > 0) spokenParts.push("เรียบร้อยแล้วครับ");
+  if (failed.length > 0) spokenParts.push("มีบางรายการทำไม่สำเร็จครับ");
+  if (pending.length > 0) spokenParts.push("อีกบางรายการรอคุณยืนยันครับ");
+
+  return { text: lines.join("\n"), spoken: spokenParts.join(" ") };
+}
 
 function chatFailureMessage(reason: string): string {
   if (reason === "disabled") {
@@ -80,8 +133,8 @@ function chatFailureMessage(reason: string): string {
 const invalidOutputMessage =
   "ผมยังตอบข้อความนี้ให้ครบไม่ได้ครับ รูปแบบคำตอบไม่พร้อมใช้งาน ลองส่งใหม่อีกครั้งได้";
 
-/** Build compact recall context for a chat turn. */
-async function buildChatContext(
+/** Build compact recall context for a chat turn. Exported for the idle follow-up. */
+export async function buildChatContext(
   message: string,
   fetchGoogle: GoogleEventsFetcher,
 ): Promise<ChatContext> {
@@ -258,12 +311,19 @@ export async function runChat(
           approvals.map((a) => ({ id: a.id, action_type: a.action_type })),
         )
       : null;
+  // The reply is an ACK (written before execution). Attach the action buttons to
+  // it, then append the TRUE outcome as a second assistant message so reporting
+  // is never faked — it reflects the real executor result.
   appendMessage("assistant", check.data.reply, actionsJson);
+  const report = buildActionReport(dispatched);
+  if (report) appendMessage("assistant", report.text);
 
   return {
     kind: "replied",
     reply: check.data.reply,
     spoken: check.data.spoken,
+    resultReport: report?.text,
+    resultSpoken: report?.spoken,
     approvals,
     clarification: check.data.clarification,
     clarificationChoices: check.data.clarification_choices,

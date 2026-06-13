@@ -19,6 +19,7 @@ import {
   getChatHistory,
   listApprovals,
   rejectApproval,
+  requestChatFollowup,
   resetChat,
   sendChat,
   speak,
@@ -43,6 +44,9 @@ const PROVIDER_LABELS: Record<AiProviderId, string> = {
   claude: "Claude",
   gemini: "Gemini",
 };
+
+/** Idle delay before Jarvis offers a proactive follow-up after its last turn. */
+const FOLLOWUP_IDLE_MS = 5000;
 
 /** Time-of-day greeting in the user's timezone (Asia/Bangkok). */
 function greetingNow(): string {
@@ -71,7 +75,7 @@ export default function HomePage() {
   const [greeting, setGreeting] = useState<string | null>(null);
   const [orbState, setOrbState] = useState<OrbState>("idle");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [provider, setProvider] = useState<ProviderChoice>("claude");
+  const [provider, setProvider] = useState<ProviderChoice>("gemini");
   const [messageProvider, setMessageProvider] = useState<
     Record<number, AiProviderId>
   >({});
@@ -93,11 +97,28 @@ export default function HomePage() {
     useState<ClarificationPrompt | null>(null);
   const [muted, setMuted] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const followupTimerRef = useRef<number | null>(null);
+  // Live mirror of `muted` so the idle-follow-up timer reads the current value
+  // (its closure is captured when scheduled, before any later mute toggle).
+  const mutedRef = useRef(muted);
+  useEffect(() => {
+    mutedRef.current = muted;
+  }, [muted]);
 
   // Hydrate muted from localStorage after mount (avoid SSR mismatch).
   useEffect(() => {
     setMuted(localStorage.getItem("jarvis.muted") === "true");
   }, []);
+
+  // Cancel any pending follow-up when the component unmounts.
+  useEffect(
+    () => () => {
+      if (followupTimerRef.current !== null) {
+        window.clearTimeout(followupTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const hasConversation = messages.length > 0 || sending || briefBusy !== null;
 
@@ -130,8 +151,53 @@ export default function HomePage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, sending, briefBusy]);
 
+  function clearFollowup() {
+    if (followupTimerRef.current !== null) {
+      window.clearTimeout(followupTimerRef.current);
+      followupTimerRef.current = null;
+    }
+  }
+
+  function scheduleFollowup() {
+    clearFollowup();
+    followupTimerRef.current = window.setTimeout(() => {
+      void runFollowup();
+    }, FOLLOWUP_IDLE_MS);
+  }
+
+  // Idle proactive nudge. Fires once after the user stays quiet; never loops
+  // (it does not reschedule itself) and stays silent unless the backend offers
+  // something useful. Any failure is swallowed — a nudge must never disrupt.
+  async function runFollowup() {
+    if (sending || briefBusy || resetting) return;
+    const previousIds = new Set(messages.map((message) => message.id));
+    try {
+      const result = await requestChatFollowup();
+      if (result.kind !== "followup") return;
+      if (result.approvals.length > 0) {
+        mergeApprovals(result.approvals);
+        notifyPendingApprovals(result.approvals.length);
+      }
+      if (!mutedRef.current) void speak(result.spoken ?? result.reply);
+      const updated = await getChatHistory(100);
+      const fresh = [...updated]
+        .reverse()
+        .find(
+          (message) =>
+            message.role === "assistant" && !previousIds.has(message.id),
+        );
+      setMessages(updated);
+      if (fresh) {
+        setRevealingMessageIds((prev) => new Set(prev).add(fresh.id));
+      }
+    } catch {
+      // Silent — proactive follow-up must never surface an error.
+    }
+  }
+
   async function doSend(text: string) {
     if (briefBusy) return;
+    clearFollowup();
     const previousIds = new Set(messages.map((message) => message.id));
     setOrbState("thinking");
     setSending(true);
@@ -155,8 +221,12 @@ export default function HomePage() {
       const result = await sendChat(text, provider);
       // Start TTS the instant the reply lands — before the history refetch — so
       // audio isn't delayed by that round trip. Speak the short `spoken`
-      // summary; fall back to full `reply` when the model omitted it.
-      if (!muted) void speak(result.spoken ?? result.reply);
+      // acknowledgement first, then (queued, non-overlapping) the TRUE result
+      // report once the action has actually run.
+      if (!muted) {
+        void speak(result.spoken ?? result.reply);
+        if (result.resultSpoken) void speak(result.resultSpoken);
+      }
       if (result.approvals.length > 0) {
         mergeApprovals(result.approvals);
         notifyPendingApprovals(result.approvals.length);
@@ -175,9 +245,15 @@ export default function HomePage() {
           [freshAssistant.id]: result.provider,
         }));
       }
-      setActiveClarification(
-        buildClarificationPrompt(updated, result.clarification, result.clarification_choices),
+      const clarification = buildClarificationPrompt(
+        updated,
+        result.clarification,
+        result.clarification_choices,
       );
+      setActiveClarification(clarification);
+      // Offer a proactive follow-up after a quiet pause — but not while we are
+      // already waiting on the user to answer a clarification.
+      if (!clarification) scheduleFollowup();
     } catch (err) {
       let message = err instanceof ApiError ? err.message : String(err);
       // Phase 4 — Auto mode never switches providers silently. On failure the
@@ -211,6 +287,7 @@ export default function HomePage() {
 
   async function runBrief(type: BriefType) {
     if (sending || briefBusy) return;
+    clearFollowup();
     setOrbState("thinking");
     setBriefBusy(type);
     setSendError(null);
@@ -257,6 +334,7 @@ export default function HomePage() {
 
   async function runApproval(id: number, decision: "approve" | "reject") {
     if (approvalBusy) return;
+    clearFollowup();
     setApprovalBusy(id);
     setSendError(null);
     setChatErrorRendered(false);
@@ -303,6 +381,7 @@ export default function HomePage() {
 
   async function confirmNewSession() {
     if (sending || briefBusy || resetting) return;
+    clearFollowup();
     setResetting(true);
     try {
       await resetChat();

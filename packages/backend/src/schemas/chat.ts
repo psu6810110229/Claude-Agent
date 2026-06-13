@@ -67,3 +67,48 @@ export const chatOutputSchema = z
   .strict();
 
 export type ChatOutput = z.infer<typeof chatOutputSchema>;
+
+/**
+ * Strict schema for the idle FOLLOW-UP turn. The model may decline to speak by
+ * returning `silent: true` (nothing useful to add) — then `reply` is optional.
+ * Otherwise `reply` is a short, optional, low-pressure proactive suggestion.
+ */
+export const followupOutputSchema = z
+  .object({
+    silent: z.boolean().nullish().transform((v) => v ?? false),
+    reply: z
+      .string()
+      .trim()
+      .min(1)
+      .max(2000)
+      .nullish()
+      .transform((v) => v ?? undefined),
+    spoken: z
+      .string()
+      .trim()
+      .min(1)
+      .max(400)
+      .nullish()
+      .transform((v) => v ?? undefined),
+    actions: z.array(aiActionSchema).max(CLAUDE_MAX_ACTIONS).default([]),
+    clarification: z
+      .string()
+      .trim()
+      .min(1)
+      .max(500)
+      .nullish()
+      .transform((v) => v ?? undefined),
+    clarification_choices: z
+      .array(z.string().trim().min(1).max(120))
+      .max(4)
+      .nullish()
+      .transform((v) => v ?? undefined),
+    notes: z
+      .string()
+      .max(2000)
+      .nullish()
+      .transform((v) => v ?? undefined),
+  })
+  .strict();
+
+export type FollowupOutput = z.infer<typeof followupOutputSchema>;

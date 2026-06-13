@@ -10,6 +10,7 @@ import type {
   CalendarEvent,
   ChatMessage,
   ChatResult,
+  FollowupResult,
   CommandMode,
   CommandResult,
   CreateMemoryProposalBody,
@@ -254,6 +255,21 @@ export async function getChatHistory(limit = 50): Promise<ChatMessage[]> {
   return data.messages;
 }
 
+/**
+ * Request an idle proactive follow-up. Always resolves (the backend returns 200
+ * even when it stays silent); on any client error it degrades to `silent` so the
+ * caller never has to handle an error for a nudge the user did not request.
+ */
+export async function requestChatFollowup(): Promise<FollowupResult> {
+  try {
+    return await request<FollowupResult>("/api/chat/followup", {
+      method: "POST",
+    });
+  } catch {
+    return { kind: "silent" };
+  }
+}
+
 // --- Settings ------------------------------------------------------------
 
 export async function getSettings(): Promise<Setting[]> {
@@ -278,11 +294,25 @@ let _audio: HTMLAudioElement | null = null;
 let _currentUrl: string | null = null;
 
 /**
+ * Sequential TTS queue. Within a turn we may speak several lines in order — an
+ * ack, then the real result, then an idle follow-up. They must NOT overlap or
+ * cancel each other, so each `speak` is chained after the previous one settles.
+ */
+let _ttsChain: Promise<void> = Promise.resolve();
+
+/**
  * Speak text via the backend TTS endpoint. Fire-and-forget — never throws.
- * Returns immediately; audio plays in the background.
+ * Lines are QUEUED: each one waits for the previous to finish playing, so an
+ * acknowledgement, a result report, and a follow-up are heard in order.
  * No-op when the server returns 204 (TTS disabled / offline).
  */
-export async function speak(text: string, preset?: string): Promise<void> {
+export function speak(text: string, preset?: string): Promise<void> {
+  _ttsChain = _ttsChain.then(() => speakNow(text, preset));
+  return _ttsChain;
+}
+
+/** Synthesize one line and resolve only when its playback ends (or it fails). */
+async function speakNow(text: string, preset?: string): Promise<void> {
   try {
     const body: Record<string, string> = { text };
     if (preset) body.preset = preset;
@@ -311,25 +341,37 @@ export async function speak(text: string, preset?: string): Promise<void> {
     const audio = new Audio();
     _audio = audio;
     audio.preload = "auto";
-    audio.onended = () => {
-      if (_currentUrl === url) {
-        URL.revokeObjectURL(url);
-        _currentUrl = null;
-      }
-    };
-    // Start only once enough is buffered to play through, so the browser never
-    // begins mid-decode and clips the first word. Fall back to a plain play()
-    // if the event hasn't fired shortly after load.
-    let started = false;
-    const start = () => {
-      if (started || _audio !== audio) return;
-      started = true;
-      void audio.play();
-    };
-    audio.oncanplaythrough = start;
-    audio.src = url;
-    audio.load();
-    setTimeout(start, 600);
+
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        if (_currentUrl === url) {
+          URL.revokeObjectURL(url);
+          _currentUrl = null;
+        }
+        resolve();
+      };
+      audio.onended = finish;
+      audio.onerror = finish;
+
+      // Start only once enough is buffered to play through, so the browser never
+      // begins mid-decode and clips the first word. Fall back to a plain play()
+      // if the event hasn't fired shortly after load.
+      let started = false;
+      const start = () => {
+        if (started || _audio !== audio) return;
+        started = true;
+        void audio.play().catch(finish);
+      };
+      audio.oncanplaythrough = start;
+      audio.src = url;
+      audio.load();
+      setTimeout(start, 600);
+      // Safety net: never let a stuck line block the queue forever.
+      setTimeout(finish, 20000);
+    });
   } catch {
     // Fail silently — text is already shown.
   }

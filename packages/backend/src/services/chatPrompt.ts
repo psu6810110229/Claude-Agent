@@ -83,17 +83,20 @@ export function buildChatPrompt(ctx: ChatContext): string {
   archive, memory.write (replace)${
     ctx.autoExecuteDestructive ? "" : ", google_event.delete"
   }.
-- Reporting (be truthful):
-  * Run-now action: say you are carrying it out now (e.g. "กำลังจัดการให้ครับ",
-    "ปรับเวลาให้แล้วครับ"). Do NOT tell the user to approve it or to open an
-    approval queue. Do NOT invent a detailed result you cannot verify — the UI
-    shows the real outcome beside each action.
+- Reporting (be truthful — CRITICAL):
+  * Run-now action: your "reply" is only an ACKNOWLEDGEMENT that you are STARTING
+    the work. Use present/future tense: "ได้ครับ เดี๋ยวจัดการให้", "สักครู่ครับ
+    กำลังปรับเวลาให้", "รับทราบครับ ขอดูให้ก่อนนะครับ". You do NOT yet know whether
+    it succeeded, so you MUST NOT write a finished result — NEVER say "เรียบร้อย
+    แล้ว", "ปรับให้แล้ว", "อัปเดตให้แล้ว", "ลบให้แล้ว", "done", "updated". The
+    SYSTEM reports the real outcome in a separate message right after your reply.
   * Confirm-required action: tell the user it is waiting for THEIR confirmation.
   * Never reference an "approval queue" for a run-now action.`
     : `EXECUTION POLICY (CURRENT runtime state):
 - Auto-execute is OFF. Every action you propose becomes a PENDING approval and
-  nothing executes until the user approves it. Tell the user the proposal still
-  needs their approval; never claim it is already done.`;
+  nothing executes until the user approves it. Your "reply" only ACKNOWLEDGES
+  that you are preparing it and it needs their confirmation ("ได้ครับ ผมเตรียม
+  ไว้ให้ รอคุณยืนยันนะครับ"). NEVER claim it is already done.`;
 
   const tasks =
     ctx.openTasks.length > 0
@@ -198,10 +201,18 @@ PERSONAL IDENTITY MEMORY RULES:
   clarification question and set "actions" to [].
 
 For every turn you MUST produce a conversational reply in the "reply" field.
-Be honest about state per the EXECUTION POLICY: for a run-now action say you are
-carrying it out; for a confirm-required action say it is awaiting the user's
-confirmation. If you are unsure, ask. Never fabricate a specific success result
-you cannot verify — the UI shows the real outcome of each action.
+Be honest about state per the EXECUTION POLICY: for a run-now action only
+ACKNOWLEDGE that you are starting it (present/future tense) — never write a
+finished result, because you do not know the outcome yet and the system reports
+the real result in a separate message right after your reply. For a confirm-
+required action say it is awaiting the user's confirmation. If you are unsure,
+ask. Never fabricate a specific success result you cannot verify.
+
+PROGRESS-THEN-RESULT (how a run-now turn looks to the user):
+1. Your "reply" = a short, warm acknowledgement that you are on it now.
+2. The backend executes and then posts the TRUE outcome as a follow-up message.
+So a finished-tense reply is always WRONG when you propose a run-now action: it
+would claim success before the work has even run.
 
 ${executionPolicy}
 
@@ -335,4 +346,88 @@ OUTPUT CONTRACT (must follow exactly):
   short labels, and never include raw action payloads.
 - Only use the allowed action types, payload shapes, and memory targets above.
   Do not invent fields, action types, or memory targets.`;
+}
+
+/**
+ * Idle FOLLOW-UP prompt. Fired when the user has gone quiet for a few seconds
+ * after the assistant's last turn. The model offers ONE short, optional,
+ * low-pressure proactive nudge (suggest adding a detail, a reminder, a related
+ * action) OR stays silent. Same action allowlist + timezone rules. It must NOT
+ * repeat what it already said and must make clear the suggestion is optional.
+ */
+export function buildFollowupPrompt(ctx: ChatContext): string {
+  const allowedActions = buildAllowedActionsPrompt();
+
+  const tasks =
+    ctx.openTasks.length > 0
+      ? ctx.openTasks.map((t) => `  - #${t.id}: ${t.title}`).join("\n")
+      : "  (none)";
+
+  const googleEvents =
+    ctx.googleEvents.length > 0
+      ? ctx.googleEvents
+          .map(
+            (e) =>
+              `  - [${e.bucket}] id=${e.id} ${e.start}${e.allDay ? " (all-day)" : ""}: ${e.title}`,
+          )
+          .join("\n")
+      : "  (none)";
+
+  const reminders =
+    ctx.reminders.length > 0
+      ? ctx.reminders
+          .map((r) => `  - #${r.id} [${r.bucket}] due ${r.due_at}: ${r.title}`)
+          .join("\n")
+      : "  (none)";
+
+  const history =
+    ctx.history.length > 0
+      ? ctx.history.map((m) => `  [${m.role}]: ${m.content}`).join("\n")
+      : "  (none)";
+
+  return `You are Jarvis (จาวิส), the user's warm personal AI secretary. The user
+has just gone QUIET for a few seconds after your last reply. Your job now is a
+brief, OPTIONAL proactive follow-up — like a good secretary gently checking in.
+
+WHAT TO DO:
+- Look at the most recent exchange and offer ONE short, helpful nudge: suggest a
+  small useful addition, a related reminder, a sensible next step, or a quick
+  confirmation. Frame it as a suggestion the user can take or ignore.
+- Make it explicitly low-pressure: it is fine to decide later. Example tone:
+  "ถ้าสะดวก ผมแนะนำให้เพิ่ม... ด้วยไหมครับ ถ้ายังไม่แน่ใจ ค่อยตัดสินใจก็ได้ครับ
+  เดี๋ยวผมจดไว้ให้". Keep it to 1-2 sentences. Masculine polite Thai: ผม/ครับ.
+- Do NOT repeat what you already said. Do NOT restate the previous result.
+- If there is genuinely nothing useful to add, set "silent": true and stop —
+  do not invent filler just to speak.
+
+ACTIONS: You MAY propose at most one action only if it clearly matches what the
+user already implied; otherwise propose nothing and just suggest in words. Same
+rules as normal: real ids only, datetimes ISO 8601 UTC ending "Z" (Asia/Bangkok
+is UTC+7 — subtract 7h from the user's local time).
+
+ALLOWED ACTION TYPES:
+${allowedActions}
+
+CONTEXT (read-only):
+OPEN TASKS:
+${tasks}
+
+GOOGLE CALENDAR (today + next 7 days; use shown id= for update/delete):
+${googleEvents}
+
+REMINDERS (overdue / today / upcoming):
+${reminders}
+
+CONVERSATION HISTORY (oldest first; the last turn is what just happened):
+${history}
+
+CURRENT TIME: ${ctx.nowUtc} (Asia/Bangkok: ${ctx.nowBangkok}).
+
+OUTPUT CONTRACT (must follow exactly):
+- Output a SINGLE JSON object and nothing else. No prose, no markdown, no fences.
+- Shape: { "silent"?: boolean, "reply"?: string, "spoken"?: string, "actions"?: Action[], "clarification"?: string, "clarification_choices"?: string[], "notes"?: string }
+- To stay quiet: { "silent": true }.
+- To follow up: provide "reply" (the short suggestion, max 2000 chars) and
+  "spoken" (<=30 words spoken form). "actions" optional, at most 1 item.
+- Only use the allowed action types, payload shapes, and memory targets above.`;
 }

@@ -1,7 +1,45 @@
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Minimal .env loader (zero-dep). Reads simple KEY=VALUE lines from a local,
+ * gitignored `.env` so runtime flags + secrets (e.g. GEMINI_ENABLED,
+ * GEMINI_API_KEY) persist across restarts without exporting them every shell.
+ * An already-set process.env value ALWAYS wins, so an inline env var still
+ * overrides the file. Secrets are never logged. Loaded before any export reads
+ * process.env below.
+ */
+function loadEnvFile(file: string): void {
+  let text: string;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch {
+    return; // No file — nothing to load.
+  }
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    if (key in process.env) continue; // real env wins
+    let value = line.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    process.env[key] = value;
+  }
+}
+
+// Repo root first, then the backend package; existing process.env still wins.
+loadEnvFile(path.resolve(__dirname, "..", "..", "..", ".env"));
+loadEnvFile(path.resolve(__dirname, "..", ".env"));
 
 /** Backend binds to localhost only (safety: no external exposure). */
 export const HOST = "127.0.0.1";
