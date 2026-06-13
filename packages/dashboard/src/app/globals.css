@@ -2930,3 +2930,123 @@ pre.payload {
     transform: translateX(120%);
   }
 }
+
+/* --- Step 15: lock button + verify panel --------------------------------- */
+
+.jarvis-lock-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition:
+    background 180ms var(--spring),
+    border-color 180ms var(--spring),
+    color 180ms var(--spring);
+}
+
+.jarvis-lock-btn:hover:not(.verified) {
+  background: rgba(255, 255, 255, 0.11);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: var(--text);
+}
+
+.jarvis-lock-btn.verified {
+  border-color: rgba(52, 199, 89, 0.4);
+  background: rgba(52, 199, 89, 0.1);
+  color: #34c759;
+  cursor: default;
+}
+
+.jarvis-lock-label {
+  line-height: 1;
+}
+
+.jarvis-verify-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 360px;
+  margin: 0 0 12px;
+  padding: 18px 20px 20px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  animation: verify-panel-in 180ms var(--spring) both;
+}
+
+@keyframes verify-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.jarvis-verify-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.jarvis-verify-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  transition: color 150ms;
+}
+
+.jarvis-verify-close:hover {
+  color: var(--text);
+}
+
+.jarvis-verify-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: -4px;
+}
+
+.jarvis-verify-error {
+  font-size: 0.78rem;
+  color: #ff6b6b;
+  margin: 0;
+}
+
+.jarvis-verify-submit {
+  margin-top: 4px;
+  width: 100%;
+  padding: 9px 0;
+  border-radius: 10px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 180ms;
+}
+
+.jarvis-verify-submit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

@@ -7,7 +7,9 @@ import {
   CheckSquare,
   Clock3,
   Database,
+  Lock,
   MessageCircle,
+  Unlock,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -16,6 +18,7 @@ import {
   approveApproval,
   generateDailyBrief,
   generateEveningBrief,
+  getChallenge,
   getChatHistory,
   listApprovals,
   rejectApproval,
@@ -24,6 +27,7 @@ import {
   sendChat,
   prepareSpeech,
   speak,
+  verifyIdentity,
 } from "@/lib/api";
 import { formatTs } from "@/lib/format";
 import { actionQuestion, isActionType } from "@/lib/actionDisplay";
@@ -39,6 +43,7 @@ import type {
   BriefResult,
   BriefType,
   ChatMessage,
+  VerifyResult,
 } from "@/lib/types";
 
 const PROVIDER_LABELS: Record<AiProviderId, string> = {
@@ -97,6 +102,16 @@ export default function HomePage() {
   const [activeClarification, setActiveClarification] =
     useState<ClarificationPrompt | null>(null);
   const [muted, setMuted] = useState(false);
+  // Step 15 — privacy guard
+  const [verified, setVerified] = useState(false);
+  const [guardEnabled, setGuardEnabled] = useState(false);
+  const [showVerifyPanel, setShowVerifyPanel] = useState(false);
+  const [challengeQuestion, setChallengeQuestion] = useState<string | null>(null);
+  const [verifyPin, setVerifyPin] = useState("");
+  const [verifyAnswer, setVerifyAnswer] = useState("");
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  const sessionIdRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const followupTimerRef = useRef<number | null>(null);
   // Live mirror of `muted` so the idle-follow-up timer reads the current value
@@ -109,6 +124,23 @@ export default function HomePage() {
   // Hydrate muted from localStorage after mount (avoid SSR mismatch).
   useEffect(() => {
     setMuted(localStorage.getItem("jarvis.muted") === "true");
+  }, []);
+
+  // Step 15 — init per-tab sessionId (sessionStorage clears on tab close).
+  useEffect(() => {
+    let id = sessionStorage.getItem("chatSessionId");
+    if (!id) {
+      id = crypto.randomUUID();
+      sessionStorage.setItem("chatSessionId", id);
+    }
+    sessionIdRef.current = id;
+    // Silently fetch guard state so the lock icon appears at startup.
+    void getChallenge()
+      .then((res) => {
+        setGuardEnabled(res.guardEnabled);
+        if (res.question) setChallengeQuestion(res.question);
+      })
+      .catch(() => {});
   }, []);
 
   // Cancel any pending follow-up when the component unmounts.
@@ -219,11 +251,15 @@ export default function HomePage() {
     setMessages((prev) => [...prev, optimisticUser]);
 
     try {
-      const result = await sendChat(text, provider);
+      const result = await sendChat(text, provider, sessionIdRef.current ?? undefined);
       // The instant the reply lands, kick off BOTH the history refetch and TTS
       // buffering concurrently. We buffer the spoken line WITHOUT playing it,
       // then reveal the text and start the voice in the same tick so they land
       // together. The result report (if any) is queued AFTER, non-overlapping.
+      if (result.verificationRequired) {
+        setShowVerifyPanel(true);
+        if (result.challengeQuestion) setChallengeQuestion(result.challengeQuestion);
+      }
       const historyP = getChatHistory(100);
       const speech = !muted ? prepareSpeech(result.spoken ?? result.reply) : null;
       if (result.approvals.length > 0) {
@@ -389,12 +425,14 @@ export default function HomePage() {
     clearFollowup();
     setResetting(true);
     try {
-      await resetChat();
+      await resetChat(sessionIdRef.current ?? undefined);
       setMessages([]);
       setSendError(null);
       setChatErrorRendered(false);
       setActiveClarification(null);
       setConfirmingReset(false);
+      setVerified(false);
+      setShowVerifyPanel(false);
       notify({
         kind: "success",
         title: "New session",
@@ -423,7 +461,129 @@ export default function HomePage() {
         >
           {resetting ? "Resetting..." : "New session"}
         </button>
+        {guardEnabled && (
+          <button
+            type="button"
+            className={`jarvis-lock-btn ${verified ? "verified" : ""}`}
+            onClick={() => {
+              if (verified) return;
+              setShowVerifyPanel((prev) => !prev);
+            }}
+            title={verified ? "ยืนยันตัวตนแล้ว" : "ยืนยันตัวตน (owner verification)"}
+            aria-label={verified ? "ยืนยันตัวตนแล้ว" : "ยืนยันตัวตน"}
+            aria-pressed={verified}
+          >
+            {verified ? (
+              <Unlock strokeWidth={1.8} aria-hidden="true" />
+            ) : (
+              <Lock strokeWidth={1.8} aria-hidden="true" />
+            )}
+            <span className="jarvis-lock-label">
+              {verified ? "ยืนยันแล้ว" : "ยืนยัน"}
+            </span>
+          </button>
+        )}
       </div>
+
+      {/* Step 15 — owner verify panel */}
+      {guardEnabled && showVerifyPanel && !verified && (
+        <form
+          className="jarvis-verify-panel"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!sessionIdRef.current) return;
+            setVerifyBusy(true);
+            setVerifyError(null);
+            try {
+              const res = await verifyIdentity(
+                sessionIdRef.current,
+                verifyPin,
+                verifyAnswer,
+              );
+              if (res.kind === "verified") {
+                setVerified(true);
+                setShowVerifyPanel(false);
+                notify({ kind: "success", title: "ยืนยันตัวตนสำเร็จ", description: "เข้าถึงข้อมูลส่วนตัวได้แล้วครับ" });
+              } else if (res.kind === "disabled") {
+                setShowVerifyPanel(false);
+              } else {
+                setVerifyError(res.error);
+              }
+            } catch {
+              setVerifyError("ยืนยันไม่สำเร็จ — ลองใหม่อีกครั้งครับ");
+            } finally {
+              setVerifyPin("");
+              setVerifyAnswer("");
+              setVerifyBusy(false);
+            }
+          }}
+          aria-label="ยืนยันตัวตน"
+        >
+          <div className="jarvis-verify-header">
+            <Lock size={15} aria-hidden="true" />
+            <span>ยืนยันตัวตน</span>
+            <button
+              type="button"
+              className="jarvis-verify-close"
+              aria-label="ปิด"
+              onClick={() => {
+                setShowVerifyPanel(false);
+                setVerifyError(null);
+                setVerifyPin("");
+                setVerifyAnswer("");
+              }}
+            >
+              ✕
+            </button>
+          </div>
+
+          <label className="jarvis-verify-label" htmlFor="verify-pin">
+            PIN
+          </label>
+          <input
+            id="verify-pin"
+            type="password"
+            autoComplete="current-password"
+            placeholder="รหัส PIN"
+            value={verifyPin}
+            onChange={(e) => setVerifyPin(e.target.value)}
+            disabled={verifyBusy}
+            required
+          />
+
+          {challengeQuestion && (
+            <>
+              <label className="jarvis-verify-label" htmlFor="verify-answer">
+                {challengeQuestion}
+              </label>
+              <input
+                id="verify-answer"
+                type="text"
+                autoComplete="off"
+                placeholder="คำตอบ"
+                value={verifyAnswer}
+                onChange={(e) => setVerifyAnswer(e.target.value)}
+                disabled={verifyBusy}
+                required
+              />
+            </>
+          )}
+
+          {verifyError && (
+            <p className="jarvis-verify-error" role="alert">
+              {verifyError}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            className="jarvis-verify-submit"
+            disabled={verifyBusy || !verifyPin || !verifyAnswer}
+          >
+            {verifyBusy ? "กำลังตรวจสอบ…" : "ยืนยันตัวตน"}
+          </button>
+        </form>
+      )}
 
       <div className="jarvis-stage">
         {!hasConversation && !loading && (
