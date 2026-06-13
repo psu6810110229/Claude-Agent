@@ -109,8 +109,13 @@ function buildActionReport(
   if (lines.length === 0) return null;
 
   // Spoken: drop emoji + raw error detail; keep the gist for voice.
+  // Memory updates are intentionally NOT spoken (user asked not to hear
+  // "เรียบร้อยแล้วครับ" for a memory write) — the ✅ text line above still shows.
+  const executedSpeakable = executed.filter(
+    (d) => d.approval.action_type !== "memory.write",
+  );
   const spokenParts: string[] = [];
-  if (executed.length > 0) spokenParts.push("เรียบร้อยแล้วครับ");
+  if (executedSpeakable.length > 0) spokenParts.push("เรียบร้อยแล้วครับ");
   if (failed.length > 0) spokenParts.push("มีบางรายการทำไม่สำเร็จครับ");
   if (pending.length > 0) spokenParts.push("อีกบางรายการรอคุณยืนยันครับ");
 

@@ -22,6 +22,7 @@ import {
   requestChatFollowup,
   resetChat,
   sendChat,
+  prepareSpeech,
   speak,
 } from "@/lib/api";
 import { formatTs } from "@/lib/format";
@@ -219,22 +220,24 @@ export default function HomePage() {
 
     try {
       const result = await sendChat(text, provider);
-      // Start TTS the instant the reply lands — before the history refetch — so
-      // audio isn't delayed by that round trip. Speak the short `spoken`
-      // acknowledgement first, then (queued, non-overlapping) the TRUE result
-      // report once the action has actually run.
-      if (!muted) {
-        void speak(result.spoken ?? result.reply);
-        if (result.resultSpoken) void speak(result.resultSpoken);
-      }
+      // The instant the reply lands, kick off BOTH the history refetch and TTS
+      // buffering concurrently. We buffer the spoken line WITHOUT playing it,
+      // then reveal the text and start the voice in the same tick so they land
+      // together. The result report (if any) is queued AFTER, non-overlapping.
+      const historyP = getChatHistory(100);
+      const speech = !muted ? prepareSpeech(result.spoken ?? result.reply) : null;
       if (result.approvals.length > 0) {
         mergeApprovals(result.approvals);
         notifyPendingApprovals(result.approvals.length);
       }
-      const updated = await getChatHistory(100);
+      const updated = await historyP;
       const freshAssistant = [...updated]
         .reverse()
         .find((message) => message.role === "assistant" && !previousIds.has(message.id));
+      // Hold the text reveal until the audio is buffered (capped inside
+      // prepareSpeech), so text + voice begin together. Fail-soft: muted /
+      // disabled / slow TTS resolves fast and text shows anyway.
+      if (speech) await speech.ready;
       setMessages(updated);
       if (freshAssistant) {
         setRevealingMessageIds((prev) => new Set(prev).add(freshAssistant.id));
@@ -245,6 +248,8 @@ export default function HomePage() {
           [freshAssistant.id]: result.provider,
         }));
       }
+      speech?.play(); // same tick as the reveal → text and voice together
+      if (!muted && result.resultSpoken) void speak(result.resultSpoken);
       const clarification = buildClarificationPrompt(
         updated,
         result.clarification,
