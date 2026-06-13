@@ -4,6 +4,7 @@ import { taskRoutes } from "./routes/tasks.js";
 import { activityRoutes } from "./routes/activity.js";
 import { approvalRoutes } from "./routes/approvals.js";
 import { memoryRoutes } from "./routes/memory.js";
+import { factRoutes } from "./routes/facts.js";
 import { eventRoutes } from "./routes/events.js";
 import { reminderRoutes } from "./routes/reminders.js";
 import { commandRoutes } from "./routes/command.js";
@@ -37,6 +38,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   app.register(activityRoutes);
   app.register(approvalRoutes);
   app.register(memoryRoutes);
+  app.register(factRoutes);
   app.register(eventRoutes);
   app.register(reminderRoutes);
   app.register(commandRoutes, { aiInvoker: options.aiInvoker });

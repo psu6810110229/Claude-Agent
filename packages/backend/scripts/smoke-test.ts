@@ -15,6 +15,7 @@ const REQUIRED_TABLES = [
   "reminder",
   "notification",
   "chat_message",
+  "memory_fact",
 ];
 
 function assert(cond: unknown, msg: string): void {

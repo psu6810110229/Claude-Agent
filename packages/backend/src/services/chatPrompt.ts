@@ -19,6 +19,12 @@ export interface ChatContext {
   openTasks: { id: number; title: string }[];
   /** memory_index summaries only — never file contents. */
   memorySummaries: { slug: string; summary: string | null }[];
+  /**
+   * Step 16 — recalled facts (real memory). Full content IS exposed here (unlike
+   * the 4 memory files): these are the durable facts JARVIS knows about the user.
+   * Already redacted to [] for an unverified requester by buildChatContext.
+   */
+  facts: { id: number; content: string; category: string; pinned: boolean }[];
   /** Current instant (ISO 8601 UTC). */
   nowUtc: string;
   /** Current Asia/Bangkok wall-clock time. */
@@ -112,6 +118,16 @@ export function buildChatPrompt(ctx: ChatContext): string {
           .join("\n")
       : "  (none)";
 
+  const facts =
+    ctx.facts.length > 0
+      ? ctx.facts
+          .map(
+            (f) =>
+              `  - #${f.id} [${f.category}${f.pinned ? ", pinned" : ""}]: ${f.content}`,
+          )
+          .join("\n")
+      : "  (none yet)";
+
   const googleEvents =
     ctx.googleEvents.length > 0
       ? ctx.googleEvents
@@ -188,17 +204,27 @@ STYLE & WIT RULES:
   executed and what is awaiting confirmation (per EXECUTION POLICY). Trim filler,
   not facts. If a clarification is required, still ask it.
 
-PERSONAL IDENTITY MEMORY RULES:
-- If the user clearly states their own name (for example "ผมชื่อฟาน",
-  "ฉันชื่อ...", "my name is ..."), acknowledge the name in "reply" and propose
-  one "memory.write" action so the backend can remember it after approval.
-- For a clear user-name statement, use this payload pattern:
-  { "target": "preferences", "mode": "append", "content": "User's name is <name>.", "summary": "User name: <name>" }
-- Report saving the name per the EXECUTION POLICY: if memory writes run now, say
-  you are saving it; if they wait for confirmation, say it is awaiting approval.
-  Either way do not over-claim a result the UI has not confirmed.
-- If the name is unclear or looks like more than a simple name, ask one short
-  clarification question and set "actions" to [].
+MEMORY CAPTURE RULES (Step 16 — this is your REAL long-term memory):
+- You have a fact store. When the user reveals a DURABLE personal fact about
+  themselves — their name/nickname, a stable preference (likes/dislikes, how they
+  want to be addressed), a relationship (girlfriend/family/friend names), a
+  recurring routine, or an ongoing project — propose ONE "fact.remember" action
+  to save it. This is how you remember things between conversations.
+- Keep each fact to ONE short sentence in "content". Add a few lowercase recall
+  tags in "keywords" (names, topics) so you can find it later. Pick a "category"
+  (identity|preference|relationship|routine|project|general). Set "pinned": true
+  ONLY for core identity that should ALWAYS be recalled (e.g. the user's own name).
+- The user's own name → { "content": "User's name is <name>.", "keywords": "name <name>",
+  "category": "identity", "pinned": true }. Acknowledge the name warmly in "reply".
+- DO NOT capture ephemeral or one-off chatter (a single meeting time, today's
+  mood, a passing question). Those are not durable facts.
+- DEDUPE: if a fact is ALREADY listed in KNOWN FACTS below, do NOT propose it
+  again. Only remember something new or clearly changed. To correct an existing
+  fact use "fact.update" with its #id; to remove one use "fact.forget" with its #id.
+- Report saving per the EXECUTION POLICY: a new "fact.remember" may run now (say
+  you are noting it down) while "fact.update"/"fact.forget" wait for the user's
+  confirmation. Never over-claim a result the UI has not confirmed.
+- If a name or fact is unclear, ask one short clarification and set "actions" to [].
 
 For every turn you MUST produce a conversational reply in the "reply" field.
 Be honest about state per the EXECUTION POLICY: for a run-now action only
@@ -340,7 +366,13 @@ ${reminders}
 RECENT APPROVAL / ACTION OUTCOMES (latest first; payloads omitted):
 ${approvalOutcomes}
 
-MEMORY SUMMARIES (slug + short summary only; full contents NOT available):
+KNOWN FACTS ABOUT THE USER (your real memory — recall these to ground replies;
+do not re-save one that is already here; correct with fact.update, remove with
+fact.forget, using its #id):
+${facts}
+
+MEMORY SUMMARIES (the 4 memory files; slug + short summary only; full contents
+NOT available — use KNOWN FACTS above for actual recall):
 ${memory}
 
 CONVERSATION HISTORY (oldest first; most recent turn is just before the new message):

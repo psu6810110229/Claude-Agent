@@ -106,3 +106,24 @@ CREATE TABLE IF NOT EXISTS chat_message (
   created_at   TEXT NOT NULL,
   updated_at   TEXT NOT NULL
 );
+
+-- Step 16 — real memory: durable, recallable facts about the user (name,
+-- preferences, relationships, routines, projects). Unlike the 4 markdown memory
+-- files (summaries-only invariant), fact CONTENT is recalled directly into the
+-- prompt. content: one-sentence fact. keywords: lowercase space-joined tags used
+-- for deterministic recall scoring. category: identity|preference|relationship|
+-- routine|project|general. pinned=1 facts are ALWAYS recalled (core identity).
+-- source: chat|manual|brief. status: 'active'→'archived' (soft-archive via
+-- fact.forget, never hard-deleted). updated_at app-maintained.
+CREATE TABLE IF NOT EXISTS memory_fact (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  content    TEXT NOT NULL,
+  keywords   TEXT NOT NULL DEFAULT '',
+  category   TEXT NOT NULL DEFAULT 'general',
+  pinned     INTEGER NOT NULL DEFAULT 0,
+  source     TEXT NOT NULL DEFAULT 'chat',
+  status     TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memory_fact_status ON memory_fact (status);

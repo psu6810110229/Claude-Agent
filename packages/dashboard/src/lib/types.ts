@@ -33,7 +33,10 @@ export type ActionType =
   | "reminder.archive"
   | "google_event.create"
   | "google_event.update"
-  | "google_event.delete";
+  | "google_event.delete"
+  | "fact.remember"
+  | "fact.update"
+  | "fact.forget";
 
 // --- Events & reminders (Step 9) ------------------------------------------
 
@@ -112,6 +115,35 @@ export interface MemoryContent {
   path: string;
   exists: boolean;
   content: string;
+}
+
+// --- Memory facts (Step 16, real memory) ---------------------------------
+
+export type FactCategory =
+  | "identity"
+  | "preference"
+  | "relationship"
+  | "routine"
+  | "project"
+  | "general";
+
+export interface MemoryFact {
+  id: number;
+  content: string;
+  keywords: string;
+  category: FactCategory;
+  pinned: boolean;
+  source: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** POST /api/facts/proposals body for a manual "teach a fact". */
+export interface CreateFactProposalBody {
+  content: string;
+  keywords?: string;
+  category?: FactCategory;
+  pinned?: boolean;
 }
 
 /** POST /api/memory/proposals body. */

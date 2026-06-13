@@ -1,5 +1,6 @@
 import { listTasks } from "../db/repositories/taskRepo.js";
 import { listMemoryEntries } from "../db/repositories/memoryRepo.js";
+import { recallFacts } from "./factRecall.js";
 import { listEvents } from "../db/repositories/eventRepo.js";
 import { listReminders } from "../db/repositories/reminderRepo.js";
 import {
@@ -118,9 +119,11 @@ function buildActionReport(
 
   // Spoken: drop emoji + raw error detail; keep the gist for voice.
   // Memory updates are intentionally NOT spoken (user asked not to hear
-  // "เรียบร้อยแล้วครับ" for a memory write) — the ✅ text line above still shows.
+  // "เรียบร้อยแล้วครับ" for a memory write / silently remembering a fact) — the
+  // ✅ text line above still shows.
+  const SILENT_TYPES = new Set(["memory.write", "fact.remember"]);
   const executedSpeakable = executed.filter(
-    (d) => d.approval.action_type !== "memory.write",
+    (d) => !SILENT_TYPES.has(d.approval.action_type),
   );
   const spokenParts: string[] = [];
   if (executedSpeakable.length > 0) spokenParts.push("เรียบร้อยแล้วครับ");
@@ -160,6 +163,14 @@ export async function buildChatContext(
   const memorySummaries = listMemoryEntries().map((m) => ({
     slug: m.slug,
     summary: m.summary,
+  }));
+
+  // Step 16 — real memory: pick the facts most relevant to this message.
+  const facts = recallFacts(message).map((f) => ({
+    id: f.id,
+    content: f.content,
+    category: f.category,
+    pinned: f.pinned,
   }));
 
   const now = new Date();
@@ -246,6 +257,7 @@ export async function buildChatContext(
       nowBangkok: bangkokWallClock(now),
       openTasks: openTasks.map((t) => ({ id: t.id, title: GENERIC_TASK })),
       memorySummaries: [],
+      facts: [],
       googleEvents: googleEvents.map((e) => ({ ...e, title: GENERIC_BUSY })),
       events: events.map((e) => ({ ...e, title: GENERIC_BUSY })),
       reminders: reminders.map((r) => ({ ...r, title: GENERIC_REMINDER })),
@@ -261,6 +273,7 @@ export async function buildChatContext(
     message,
     openTasks,
     memorySummaries,
+    facts,
     nowUtc: nowIso(),
     nowBangkok: bangkokWallClock(now),
     googleEvents,

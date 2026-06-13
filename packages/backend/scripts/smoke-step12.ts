@@ -167,12 +167,11 @@ async function main(): Promise<void> {
     "prompt pins Jarvis identity, Thai tone, and hides internal role labels",
   );
   assert(
-    readOnlyPrompt.includes("PERSONAL IDENTITY MEMORY RULES") &&
-      readOnlyPrompt.includes("ผมชื่อฟาน") &&
-      readOnlyPrompt.includes('"target": "preferences"') &&
+    readOnlyPrompt.includes("MEMORY CAPTURE RULES") &&
+      readOnlyPrompt.includes("fact.remember") &&
       readOnlyPrompt.includes("User's name is <name>.") &&
       readOnlyPrompt.includes("EXECUTION POLICY"),
-    "prompt gives a concrete memory.write pattern for user-name statements",
+    "prompt gives a concrete fact.remember pattern for user-name statements (Step 16)",
   );
   assert(
     readOnlyPrompt.includes("APPROVAL / ACTION AUDIT RULES") &&

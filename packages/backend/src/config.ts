@@ -360,6 +360,22 @@ export const PRIVACY_VERIFY_IDLE_TIMEOUT_MS = Number(
 export const PRIVACY_GUARD_CONFIGURED =
   PRIVACY_GUARD_ENABLED && (OWNER_PIN.length > 0 || OWNER_SECRET_PHRASE.length > 0);
 
+/**
+ * Step 16 — real memory (fact store). Facts are durable, recallable statements
+ * about the user. Local-only like the memory files, so no enable flag: auto-
+ * capture is governed by the existing auto-execute flag; recall is always on.
+ */
+
+/** Max characters in a single fact's content (safety cap; local single-user). */
+export const FACT_CONTENT_MAX = Number(
+  process.env.CLAUDE_AGENT_FACT_CONTENT_MAX ?? 500,
+);
+
+/** Max facts recalled into a prompt (pinned facts always included, then top-scored). */
+export const FACT_RECALL_CAP = Number(
+  process.env.CLAUDE_AGENT_FACT_RECALL_CAP ?? 20,
+);
+
 /** Single source of truth for UTC ISO 8601 timestamps. */
 export function nowIso(): string {
   return new Date().toISOString();

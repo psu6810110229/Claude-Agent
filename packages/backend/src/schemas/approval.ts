@@ -17,6 +17,11 @@ import {
   updateGoogleEventPayloadSchema,
   deleteGoogleEventPayloadSchema,
 } from "./googleCalendar.js";
+import {
+  factRememberPayloadSchema,
+  factUpdatePayloadSchema,
+  factForgetPayloadSchema,
+} from "./fact.js";
 
 /**
  * The ONLY action types the executor will run. Most are internal operations
@@ -39,6 +44,9 @@ export const actionTypeSchema = z.enum([
   "google_event.create",
   "google_event.update",
   "google_event.delete",
+  "fact.remember",
+  "fact.update",
+  "fact.forget",
 ]);
 export type ActionType = z.infer<typeof actionTypeSchema>;
 
@@ -71,6 +79,9 @@ export const actionPayloadSchemas = {
   "google_event.create": createGoogleEventPayloadSchema,
   "google_event.update": updateGoogleEventPayloadSchema,
   "google_event.delete": deleteGoogleEventPayloadSchema,
+  "fact.remember": factRememberPayloadSchema,
+  "fact.update": factUpdatePayloadSchema,
+  "fact.forget": factForgetPayloadSchema,
 } as const;
 
 export const approvalStatusSchema = z.enum(["pending", "approved", "rejected"]);
