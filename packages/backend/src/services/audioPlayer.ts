@@ -1,6 +1,17 @@
 import { execFile } from "node:child_process";
 import { TTS_SPEAKER_ENABLED } from "../config.js";
+import { getConfigBool } from "../db/repositories/configRepo.js";
 import { logActivity } from "../db/repositories/activityRepo.js";
+
+/**
+ * Runtime gate for backend speaker playback: DB config override (Settings toggle)
+ * wins; falls back to the env seed default.
+ */
+export function isTtsSpeakerEnabled(): boolean {
+  const dbValue = getConfigBool("tts_speaker_enabled");
+  if (dbValue !== null) return dbValue;
+  return TTS_SPEAKER_ENABLED;
+}
 
 /**
  * Abstraction for playing a WAV file on the local speaker.
@@ -30,7 +41,7 @@ class RealAudioPlayer implements AudioPlayer {
   private queue: Promise<void> = Promise.resolve();
 
   play(wavPath: string): void {
-    if (!TTS_SPEAKER_ENABLED) return;
+    if (!isTtsSpeakerEnabled()) return;
     // Strip single-quotes so they can't break the PowerShell string literal.
     // Path is backend-generated (os.tmpdir()), but strip defensively.
     const safePath = wavPath.replace(/'/g, "");

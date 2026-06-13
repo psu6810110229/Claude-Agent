@@ -277,6 +277,10 @@ export interface ChatResult {
   reply: string;
   /** Short spoken summary of `reply` for TTS; null when the model omitted it. */
   spoken?: string | null;
+  /** Truthful outcome line posted AFTER the ack reply; null for pure Q&A. */
+  resultReport?: string | null;
+  /** Short spoken form of resultReport for sequential TTS; null when none. */
+  resultSpoken?: string | null;
   /** Routing mode the backend applied. */
   mode: AiProviderMode;
   /** Provider that actually produced this reply. */
@@ -290,7 +294,33 @@ export interface ChatResult {
   clarification?: string;
   clarification_choices?: string[];
   notes?: string;
+  /** Step 15: true when guard on, unverified requester asked for private data. */
+  verificationRequired?: boolean;
+  /** Step 15: challenge question to show in the verify panel. */
+
+  /** Step 15: UX signal — "private" if user probed owner's private specifics. */
+  sensitivity?: "private" | "normal";
 }
+
+/** Step 15 — POST /api/chat/verify response. */
+export type VerifyResult =
+  | { kind: "verified" }
+  | { kind: "denied"; reason: string; error: string }
+  | { kind: "disabled" };
+
+/**
+ * POST /api/chat/followup result. The backend stays QUIET (`silent`) unless it
+ * has a useful proactive nudge; on `followup` the assistant message is already
+ * persisted, so the dashboard just refetches history + plays the spoken form.
+ */
+export type FollowupResult =
+  | { kind: "silent" }
+  | {
+      kind: "followup";
+      reply: string;
+      spoken?: string | null;
+      approvals: Approval[];
+    };
 
 // --- Settings -------------------------------------------------------------
 

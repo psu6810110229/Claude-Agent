@@ -7,7 +7,9 @@ import {
   CheckSquare,
   Clock3,
   Database,
+  Lock,
   MessageCircle,
+  Unlock,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -16,12 +18,16 @@ import {
   approveApproval,
   generateDailyBrief,
   generateEveningBrief,
+  getChallenge,
   getChatHistory,
   listApprovals,
   rejectApproval,
+  requestChatFollowup,
   resetChat,
   sendChat,
+  prepareSpeech,
   speak,
+  verifyIdentity,
 } from "@/lib/api";
 import { formatTs } from "@/lib/format";
 import { actionQuestion, isActionType } from "@/lib/actionDisplay";
@@ -37,12 +43,16 @@ import type {
   BriefResult,
   BriefType,
   ChatMessage,
+  VerifyResult,
 } from "@/lib/types";
 
 const PROVIDER_LABELS: Record<AiProviderId, string> = {
   claude: "Claude",
   gemini: "Gemini",
 };
+
+/** Idle delay before Jarvis offers a proactive follow-up after its last turn. */
+const FOLLOWUP_IDLE_MS = 5000;
 
 /** Time-of-day greeting in the user's timezone (Asia/Bangkok). */
 function greetingNow(): string {
@@ -71,7 +81,7 @@ export default function HomePage() {
   const [greeting, setGreeting] = useState<string | null>(null);
   const [orbState, setOrbState] = useState<OrbState>("idle");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [provider, setProvider] = useState<ProviderChoice>("claude");
+  const [provider, setProvider] = useState<ProviderChoice>("gemini");
   const [messageProvider, setMessageProvider] = useState<
     Record<number, AiProviderId>
   >({});
@@ -92,12 +102,50 @@ export default function HomePage() {
   const [activeClarification, setActiveClarification] =
     useState<ClarificationPrompt | null>(null);
   const [muted, setMuted] = useState(false);
+  // Step 15 — privacy guard (conversational flow)
+  const [verified, setVerified] = useState(false);
+  const [guardEnabled, setGuardEnabled] = useState(false);
+  const [pendingVerificationPrompt, setPendingVerificationPrompt] = useState<string | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const followupTimerRef = useRef<number | null>(null);
+  // Live mirror of `muted` so the idle-follow-up timer reads the current value
+  // (its closure is captured when scheduled, before any later mute toggle).
+  const mutedRef = useRef(muted);
+  useEffect(() => {
+    mutedRef.current = muted;
+  }, [muted]);
 
   // Hydrate muted from localStorage after mount (avoid SSR mismatch).
   useEffect(() => {
     setMuted(localStorage.getItem("jarvis.muted") === "true");
   }, []);
+
+  // Step 15 — init per-tab sessionId (sessionStorage clears on tab close).
+  useEffect(() => {
+    let id = sessionStorage.getItem("chatSessionId");
+    if (!id) {
+      id = crypto.randomUUID();
+      sessionStorage.setItem("chatSessionId", id);
+    }
+    sessionIdRef.current = id;
+    // Silently fetch guard state so the lock icon appears at startup.
+    void getChallenge()
+      .then((res) => {
+        setGuardEnabled(res.guardEnabled);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Cancel any pending follow-up when the component unmounts.
+  useEffect(
+    () => () => {
+      if (followupTimerRef.current !== null) {
+        window.clearTimeout(followupTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const hasConversation = messages.length > 0 || sending || briefBusy !== null;
 
@@ -130,8 +178,53 @@ export default function HomePage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, sending, briefBusy]);
 
-  async function doSend(text: string) {
+  function clearFollowup() {
+    if (followupTimerRef.current !== null) {
+      window.clearTimeout(followupTimerRef.current);
+      followupTimerRef.current = null;
+    }
+  }
+
+  function scheduleFollowup() {
+    clearFollowup();
+    followupTimerRef.current = window.setTimeout(() => {
+      void runFollowup();
+    }, FOLLOWUP_IDLE_MS);
+  }
+
+  // Idle proactive nudge. Fires once after the user stays quiet; never loops
+  // (it does not reschedule itself) and stays silent unless the backend offers
+  // something useful. Any failure is swallowed — a nudge must never disrupt.
+  async function runFollowup() {
+    if (sending || briefBusy || resetting) return;
+    const previousIds = new Set(messages.map((message) => message.id));
+    try {
+      const result = await requestChatFollowup();
+      if (result.kind !== "followup") return;
+      if (result.approvals.length > 0) {
+        mergeApprovals(result.approvals);
+        notifyPendingApprovals(result.approvals.length);
+      }
+      if (!mutedRef.current) void speak(result.spoken ?? result.reply);
+      const updated = await getChatHistory(100);
+      const fresh = [...updated]
+        .reverse()
+        .find(
+          (message) =>
+            message.role === "assistant" && !previousIds.has(message.id),
+        );
+      setMessages(updated);
+      if (fresh) {
+        setRevealingMessageIds((prev) => new Set(prev).add(fresh.id));
+      }
+    } catch {
+      // Silent — proactive follow-up must never surface an error.
+    }
+  }
+
+  async function doSend(text: string, isRetry = false) {
     if (briefBusy) return;
+    clearFollowup();
     const previousIds = new Set(messages.map((message) => message.id));
     setOrbState("thinking");
     setSending(true);
@@ -140,31 +233,138 @@ export default function HomePage() {
     setLastFailedMessage(null);
     setActiveClarification(null);
 
-    const optimisticUser: ChatMessage = {
-      id: -Date.now(),
-      role: "user",
-      content: text,
-      actions_json: null,
-      status: "active",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, optimisticUser]);
+    let shouldFallThrough = false;
+    
+    // Conversational Privacy Guard flow
+    if (pendingVerificationPrompt && !isRetry) {
+      try {
+        const res = await verifyIdentity(sessionIdRef.current ?? "", text);
+        if (res.kind === "verified") {
+          const optimisticUser: ChatMessage = {
+            id: -Date.now(),
+            role: "user",
+            content: text,
+            actions_json: null,
+            status: "active",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, optimisticUser]);
+          
+          setVerified(true);
+          const originalPrompt = pendingVerificationPrompt;
+          setPendingVerificationPrompt(null);
+          
+          const successMsg: ChatMessage = fallbackAssistantMessage("✅ ปลดล็อกสำเร็จครับ กำลังดำเนินการต่อ...");
+          setMessages((prev) => [...prev, successMsg]);
+          if (!muted) void speak("เรียบร้อยครับ ดำเนินการต่อเลย");
+          
+          // Re-run original prompt, mark as retry to prevent duplicate user bubble
+          await doSend(originalPrompt, true);
+          return;
+        } else if (res.kind === "denied" && res.reason === "locked") {
+          const optimisticUser: ChatMessage = {
+            id: -Date.now(),
+            role: "user",
+            content: text,
+            actions_json: null,
+            status: "active",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, optimisticUser]);
+          
+          const errorText = "❌ ยืนยันตัวตนไม่สำเร็จหลายครั้ง กรุณารอสักครู่แล้วลองใหม่ครับ";
+          const failMsg: ChatMessage = fallbackAssistantMessage(errorText);
+          setMessages((prev) => [...prev, failMsg]);
+          if (!muted) void speak("รหัสผิดหลายครั้ง พักก่อนนะครับ");
+          
+          setSending(false);
+          setOrbState("idle");
+          setPendingVerificationPrompt(null);
+          return;
+        } else {
+          // Wrong PIN or Phrase, but it might be natural language.
+          // Fall through to let Claude reply conversationally!
+          setPendingVerificationPrompt(null);
+          shouldFallThrough = true;
+        }
+      } catch {
+        setPendingVerificationPrompt(null);
+        shouldFallThrough = true;
+      }
+    }
+
+    if (!isRetry) {
+      const optimisticUser: ChatMessage = {
+        id: -Date.now(),
+        role: "user",
+        content: text,
+        actions_json: null,
+        status: "active",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, optimisticUser]);
+    }
 
     try {
-      const result = await sendChat(text, provider);
-      // Start TTS the instant the reply lands — before the history refetch — so
-      // audio isn't delayed by that round trip. Speak the short `spoken`
-      // summary; fall back to full `reply` when the model omitted it.
-      if (!muted) void speak(result.spoken ?? result.reply);
+      const result = await sendChat(text, provider, sessionIdRef.current ?? undefined);
+      // The instant the reply lands, kick off BOTH the history refetch and TTS
+      // buffering concurrently. We buffer the spoken line WITHOUT playing it,
+      // then reveal the text and start the voice in the same tick so they land
+      // together. The result report (if any) is queued AFTER, non-overlapping.
+      if (result.verificationRequired) {
+        setPendingVerificationPrompt(text);
+        
+        const updated = await getChatHistory(100);
+        const reqMsg: ChatMessage = fallbackAssistantMessage("🔒 ข้อมูลถูกจำกัดการเข้าถึงครับ กรุณาพิมพ์ รหัส PIN หรือ คำลับ เพื่อดำเนินการต่อครับ");
+        
+        const freshAssistant = [...updated]
+          .reverse()
+          .find((message) => message.role === "assistant" && !previousIds.has(message.id));
+          
+        setMessages([...updated, reqMsg]);
+        
+        if (freshAssistant) {
+          setRevealingMessageIds((prev) => new Set(prev).add(freshAssistant.id));
+          setMessageProvider((prev) => ({
+            ...prev,
+            [freshAssistant.id]: result.provider,
+          }));
+        }
+
+        const speechText = result.spoken ?? result.reply;
+        if (!muted) {
+          if (speechText) {
+             const speech = prepareSpeech(speechText);
+             await speech.ready;
+             speech.play();
+             // chain the lock nag after the natural reply
+             void speak("ระบบล็อคอยู่ครับ ขอดูรหัสพินหรือคำลับก่อนนะครับ");
+          } else {
+             void speak("ระบบล็อคอยู่ครับ ขอดูรหัสพินหรือคำลับก่อนนะครับ");
+          }
+        }
+        
+        setSending(false);
+        setOrbState("idle");
+        return;
+      }
+      const historyP = getChatHistory(100);
+      const speech = !muted ? prepareSpeech(result.spoken ?? result.reply) : null;
       if (result.approvals.length > 0) {
         mergeApprovals(result.approvals);
         notifyPendingApprovals(result.approvals.length);
       }
-      const updated = await getChatHistory(100);
+      const updated = await historyP;
       const freshAssistant = [...updated]
         .reverse()
         .find((message) => message.role === "assistant" && !previousIds.has(message.id));
+      // Hold the text reveal until the audio is buffered (capped inside
+      // prepareSpeech), so text + voice begin together. Fail-soft: muted /
+      // disabled / slow TTS resolves fast and text shows anyway.
+      if (speech) await speech.ready;
       setMessages(updated);
       if (freshAssistant) {
         setRevealingMessageIds((prev) => new Set(prev).add(freshAssistant.id));
@@ -175,9 +375,17 @@ export default function HomePage() {
           [freshAssistant.id]: result.provider,
         }));
       }
-      setActiveClarification(
-        buildClarificationPrompt(updated, result.clarification, result.clarification_choices),
+      speech?.play(); // same tick as the reveal → text and voice together
+      if (!muted && result.resultSpoken) void speak(result.resultSpoken);
+      const clarification = buildClarificationPrompt(
+        updated,
+        result.clarification,
+        result.clarification_choices,
       );
+      setActiveClarification(clarification);
+      // Offer a proactive follow-up after a quiet pause — but not while we are
+      // already waiting on the user to answer a clarification.
+      if (!clarification) scheduleFollowup();
     } catch (err) {
       let message = err instanceof ApiError ? err.message : String(err);
       // Phase 4 — Auto mode never switches providers silently. On failure the
@@ -211,6 +419,7 @@ export default function HomePage() {
 
   async function runBrief(type: BriefType) {
     if (sending || briefBusy) return;
+    clearFollowup();
     setOrbState("thinking");
     setBriefBusy(type);
     setSendError(null);
@@ -257,6 +466,7 @@ export default function HomePage() {
 
   async function runApproval(id: number, decision: "approve" | "reject") {
     if (approvalBusy) return;
+    clearFollowup();
     setApprovalBusy(id);
     setSendError(null);
     setChatErrorRendered(false);
@@ -303,14 +513,17 @@ export default function HomePage() {
 
   async function confirmNewSession() {
     if (sending || briefBusy || resetting) return;
+    clearFollowup();
     setResetting(true);
     try {
-      await resetChat();
+      await resetChat(sessionIdRef.current ?? undefined);
       setMessages([]);
       setSendError(null);
       setChatErrorRendered(false);
       setActiveClarification(null);
       setConfirmingReset(false);
+      setVerified(false);
+      setPendingVerificationPrompt(null);
       notify({
         kind: "success",
         title: "New session",
@@ -339,6 +552,22 @@ export default function HomePage() {
         >
           {resetting ? "Resetting..." : "New session"}
         </button>
+        {guardEnabled && (
+          <div
+            className={`jarvis-lock-btn ${verified ? "verified" : ""}`}
+            title={verified ? "ยืนยันตัวตนแล้ว" : "ระบบล็อกความปลอดภัยการเข้าถึงข้อมูลส่วนตัว"}
+            aria-label={verified ? "ยืนยันตัวตนแล้ว" : "ระบบล็อก"}
+          >
+            {verified ? (
+              <Unlock strokeWidth={1.8} aria-hidden="true" />
+            ) : (
+              <Lock strokeWidth={1.8} aria-hidden="true" />
+            )}
+            <span className="jarvis-lock-label">
+              {verified ? "ยืนยันแล้ว" : "ล็อก"}
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="jarvis-stage">

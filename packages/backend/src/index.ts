@@ -1,7 +1,7 @@
 import { buildServer } from "./server.js";
 import { initDb } from "./db/init.js";
 import { closeDb } from "./db/connection.js";
-import { HOST, PORT, SCHEDULER_ENABLED, TTS_ENABLED, TTS_SPEAKER_ENABLED } from "./config.js";
+import { HOST, PORT, PRIVACY_GUARD_ENABLED, PRIVACY_GUARD_CONFIGURED } from "./config.js";
 import { startScheduler } from "./services/scheduler.js";
 import { realDesktopNotifier } from "./services/desktopNotifier.js";
 import { realTtsSynthesizer } from "./services/tts.js";
@@ -12,24 +12,32 @@ async function main(): Promise<void> {
   initDb();
   const app = buildServer();
 
-  // Voice bundle: only wired when both TTS flags are enabled.
-  // Flag gating lives here, not inside scheduler, so tests can inject stubs freely.
-  const voice: SchedulerVoice | undefined =
-    TTS_ENABLED && TTS_SPEAKER_ENABLED
-      ? { synthesizer: realTtsSynthesizer, player: realAudioPlayer }
-      : undefined;
+  // Voice bundle is always wired now; the real synthesizer/player gate themselves
+  // on runtime flags (isTtsEnabled / isTtsSpeakerEnabled — Settings toggles), so
+  // voice can be turned on/off without a restart. When disabled the synthesizer
+  // returns null and the player no-ops, so the scheduler stays silent.
+  const voice: SchedulerVoice = {
+    synthesizer: realTtsSynthesizer,
+    player: realAudioPlayer,
+  };
 
-  // Start background scheduler (off by default — set CLAUDE_AGENT_SCHEDULER_ENABLED=1).
-  // Kept outside buildServer so HTTP-only tests are unaffected.
-  const scheduler = SCHEDULER_ENABLED
-    ? startScheduler(realDesktopNotifier, voice)
-    : null;
-  if (SCHEDULER_ENABLED) {
-    app.log.info("Scheduler started (reminder/event firing active)");
+  // Start the background scheduler interval unconditionally. Each tick gates on
+  // the runtime flag (isSchedulerEnabled — Settings toggle, default off), so the
+  // user can enable/disable firing without a restart. Kept outside buildServer so
+  // HTTP-only tests are unaffected.
+  const scheduler = startScheduler(realDesktopNotifier, voice);
+  app.log.info("Scheduler interval running (firing gated by runtime flag)");
+
+  // Step 15 — fail-closed: guard on but secrets missing hides private data and
+  // makes unlock impossible until configured. Warn loudly; never log the secrets.
+  if (PRIVACY_GUARD_ENABLED && !PRIVACY_GUARD_CONFIGURED) {
+    app.log.warn(
+      "privacy guard ON but PIN/answer not configured — private data stays hidden, cannot unlock",
+    );
   }
 
   const shutdown = async (): Promise<void> => {
-    scheduler?.stop();
+    scheduler.stop();
     await app.close();
     closeDb();
     process.exit(0);

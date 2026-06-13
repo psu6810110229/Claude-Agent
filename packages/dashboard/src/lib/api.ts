@@ -10,6 +10,7 @@ import type {
   CalendarEvent,
   ChatMessage,
   ChatResult,
+  FollowupResult,
   CommandMode,
   CommandResult,
   CreateMemoryProposalBody,
@@ -23,6 +24,7 @@ import type {
   SettingsResponse,
   Task,
   UpdateTaskBody,
+  VerifyResult,
 } from "./types";
 
 /** Thrown for any non-2xx response; `message` carries the backend's error text. */
@@ -228,8 +230,9 @@ export function markNotificationRead(id: number): Promise<Notification> {
 export function sendChat(
   message: string,
   choice?: ProviderChoice,
+  sessionId?: string,
 ): Promise<ChatResult> {
-  const body =
+  const base =
     choice === "auto"
       ? { message, mode: "auto" }
       : choice
@@ -237,13 +240,39 @@ export function sendChat(
         : { message };
   return request<ChatResult>("/api/chat", {
     method: "POST",
-    body: JSON.stringify(body),
+    body: JSON.stringify(sessionId ? { ...base, sessionId } : base),
   });
 }
 
-/** Archive the current chat thread. Next message starts a fresh session with zero history tokens. */
-export function resetChat(): Promise<{ kind: "reset"; archived: number }> {
-  return request("/api/chat/reset", { method: "POST" });
+/** Archive the current chat thread. Passes sessionId so the backend clears verified state too. */
+export function resetChat(sessionId?: string): Promise<{ kind: "reset"; archived: number }> {
+  return request("/api/chat/reset", {
+    method: "POST",
+    ...(sessionId ? { body: JSON.stringify({ sessionId }) } : {}),
+  });
+}
+
+// --- Identity verification (Step 15) -------------------------------------
+
+/** Verify owner identity. Returns `verified`, `denied` (with error), or `disabled`. */
+export function verifyIdentity(
+  sessionId: string,
+  input: string,
+): Promise<VerifyResult> {
+  return request<VerifyResult>("/api/chat/verify", {
+    method: "POST",
+    body: JSON.stringify({ sessionId, input }),
+  });
+}
+
+/** Fetch guard state and challenge question (for pre-verify lock button). */
+export function getChallenge(): Promise<{
+  guardEnabled: boolean;
+  question: string | null;
+}> {
+  return request<{ guardEnabled: boolean; question: string | null }>(
+    "/api/chat/challenge",
+  );
 }
 
 /** Fetch recent chat history (oldest first). */
@@ -252,6 +281,21 @@ export async function getChatHistory(limit = 50): Promise<ChatMessage[]> {
     `/api/chat/history?limit=${limit}`,
   );
   return data.messages;
+}
+
+/**
+ * Request an idle proactive follow-up. Always resolves (the backend returns 200
+ * even when it stays silent); on any client error it degrades to `silent` so the
+ * caller never has to handle an error for a nudge the user did not request.
+ */
+export async function requestChatFollowup(): Promise<FollowupResult> {
+  try {
+    return await request<FollowupResult>("/api/chat/followup", {
+      method: "POST",
+    });
+  } catch {
+    return { kind: "silent" };
+  }
 }
 
 // --- Settings ------------------------------------------------------------
@@ -278,61 +322,174 @@ let _audio: HTMLAudioElement | null = null;
 let _currentUrl: string | null = null;
 
 /**
+ * Sequential TTS queue. Within a turn we may speak several lines in order — an
+ * ack, then the real result, then an idle follow-up. They must NOT overlap or
+ * cancel each other, so each `speak` is chained after the previous one settles.
+ */
+let _ttsChain: Promise<void> = Promise.resolve();
+
+/**
+ * How long the caller may hold the text reveal waiting for audio to buffer.
+ * Past this cap we reveal text anyway (fail-soft) and let voice catch up.
+ */
+const READY_CAP_MS = 2000;
+
+/** Two-phase speech: buffer audio first (`ready`), then start it (`play`). */
+export interface SpeechHandle {
+  /** Resolves once buffered enough to play, the cap elapses, or it failed/was disabled. */
+  ready: Promise<void>;
+  /** Begin playback now — no-op if disabled/failed. */
+  play: () => void;
+}
+
+interface PreparedLine extends SpeechHandle {
+  /** Resolves when playback ends (or the line failed). Used to chain the queue. */
+  done: Promise<void>;
+}
+
+/**
+ * Start fetching + buffering one spoken line immediately and return handles to
+ * gate its readiness and trigger playback. Never throws; fails soft to silence.
+ * Playback is still `canplaythrough`-gated so the browser never begins
+ * mid-decode and clips the first word.
+ */
+function prepareLine(text: string, preset?: string): PreparedLine {
+  let resolveDone: () => void = () => {};
+  const done = new Promise<void>((r) => {
+    resolveDone = r;
+  });
+
+  let theAudio: HTMLAudioElement | null = null;
+  let myUrl: string | null = null;
+  let playWanted = false;
+  let started = false;
+  let canPlay = false;
+  let doneSettled = false;
+  let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const finishDone = () => {
+    if (doneSettled) return;
+    doneSettled = true;
+    if (fallbackTimer) clearTimeout(fallbackTimer);
+    if (myUrl) {
+      if (_currentUrl === myUrl) _currentUrl = null;
+      URL.revokeObjectURL(myUrl);
+    }
+    resolveDone();
+  };
+
+  const reallyStart = () => {
+    if (started || !theAudio || _audio !== theAudio) return;
+    started = true;
+    void theAudio.play().catch(() => finishDone());
+  };
+  const maybeStart = () => {
+    if (started || !playWanted || !theAudio) return;
+    if (canPlay) reallyStart();
+    else if (!fallbackTimer)
+      fallbackTimer = setTimeout(() => {
+        if (playWanted) reallyStart();
+      }, 600);
+  };
+
+  const ready = (async (): Promise<void> => {
+    try {
+      const body: Record<string, string> = { text };
+      if (preset) body.preset = preset;
+
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      // TTS disabled / offline → resolve immediately so text isn't held.
+      if (res.status === 204 || !res.ok) {
+        finishDone();
+        return;
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+
+      // Stop + revoke any previous playback.
+      if (_audio) {
+        _audio.pause();
+        _audio.src = "";
+      }
+      if (_currentUrl) URL.revokeObjectURL(_currentUrl);
+
+      _currentUrl = url;
+      myUrl = url;
+      const audio = new Audio();
+      _audio = audio;
+      theAudio = audio;
+      audio.preload = "auto";
+      audio.onended = finishDone;
+      audio.onerror = finishDone;
+      audio.oncanplaythrough = () => {
+        canPlay = true;
+        maybeStart();
+      };
+      audio.src = url;
+      audio.load();
+      // Safety net: never let a stuck line block the queue forever.
+      setTimeout(finishDone, 20000);
+
+      // Readiness resolves when buffered enough OR the cap elapses.
+      await new Promise<void>((resolve) => {
+        let settled = false;
+        const settle = () => {
+          if (settled) return;
+          settled = true;
+          resolve();
+        };
+        if (canPlay) settle();
+        audio.addEventListener("canplaythrough", settle, { once: true });
+        setTimeout(settle, READY_CAP_MS);
+      });
+    } catch {
+      // Fail silently — text is already shown.
+      finishDone();
+    }
+  })();
+
+  return {
+    ready,
+    play: () => {
+      playWanted = true;
+      maybeStart();
+    },
+    done,
+  };
+}
+
+/**
+ * Buffer a spoken line WITHOUT playing it yet, so the caller can reveal the
+ * matching text and call `play()` in the same tick — text and voice together.
+ * A later `speak()` (result report, follow-up) is queued AFTER this line's
+ * playback so they never overlap.
+ */
+export function prepareSpeech(text: string, preset?: string): SpeechHandle {
+  const line = prepareLine(text, preset);
+  _ttsChain = _ttsChain.then(() => line.done);
+  return { ready: line.ready, play: line.play };
+}
+
+/**
  * Speak text via the backend TTS endpoint. Fire-and-forget — never throws.
- * Returns immediately; audio plays in the background.
+ * Lines are QUEUED: each one waits for the previous to finish playing, so an
+ * acknowledgement, a result report, and a follow-up are heard in order.
  * No-op when the server returns 204 (TTS disabled / offline).
  */
-export async function speak(text: string, preset?: string): Promise<void> {
-  try {
-    const body: Record<string, string> = { text };
-    if (preset) body.preset = preset;
-
-    const res = await fetch("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-
-    if (res.status === 204 || !res.ok) return;
-
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-
-    // Stop + revoke any previous playback.
-    if (_audio) {
-      _audio.pause();
-      _audio.src = "";
-    }
-    if (_currentUrl) {
-      URL.revokeObjectURL(_currentUrl);
-    }
-
-    _currentUrl = url;
-    const audio = new Audio();
-    _audio = audio;
-    audio.preload = "auto";
-    audio.onended = () => {
-      if (_currentUrl === url) {
-        URL.revokeObjectURL(url);
-        _currentUrl = null;
-      }
-    };
-    // Start only once enough is buffered to play through, so the browser never
-    // begins mid-decode and clips the first word. Fall back to a plain play()
-    // if the event hasn't fired shortly after load.
-    let started = false;
-    const start = () => {
-      if (started || _audio !== audio) return;
-      started = true;
-      void audio.play();
-    };
-    audio.oncanplaythrough = start;
-    audio.src = url;
-    audio.load();
-    setTimeout(start, 600);
-  } catch {
-    // Fail silently — text is already shown.
-  }
+export function speak(text: string, preset?: string): Promise<void> {
+  _ttsChain = _ttsChain.then(async () => {
+    const line = prepareLine(text, preset);
+    await line.ready;
+    line.play();
+    await line.done;
+  });
+  return _ttsChain;
 }
 
 // --- Briefs --------------------------------------------------------------

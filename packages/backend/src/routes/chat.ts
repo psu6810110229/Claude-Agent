@@ -1,12 +1,19 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { chatRequestSchema, chatHistoryQuerySchema } from "../schemas/chat.js";
+import {
+  chatRequestSchema,
+  chatHistoryQuerySchema,
+  chatVerifyRequestSchema,
+} from "../schemas/chat.js";
 import { logActivity } from "../db/repositories/activityRepo.js";
 import { archiveActiveMessages, listRecentMessages } from "../db/repositories/chatRepo.js";
 import { runChat } from "../services/chat.js";
+import { runChatFollowup } from "../services/chatFollowup.js";
+import { normalizeDictation } from "../services/textNormalizer.js";
 import type { ClaudeInvoker } from "../services/claudeClient.js";
 import {
   selectProvider,
   otherAvailableProvider,
+  getProvider,
   ProviderError,
   type AiProviderId,
 } from "../services/aiProvider.js";
@@ -14,6 +21,13 @@ import {
   realGoogleEventsFetcher,
   type GoogleEventsFetcher,
 } from "../services/googleCalendar.js";
+import {
+  isVerified,
+  verify,
+  isGuardEnabled,
+  clearVerified,
+} from "../services/identityVerifier.js";
+import { OWNER_SECRET_PHRASE, OWNER_PIN } from "../config.js";
 
 /** Plugin options. Both injectables let tests stub Claude / Google Calendar. */
 export interface ChatRouteOptions {
@@ -40,7 +54,89 @@ export async function chatRoutes(
     handleChat(req, opts.aiInvoker, fetchGoogle, reply),
   );
 
-  app.post("/api/chat/reset", async (_req, reply) => {
+  app.get("/api/chat/challenge", async (_req, reply) => {
+    return reply.code(200).send({
+      guardEnabled: isGuardEnabled(),
+      question: null,
+    });
+  });
+
+  app.post("/api/chat/verify", async (req, reply) => {
+    if (!isGuardEnabled()) {
+      return reply.code(200).send({ kind: "disabled" });
+    }
+    const body = chatVerifyRequestSchema.safeParse(req.body);
+    if (!body.success) {
+      return reply.code(400).send({ kind: "error", error: "คำขอไม่ถูกต้อง" });
+    }
+    const { sessionId, input } = body.data;
+    const out = verify(sessionId, input); // NEVER log pin/phrase
+    if (out.ok) {
+      logActivity("chat.identity.verified", "owner verified for a chat session");
+      return reply.code(200).send({ kind: "verified" });
+    }
+
+    logActivity("chat.identity.denied", `reason=${out.reason}`); // reason only, no values
+    const code =
+      out.reason === "locked"
+        ? 429
+        : out.reason === "not-configured"
+          ? 503
+          : 401;
+
+    const denyMessage = (reason: string): string => {
+      if (reason === "locked") return "ลองใหม่อีกครั้งในภายหลังครับ";
+      if (reason === "not-configured") return "ระบบยังไม่ได้ตั้งค่ารหัสยืนยัน";
+      return "ยืนยันไม่สำเร็จครับ";
+    };
+
+    return reply.code(code).send({
+      kind: "denied",
+      reason: out.reason,
+      error: denyMessage(out.reason),
+    });
+  });
+
+  // Idle proactive follow-up. Gemini-first (the user's primary provider); falls
+  // back to Claude only if Gemini is not configured. Fails QUIET: any problem
+  // returns kind:"silent" with 200 so the dashboard never shows an error for a
+  // nudge the user did not explicitly request.
+  app.post("/api/chat/followup", async (req, reply) => {
+    const body = req.body as { sessionId?: string } | undefined;
+    const sessionId = body?.sessionId;
+    if (!isVerified(sessionId)) {
+      return reply.code(200).send({ kind: "silent" });
+    }
+
+    const invoke =
+      opts.aiInvoker ?? pickFollowupProvider()?.invoke;
+    if (!invoke) {
+      return reply.code(200).send({ kind: "silent" });
+    }
+    const result = await runChatFollowup(invoke, fetchGoogle);
+    if (result.kind === "silent") {
+      return reply.code(200).send({ kind: "silent" });
+    }
+    for (const approval of result.approvals) {
+      logActivity(
+        "chat.followup.proposed",
+        `approval #${approval.id} (${approval.action_type}) from follow-up`,
+      );
+    }
+    logActivity("chat.followup.spoke", `${result.approvals.length} proposal(s)`);
+    return reply.code(200).send({
+      kind: "followup",
+      reply: result.reply,
+      spoken: result.spoken ?? null,
+      approvals: result.approvals,
+    });
+  });
+
+  app.post("/api/chat/reset", async (req, reply) => {
+    const body = req.body as { sessionId?: string } | undefined;
+    const sessionId = body?.sessionId;
+    clearVerified(sessionId);
+
     const archived = archiveActiveMessages();
     logActivity("chat.session.reset", `${archived} message(s) archived`);
     return reply.code(200).send({ kind: "reset", archived });
@@ -69,8 +165,61 @@ async function handleChat(
       .send({ kind: "error", error: body.error.issues[0].message });
   }
 
-  const { message, provider: requestedProvider, mode: requestedMode } = body.data;
+  let message = body.data.message;
+  const {
+    provider: requestedProvider,
+    mode: requestedMode,
+    sessionId,
+  } = body.data;
   const mode = requestedMode ?? "manual";
+  
+  // Step 16: Dictation normalization
+  message = normalizeDictation(message);
+
+  // Step 16: Auto-bypass via PIN or Secret Phrase
+  if (isGuardEnabled() && sessionId) {
+    const cleanMsg = message.trim().toLowerCase();
+    let matchedInline = false;
+    let removeLength = 0;
+    let unlockSecret = "";
+
+    // 1. Check PIN
+    if (OWNER_PIN && cleanMsg === OWNER_PIN.trim().toLowerCase()) {
+      matchedInline = true;
+      unlockSecret = OWNER_PIN;
+      removeLength = cleanMsg.length;
+    }
+    // 2. Check Secret Phrase
+    else if (OWNER_SECRET_PHRASE) {
+      const phrase = OWNER_SECRET_PHRASE.trim().toLowerCase();
+      if (cleanMsg.startsWith(phrase)) {
+        matchedInline = true;
+        unlockSecret = OWNER_SECRET_PHRASE;
+        removeLength = OWNER_SECRET_PHRASE.length;
+      } else if (cleanMsg.startsWith("จาวิส " + phrase)) {
+        matchedInline = true;
+        unlockSecret = OWNER_SECRET_PHRASE;
+        removeLength = "จาวิส ".length + OWNER_SECRET_PHRASE.length;
+      } else if (cleanMsg.startsWith("จาวิส" + phrase)) {
+        matchedInline = true;
+        unlockSecret = OWNER_SECRET_PHRASE;
+        removeLength = "จาวิส".length + OWNER_SECRET_PHRASE.length;
+      }
+    }
+
+    if (matchedInline) {
+      const out = verify(sessionId, unlockSecret);
+      if (out.ok) {
+        logActivity("chat.identity.verified", "owner verified via inline credentials");
+        let remainder = message.substring(removeLength).trim();
+        if (remainder.length === 0) {
+          remainder = "มีอะไรให้ช่วยไหม"; // Generic safe prompt for Claude to acknowledge
+        }
+        message = `[System: ผู้ใช้เพิ่งยืนยันตัวตนด้วยรหัสสำเร็จ ตอนนี้คุณสามารถเข้าถึงข้อมูลส่วนตัวและดำเนินการต่อได้เลย] ${remainder}`;
+      }
+    }
+  }
+
   logActivity("chat.message.received", message.slice(0, 120));
 
   // Roadmap 11 Phase 2/4 — provider selection. Manual resolves the requested
@@ -101,7 +250,8 @@ async function handleChat(
 
   // Tests inject `aiInvoker`; otherwise invoke the selected provider directly.
   const invoke = injectedInvoker ?? resolved.provider.invoke;
-  const result = await runChat(message, invoke, fetchGoogle);
+  const verified = isVerified(sessionId, true); // `true` updates the idle timeout
+  const result = await runChat(message, invoke, fetchGoogle, { verified, sessionId });
 
   // Spawn/timeout/disabled/empty: fail closed, no approvals, no history written.
   if (result.kind === "failed") {
@@ -155,6 +305,8 @@ async function handleChat(
     kind: "chat",
     reply: result.reply,
     spoken: result.spoken ?? null,
+    resultReport: result.resultReport ?? null,
+    resultSpoken: result.resultSpoken ?? null,
     mode,
     provider: resolved.selection.selectedProvider,
     selectedModel: resolved.selection.selectedModel ?? null,
@@ -164,7 +316,22 @@ async function handleChat(
     clarification: result.clarification,
     clarification_choices: result.clarificationChoices,
     notes: result.notes,
+    verificationRequired: result.verificationRequired || undefined,
+
+    sensitivity: result.sensitivity ?? "normal",
   });
+}
+
+/**
+ * Provider for the idle follow-up: Gemini first (the user's primary provider),
+ * else Claude. Returns undefined only if neither is usable (then we stay silent).
+ */
+function pickFollowupProvider() {
+  const gemini = getProvider("gemini");
+  if (gemini?.isAvailable()) return gemini;
+  const claude = getProvider("claude");
+  if (claude?.isAvailable()) return claude;
+  return undefined;
 }
 
 /** User-facing message when a manually requested provider is not usable yet. */

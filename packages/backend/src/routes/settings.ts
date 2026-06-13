@@ -12,12 +12,20 @@ import {
   isAutoExecuteEnabled,
   isAutoExecuteDestructiveEnabled,
 } from "../services/actionDispatcher.js";
+import { isSchedulerEnabled } from "../services/scheduler.js";
+import { isDesktopNotificationsEnabled } from "../services/desktopNotifier.js";
+import { isTtsEnabled } from "../services/tts.js";
+import { isTtsSpeakerEnabled } from "../services/audioPlayer.js";
 
 const TOGGLEABLE_KEYS = [
   "google_calendar",
   "claude_ai",
   "auto_execute",
   "auto_execute_destructive",
+  "scheduler",
+  "desktop_notifications",
+  "tts",
+  "tts_speaker",
 ] as const;
 type ToggleableKey = (typeof TOGGLEABLE_KEYS)[number];
 
@@ -68,6 +76,44 @@ function buildSettingsPayload() {
           "restored. Archive + memory-replace still require confirm. " +
           "Requires Auto-execute to be on.",
       },
+      {
+        key: "scheduler",
+        label: "Background scheduler",
+        enabled: isSchedulerEnabled(),
+        configured: true,
+        description:
+          "Fires due reminders and soon-starting events as notifications. " +
+          "No Claude, no approval queue, no calendar writes — pure date math. " +
+          "Off by default.",
+      },
+      {
+        key: "desktop_notifications",
+        label: "Desktop notifications",
+        enabled: isDesktopNotificationsEnabled(),
+        configured: true,
+        description:
+          "Windows desktop toasts for due reminders/events — works with the " +
+          "dashboard closed. Requires the background scheduler to be on.",
+      },
+      {
+        key: "tts",
+        label: "Voice (TTS)",
+        enabled: isTtsEnabled(),
+        configured: true,
+        description:
+          "Speech synthesis (JARVIS voice). Enables spoken chat replies and the " +
+          "/api/tts endpoint. Uses the Microsoft Edge endpoint (needs internet); " +
+          "fail-soft to text. Off by default.",
+      },
+      {
+        key: "tts_speaker",
+        label: "Speak notifications aloud",
+        enabled: isTtsSpeakerEnabled(),
+        configured: true,
+        description:
+          "Backend speaks due reminders/events on the PC speaker (works with the " +
+          "dashboard closed). Requires Voice (TTS) and the background scheduler to be on.",
+      },
     ],
   };
 }
@@ -110,6 +156,22 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
 
     if (key === "auto_execute_destructive") {
       setConfigBool("auto_execute_destructive_enabled", enabled);
+    }
+
+    if (key === "scheduler") {
+      setConfigBool("scheduler_enabled", enabled);
+    }
+
+    if (key === "desktop_notifications") {
+      setConfigBool("desktop_notifications_enabled", enabled);
+    }
+
+    if (key === "tts") {
+      setConfigBool("tts_enabled", enabled);
+    }
+
+    if (key === "tts_speaker") {
+      setConfigBool("tts_speaker_enabled", enabled);
     }
 
     return reply.code(200).send({ key, enabled });

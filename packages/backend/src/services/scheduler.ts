@@ -3,11 +3,13 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { writeFile, unlink } from "node:fs/promises";
 import {
+  SCHEDULER_ENABLED,
   SCHEDULER_INTERVAL_MS,
   SCHEDULER_EVENT_LEAD_MS,
   TTS_APPROVAL_NAG_DELAY_MS,
   TTS_APPROVAL_NAG_INTERVAL_MS,
 } from "../config.js";
+import { getConfigBool } from "../db/repositories/configRepo.js";
 import { listReminders } from "../db/repositories/reminderRepo.js";
 import { listEvents } from "../db/repositories/eventRepo.js";
 import { listPendingApprovals } from "../db/repositories/approvalRepo.js";
@@ -60,6 +62,18 @@ export interface NagState {
 
 export function createNagState(): NagState {
   return { lastNagAtMs: new Map() };
+}
+
+/**
+ * Runtime gate for the scheduler: DB config override (Settings toggle) wins;
+ * falls back to the env seed default. The interval always runs, but each tick
+ * does work only when this is true — so toggling in Settings takes effect within
+ * one interval, no restart. Mirrors isAutoExecuteEnabled (actionDispatcher).
+ */
+export function isSchedulerEnabled(): boolean {
+  const dbValue = getConfigBool("scheduler_enabled");
+  if (dbValue !== null) return dbValue;
+  return SCHEDULER_ENABLED;
 }
 
 /**
@@ -205,6 +219,8 @@ export function startScheduler(
   const nag = createNagState();
 
   function tick(): void {
+    // Runtime gate: skip all work while disabled (interval keeps ticking cheaply).
+    if (!isSchedulerEnabled()) return;
     try {
       runSchedulerTick(new Date(), notifier, voice, nag);
     } catch (err: unknown) {

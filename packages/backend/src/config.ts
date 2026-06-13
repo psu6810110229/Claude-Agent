@@ -1,7 +1,45 @@
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Minimal .env loader (zero-dep). Reads simple KEY=VALUE lines from a local,
+ * gitignored `.env` so runtime flags + secrets (e.g. GEMINI_ENABLED,
+ * GEMINI_API_KEY) persist across restarts without exporting them every shell.
+ * An already-set process.env value ALWAYS wins, so an inline env var still
+ * overrides the file. Secrets are never logged. Loaded before any export reads
+ * process.env below.
+ */
+function loadEnvFile(file: string): void {
+  let text: string;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch {
+    return; // No file — nothing to load.
+  }
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    if (key in process.env) continue; // real env wins
+    let value = line.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    process.env[key] = value;
+  }
+}
+
+// Repo root first, then the backend package; existing process.env still wins.
+loadEnvFile(path.resolve(__dirname, "..", "..", "..", ".env"));
+loadEnvFile(path.resolve(__dirname, "..", ".env"));
 
 /** Backend binds to localhost only (safety: no external exposure). */
 export const HOST = "127.0.0.1";
@@ -282,6 +320,45 @@ export const AUTO_EXECUTE_ENABLED = /^(1|true)$/i.test(
 export const AUTO_EXECUTE_DESTRUCTIVE_ENABLED = /^(1|true)$/i.test(
   process.env.CLAUDE_AGENT_AUTO_EXECUTE_DESTRUCTIVE_ENABLED ?? "",
 );
+
+/**
+ * Step 15 — Privacy guard & owner identity verification.
+ *
+ * When ON, an UNVERIFIED chat requester only receives coarse free/busy context
+ * (private memory/schedule detail is redacted before the prompt is built) and is
+ * offered an identity check. Verification needs BOTH the PIN and the challenge
+ * answer. Secrets are read here, compared only in identityVerifier, and NEVER
+ * logged or placed in any prompt. OFF by default: behavior identical to today.
+ */
+export const PRIVACY_GUARD_ENABLED = /^(1|true)$/i.test(
+  process.env.CLAUDE_AGENT_PRIVACY_GUARD_ENABLED ?? "",
+);
+
+/** Owner PIN (secret). Empty string = not configured -> guard cannot be unlocked. */
+export const OWNER_PIN = process.env.CLAUDE_AGENT_OWNER_PIN ?? "";
+
+/** Secret Phrase. Checked case-insensitively and space-trimmed. Empty string = not configured. */
+export const OWNER_SECRET_PHRASE =
+  process.env.CLAUDE_AGENT_OWNER_SECRET_PHRASE ?? "โอเค";
+
+/** Max failed verify attempts per session before a temporary lockout. */
+export const PRIVACY_VERIFY_MAX_ATTEMPTS = Number(
+  process.env.CLAUDE_AGENT_PRIVACY_VERIFY_MAX_ATTEMPTS ?? 5,
+);
+
+/** Lockout duration after too many failed attempts (ms). Default 5 min. */
+export const PRIVACY_VERIFY_LOCKOUT_MS = Number(
+  process.env.CLAUDE_AGENT_PRIVACY_VERIFY_LOCKOUT_MS ?? 5 * 60_000,
+);
+
+/** Idle timeout (ms). If the session has no activity for this duration, it auto-locks. */
+export const PRIVACY_VERIFY_IDLE_TIMEOUT_MS = Number(
+  process.env.CLAUDE_AGENT_PRIVACY_VERIFY_IDLE_TIMEOUT_MS ?? 30_000,
+);
+
+/** True only when the guard is on AND at least one secret (PIN or phrase) is present. */
+export const PRIVACY_GUARD_CONFIGURED =
+  PRIVACY_GUARD_ENABLED && (OWNER_PIN.length > 0 || OWNER_SECRET_PHRASE.length > 0);
 
 /** Single source of truth for UTC ISO 8601 timestamps. */
 export function nowIso(): string {

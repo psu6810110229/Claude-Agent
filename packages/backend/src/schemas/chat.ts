@@ -15,6 +15,9 @@ export const chatRequestSchema = z.object({
   message: z.string().trim().min(1).max(4000),
   mode: aiProviderModeSchema.optional(),
   provider: aiProviderIdSchema.optional(),
+  // Step 15 — opaque per-tab session id. Optional so guard-off and older clients
+  // still work; the backend treats a missing id as unverified when the guard is on.
+  sessionId: z.string().trim().min(8).max(128).optional(),
 });
 
 /**
@@ -45,6 +48,14 @@ export const chatOutputSchema = z
       .max(400)
       .nullish()
       .transform((v) => v ?? undefined),
+    // Step 15 — UX signal only: "private" when the user asked for the owner's
+    // private specifics. Drives whether the verify panel shows; never changes
+    // what data the model can see (redaction already ran). Fail-soft default
+    // "normal" on omission (fail-open for UX only — keyword classifier backstops).
+    sensitivity: z
+      .enum(["private", "normal"])
+      .nullish()
+      .transform((v) => v ?? "normal"),
     actions: z.array(aiActionSchema).max(CLAUDE_MAX_ACTIONS).default([]),
     clarification: z
       .string()
@@ -67,3 +78,57 @@ export const chatOutputSchema = z
   .strict();
 
 export type ChatOutput = z.infer<typeof chatOutputSchema>;
+
+/**
+ * Step 15 — request schema for POST /api/chat/verify. The PIN/phrase is compared
+ * only in identityVerifier and never logged. sessionId binds the unlock to one tab.
+ */
+export const chatVerifyRequestSchema = z.object({
+  sessionId: z.string().trim().min(8).max(128),
+  input: z.string().min(1).max(256),
+});
+
+/**
+ * Strict schema for the idle FOLLOW-UP turn. The model may decline to speak by
+ * returning `silent: true` (nothing useful to add) — then `reply` is optional.
+ * Otherwise `reply` is a short, optional, low-pressure proactive suggestion.
+ */
+export const followupOutputSchema = z
+  .object({
+    silent: z.boolean().nullish().transform((v) => v ?? false),
+    reply: z
+      .string()
+      .trim()
+      .min(1)
+      .max(2000)
+      .nullish()
+      .transform((v) => v ?? undefined),
+    spoken: z
+      .string()
+      .trim()
+      .min(1)
+      .max(400)
+      .nullish()
+      .transform((v) => v ?? undefined),
+    actions: z.array(aiActionSchema).max(CLAUDE_MAX_ACTIONS).default([]),
+    clarification: z
+      .string()
+      .trim()
+      .min(1)
+      .max(500)
+      .nullish()
+      .transform((v) => v ?? undefined),
+    clarification_choices: z
+      .array(z.string().trim().min(1).max(120))
+      .max(4)
+      .nullish()
+      .transform((v) => v ?? undefined),
+    notes: z
+      .string()
+      .max(2000)
+      .nullish()
+      .transform((v) => v ?? undefined),
+  })
+  .strict();
+
+export type FollowupOutput = z.infer<typeof followupOutputSchema>;
