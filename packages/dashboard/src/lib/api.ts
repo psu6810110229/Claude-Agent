@@ -24,6 +24,7 @@ import type {
   SettingsResponse,
   Task,
   UpdateTaskBody,
+  VerifyResult,
 } from "./types";
 
 /** Thrown for any non-2xx response; `message` carries the backend's error text. */
@@ -229,8 +230,9 @@ export function markNotificationRead(id: number): Promise<Notification> {
 export function sendChat(
   message: string,
   choice?: ProviderChoice,
+  sessionId?: string,
 ): Promise<ChatResult> {
-  const body =
+  const base =
     choice === "auto"
       ? { message, mode: "auto" }
       : choice
@@ -238,13 +240,40 @@ export function sendChat(
         : { message };
   return request<ChatResult>("/api/chat", {
     method: "POST",
-    body: JSON.stringify(body),
+    body: JSON.stringify(sessionId ? { ...base, sessionId } : base),
   });
 }
 
-/** Archive the current chat thread. Next message starts a fresh session with zero history tokens. */
-export function resetChat(): Promise<{ kind: "reset"; archived: number }> {
-  return request("/api/chat/reset", { method: "POST" });
+/** Archive the current chat thread. Passes sessionId so the backend clears verified state too. */
+export function resetChat(sessionId?: string): Promise<{ kind: "reset"; archived: number }> {
+  return request("/api/chat/reset", {
+    method: "POST",
+    ...(sessionId ? { body: JSON.stringify({ sessionId }) } : {}),
+  });
+}
+
+// --- Identity verification (Step 15) -------------------------------------
+
+/** Verify owner identity. Returns `verified`, `denied` (with error), or `disabled`. */
+export function verifyIdentity(
+  sessionId: string,
+  pin: string,
+  answer: string,
+): Promise<VerifyResult> {
+  return request<VerifyResult>("/api/chat/verify", {
+    method: "POST",
+    body: JSON.stringify({ sessionId, pin, answer }),
+  });
+}
+
+/** Fetch guard state and challenge question (for pre-verify lock button). */
+export function getChallenge(): Promise<{
+  guardEnabled: boolean;
+  question: string | null;
+}> {
+  return request<{ guardEnabled: boolean; question: string | null }>(
+    "/api/chat/challenge",
+  );
 }
 
 /** Fetch recent chat history (oldest first). */

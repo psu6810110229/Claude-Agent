@@ -294,7 +294,19 @@ export interface ChatResult {
   clarification?: string;
   clarification_choices?: string[];
   notes?: string;
+  /** Step 15: true when guard on, unverified requester asked for private data. */
+  verificationRequired?: boolean;
+  /** Step 15: challenge question to show in the verify panel. */
+  challengeQuestion?: string | null;
+  /** Step 15: UX signal — "private" if user probed owner's private specifics. */
+  sensitivity?: "private" | "normal";
 }
+
+/** Step 15 — POST /api/chat/verify response. */
+export type VerifyResult =
+  | { kind: "verified" }
+  | { kind: "denied"; reason: string; error: string }
+  | { kind: "disabled" };
 
 /**
  * POST /api/chat/followup result. The backend stays QUIET (`silent`) unless it

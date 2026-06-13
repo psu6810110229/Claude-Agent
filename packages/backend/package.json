@@ -25,7 +25,8 @@
     "smoke:phase4": "tsx scripts/smoke-phase4.ts",
     "smoke:step13": "tsx scripts/step13-smoke-test.ts",
     "smoke:step14": "tsx scripts/step14-smoke-test.ts",
-    "smoke:step14b": "tsx scripts/step14b-smoke-test.ts"
+    "smoke:step14b": "tsx scripts/smoke-step14b-smoke-test.ts",
+    "smoke:step15": "tsx scripts/smoke-step15.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

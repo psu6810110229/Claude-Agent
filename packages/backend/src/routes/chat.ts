@@ -1,5 +1,9 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { chatRequestSchema, chatHistoryQuerySchema } from "../schemas/chat.js";
+import {
+  chatRequestSchema,
+  chatHistoryQuerySchema,
+  chatVerifyRequestSchema,
+} from "../schemas/chat.js";
 import { logActivity } from "../db/repositories/activityRepo.js";
 import { archiveActiveMessages, listRecentMessages } from "../db/repositories/chatRepo.js";
 import { runChat } from "../services/chat.js";
@@ -16,6 +20,13 @@ import {
   realGoogleEventsFetcher,
   type GoogleEventsFetcher,
 } from "../services/googleCalendar.js";
+import {
+  isVerified,
+  verify,
+  isGuardEnabled,
+  getChallengeQuestion,
+  clearVerified,
+} from "../services/identityVerifier.js";
 
 /** Plugin options. Both injectables let tests stub Claude / Google Calendar. */
 export interface ChatRouteOptions {
@@ -42,11 +53,60 @@ export async function chatRoutes(
     handleChat(req, opts.aiInvoker, fetchGoogle, reply),
   );
 
+  app.get("/api/chat/challenge", async (_req, reply) => {
+    return reply.code(200).send({
+      guardEnabled: isGuardEnabled(),
+      question: getChallengeQuestion(),
+    });
+  });
+
+  app.post("/api/chat/verify", async (req, reply) => {
+    if (!isGuardEnabled()) {
+      return reply.code(200).send({ kind: "disabled" });
+    }
+    const body = chatVerifyRequestSchema.safeParse(req.body);
+    if (!body.success) {
+      return reply.code(400).send({ kind: "error", error: "คำขอไม่ถูกต้อง" });
+    }
+    const { sessionId, pin, answer } = body.data;
+    const out = verify(sessionId, pin, answer); // NEVER log pin/answer
+    if (out.ok) {
+      logActivity("chat.identity.verified", "owner verified for a chat session");
+      return reply.code(200).send({ kind: "verified" });
+    }
+
+    logActivity("chat.identity.denied", `reason=${out.reason}`); // reason only, no values
+    const code =
+      out.reason === "locked"
+        ? 429
+        : out.reason === "not-configured"
+          ? 503
+          : 401;
+
+    const denyMessage = (reason: string): string => {
+      if (reason === "locked") return "ลองใหม่อีกครั้งในภายหลังครับ";
+      if (reason === "not-configured") return "ระบบยังไม่ได้ตั้งค่ารหัสยืนยัน";
+      return "ยืนยันไม่สำเร็จครับ";
+    };
+
+    return reply.code(code).send({
+      kind: "denied",
+      reason: out.reason,
+      error: denyMessage(out.reason),
+    });
+  });
+
   // Idle proactive follow-up. Gemini-first (the user's primary provider); falls
   // back to Claude only if Gemini is not configured. Fails QUIET: any problem
   // returns kind:"silent" with 200 so the dashboard never shows an error for a
   // nudge the user did not explicitly request.
-  app.post("/api/chat/followup", async (_req, reply) => {
+  app.post("/api/chat/followup", async (req, reply) => {
+    const body = req.body as { sessionId?: string } | undefined;
+    const sessionId = body?.sessionId;
+    if (!isVerified(sessionId)) {
+      return reply.code(200).send({ kind: "silent" });
+    }
+
     const invoke =
       opts.aiInvoker ?? pickFollowupProvider()?.invoke;
     if (!invoke) {
@@ -71,7 +131,11 @@ export async function chatRoutes(
     });
   });
 
-  app.post("/api/chat/reset", async (_req, reply) => {
+  app.post("/api/chat/reset", async (req, reply) => {
+    const body = req.body as { sessionId?: string } | undefined;
+    const sessionId = body?.sessionId;
+    clearVerified(sessionId);
+
     const archived = archiveActiveMessages();
     logActivity("chat.session.reset", `${archived} message(s) archived`);
     return reply.code(200).send({ kind: "reset", archived });
@@ -100,7 +164,12 @@ async function handleChat(
       .send({ kind: "error", error: body.error.issues[0].message });
   }
 
-  const { message, provider: requestedProvider, mode: requestedMode } = body.data;
+  const {
+    message,
+    provider: requestedProvider,
+    mode: requestedMode,
+    sessionId,
+  } = body.data;
   const mode = requestedMode ?? "manual";
   logActivity("chat.message.received", message.slice(0, 120));
 
@@ -132,7 +201,8 @@ async function handleChat(
 
   // Tests inject `aiInvoker`; otherwise invoke the selected provider directly.
   const invoke = injectedInvoker ?? resolved.provider.invoke;
-  const result = await runChat(message, invoke, fetchGoogle);
+  const verified = isVerified(sessionId);
+  const result = await runChat(message, invoke, fetchGoogle, { verified, sessionId });
 
   // Spawn/timeout/disabled/empty: fail closed, no approvals, no history written.
   if (result.kind === "failed") {
@@ -197,6 +267,9 @@ async function handleChat(
     clarification: result.clarification,
     clarification_choices: result.clarificationChoices,
     notes: result.notes,
+    verificationRequired: result.verificationRequired || undefined,
+    challengeQuestion: result.challengeQuestion ?? null,
+    sensitivity: result.sensitivity ?? "normal",
   });
 }
 
