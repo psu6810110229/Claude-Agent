@@ -366,6 +366,32 @@ export const PRIVACY_GUARD_CONFIGURED =
   PRIVACY_GUARD_ENABLED && (OWNER_PIN.length > 0 || OWNER_SECRET_PHRASE.length > 0);
 
 /**
+ * Step 17 — Gmail connector.
+ *
+ * Uses the same OAuth client secret + token file as Google Calendar. Requires
+ * gmail.readonly + gmail.compose scopes — re-run `npm run google-auth` after
+ * enabling to get a fresh token with the expanded scopes. Disabled by default.
+ */
+
+/** Gmail connector is OFF unless explicitly enabled. */
+export const GMAIL_ENABLED = /^(1|true)$/i.test(process.env.GMAIL_ENABLED ?? "");
+
+/** Cap on messages fetched per Gmail query. */
+export const GMAIL_MAX_RESULTS = Number(process.env.GMAIL_MAX_RESULTS ?? 20);
+
+/** Gmail OAuth scopes. Combined with Calendar scopes in google-auth. */
+export const GOOGLE_GMAIL_SCOPES = [
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/gmail.compose",
+];
+
+/** All Google OAuth scopes requested in a single consent flow. */
+export const GOOGLE_ALL_SCOPES = [
+  ...GOOGLE_CALENDAR_SCOPES,
+  ...GOOGLE_GMAIL_SCOPES,
+];
+
+/**
  * Step 16 — real memory (fact store). Facts are durable, recallable statements
  * about the user. Local-only like the memory files, so no enable flag: auto-
  * capture is governed by the existing auto-execute flag; recall is always on.

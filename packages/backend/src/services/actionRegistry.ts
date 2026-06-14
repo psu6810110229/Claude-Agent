@@ -22,8 +22,10 @@ export type CapabilityId =
   | "reminders"
   | "google.calendar.create"
   | "google.calendar.update"
-  | "google.calendar.delete";
-export type ActionDomain = "task" | "event" | "reminder" | "memory" | "google";
+  | "google.calendar.delete"
+  | "gmail.draft"
+  | "gmail.send";
+export type ActionDomain = "task" | "event" | "reminder" | "memory" | "google" | "gmail";
 export type RiskLevel = "low" | "medium" | "high";
 export type ActionPolicy =
   | "approval-required"
@@ -96,6 +98,16 @@ export const capabilityRegistry: Record<CapabilityId, CapabilityMeta> = {
   "google.calendar.delete": {
     capability: "google.calendar.delete",
     humanLabel: "Google Calendar delete",
+    policies: ["approval-required", "external-service", "destructive"],
+  },
+  "gmail.draft": {
+    capability: "gmail.draft",
+    humanLabel: "Create Gmail draft",
+    policies: ["approval-required", "external-service"],
+  },
+  "gmail.send": {
+    capability: "gmail.send",
+    humanLabel: "Send Gmail email",
     policies: ["approval-required", "external-service", "destructive"],
   },
 };
@@ -278,6 +290,28 @@ export const actionRegistry: Record<ActionType, ActionMeta> = {
     payloadShape: '{ "id": number }  (id from the known facts list)',
     riskLevel: "medium",
     policies: ["approval-required", "local-only"],
+    promptExposure: "allowed",
+  },
+  "gmail.draft": {
+    actionType: "gmail.draft",
+    capability: "gmail.draft",
+    domain: "gmail",
+    humanLabel: "Create Gmail draft",
+    payloadShape:
+      '{ "to": string (email address), "subject": string, "body": string (plain text), "cc"?: string, "bcc"?: string, "replyToMessageId"?: string (message id for threading) }',
+    riskLevel: "low",
+    policies: ["approval-required", "external-service"],
+    promptExposure: "allowed",
+  },
+  "gmail.send": {
+    actionType: "gmail.send",
+    capability: "gmail.send",
+    domain: "gmail",
+    humanLabel: "Send Gmail email",
+    payloadShape:
+      '{ "to": string (email address), "subject": string, "body": string (plain text), "cc"?: string, "bcc"?: string, "replyToMessageId"?: string }',
+    riskLevel: "high",
+    policies: ["approval-required", "external-service", "destructive"],
     promptExposure: "allowed",
   },
 };

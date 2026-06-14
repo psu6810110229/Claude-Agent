@@ -80,6 +80,14 @@ export const aiActionSchema = z.discriminatedUnion("action_type", [
     action_type: z.literal("fact.forget"),
     payload: actionPayloadSchemas["fact.forget"],
   }),
+  z.object({
+    action_type: z.literal("gmail.draft"),
+    payload: actionPayloadSchemas["gmail.draft"],
+  }),
+  z.object({
+    action_type: z.literal("gmail.send"),
+    payload: actionPayloadSchemas["gmail.send"],
+  }),
 ]);
 export type AiAction = z.infer<typeof aiActionSchema>;
 
