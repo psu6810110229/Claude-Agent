@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { aiActionSchema } from "./aiCommand.js";
 import { aiProviderIdSchema, aiProviderModeSchema } from "../services/aiProvider.js";
-import { CLAUDE_MAX_ACTIONS } from "../config.js";
+import { CLAUDE_MAX_ACTIONS, isAllowedGeminiModel } from "../config.js";
 
 /**
  * Request schema for POST /api/chat (Step 12; Roadmap 11 Phase 2/4).
@@ -15,6 +15,14 @@ export const chatRequestSchema = z.object({
   message: z.string().trim().min(1).max(4000),
   mode: aiProviderModeSchema.optional(),
   provider: aiProviderIdSchema.optional(),
+  // Optional per-turn Gemini model override. Validated against the runtime
+  // allowlist so an unknown id is rejected rather than passed to the API.
+  // Ignored unless the resolved provider is Gemini.
+  geminiModel: z
+    .string()
+    .trim()
+    .refine(isAllowedGeminiModel, { message: "ไม่รองรับโมเดลนี้" })
+    .optional(),
   // Step 15 — opaque per-tab session id. Optional so guard-off and older clients
   // still work; the backend treats a missing id as unverified when the guard is on.
   sessionId: z.string().trim().min(8).max(128).optional(),

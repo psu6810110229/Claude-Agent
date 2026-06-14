@@ -250,9 +250,37 @@ export const GEMINI_ENABLED = /^(1|true)$/i.test(
 /** Gemini API key. Gitignored; never logged. Empty string = not configured. */
 export const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? "";
 
-/** Gemini model to use for proposal calls. */
+/** Gemini model to use for proposal calls (the default when none requested). */
 export const GEMINI_MODEL =
   process.env.GEMINI_MODEL ?? "gemini-3.1-flash-lite";
+
+/**
+ * Allowlist of selectable Gemini models. The UI may request any id in this set
+ * per chat turn; anything else is rejected (fail closed — never silently swaps
+ * to a different model). Override the whole list via the GEMINI_MODELS env
+ * (comma-separated) without touching code. The default model above is always
+ * included so a valid baseline exists even if the env omits it.
+ */
+export const GEMINI_MODELS: readonly string[] = (() => {
+  const fromEnv = (process.env.GEMINI_MODELS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const base = fromEnv.length > 0
+    ? fromEnv
+    : [
+        "gemini-3.1-flash-lite",
+        "gemini-2.5-flash-lite",
+        "gemini-3-flash",
+        "gemini-3.5-flash",
+      ];
+  return base.includes(GEMINI_MODEL) ? base : [GEMINI_MODEL, ...base];
+})();
+
+/** True when `model` is a selectable Gemini model. */
+export function isAllowedGeminiModel(model: string): boolean {
+  return GEMINI_MODELS.includes(model);
+}
 
 /** Hard timeout for a single Gemini API call (ms). */
 export const GEMINI_TIMEOUT_MS = Number(

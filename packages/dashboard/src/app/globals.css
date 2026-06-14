@@ -2805,6 +2805,35 @@ pre.payload {
   cursor: default;
 }
 
+/* Gemini model picker — appears only when Gemini is the chosen provider. */
+.ji-model {
+  display: inline-flex;
+  align-items: center;
+}
+
+.ji-model select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: var(--inner-light);
+  color: var(--muted-strong);
+  padding: 5px 12px;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ji-model select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ji-model option {
+  color: #111;
+}
+
 /* Provider that produced a reply, shown in the chat group header. */
 .provider-badge {
   display: inline-flex;

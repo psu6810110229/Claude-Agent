@@ -33,15 +33,16 @@ import { ErrorBanner } from "@/components/States";
 import { Orb, type OrbState } from "@/components/Orb";
 import { JarvisInput } from "@/components/JarvisInput";
 import { useToast } from "@/components/ToastProvider";
-import type {
-  ActionType,
-  AiProviderId,
-  ProviderChoice,
-  Approval,
-  BriefResult,
-  BriefType,
-  ChatMessage,
-  VerifyResult,
+import {
+  DEFAULT_GEMINI_MODEL,
+  type ActionType,
+  type AiProviderId,
+  type ProviderChoice,
+  type Approval,
+  type BriefResult,
+  type BriefType,
+  type ChatMessage,
+  type VerifyResult,
 } from "@/lib/types";
 
 const PROVIDER_LABELS: Record<AiProviderId, string> = {
@@ -80,6 +81,7 @@ export default function HomePage() {
   const [orbState, setOrbState] = useState<OrbState>("idle");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [provider, setProvider] = useState<ProviderChoice>("gemini");
+  const [geminiModel, setGeminiModel] = useState<string>(DEFAULT_GEMINI_MODEL);
   const [messageProvider, setMessageProvider] = useState<
     Record<number, AiProviderId>
   >({});
@@ -115,9 +117,11 @@ export default function HomePage() {
     mutedRef.current = muted;
   }, [muted]);
 
-  // Hydrate muted from localStorage after mount (avoid SSR mismatch).
+  // Hydrate muted + Gemini model from localStorage after mount (avoid SSR mismatch).
   useEffect(() => {
     setMuted(localStorage.getItem("jarvis.muted") === "true");
+    const savedModel = localStorage.getItem("jarvis.geminiModel");
+    if (savedModel) setGeminiModel(savedModel);
   }, []);
 
   // Step 15 — init per-tab sessionId (sessionStorage clears on tab close).
@@ -318,7 +322,7 @@ export default function HomePage() {
     }
 
     try {
-      const result = await sendChat(text, provider, sessionIdRef.current ?? undefined);
+      const result = await sendChat(text, provider, sessionIdRef.current ?? undefined, geminiModel);
       // The instant the reply lands, kick off BOTH the history refetch and TTS
       // buffering concurrently. We buffer the spoken line WITHOUT playing it,
       // then reveal the text and start the voice in the same tick so they land
@@ -670,6 +674,11 @@ export default function HomePage() {
           briefBusy={briefBusy}
           provider={provider}
           onProviderChange={setProvider}
+          geminiModel={geminiModel}
+          onGeminiModelChange={(model) => {
+            setGeminiModel(model);
+            localStorage.setItem("jarvis.geminiModel", model);
+          }}
           onFocusChange={(focused) =>
             setOrbState((s) =>
               s === "thinking" ? s : focused ? "listening" : "idle",
@@ -1180,17 +1189,24 @@ function RichText({
       return;
     }
     setVisibleCount(0);
-    const step = Math.max(3, Math.ceil(text.length / 90));
+    // Premium reveal: a smooth, unhurried cadence. Short replies stream
+    // character-by-character; long ones reveal a few chars per frame so the
+    // whole thing still finishes within a calm, bounded window (never abrupt,
+    // never tediously slow). ~24ms/frame keeps motion silky on 60Hz+ displays.
+    const FRAME_MS = 24;
+    const MAX_DURATION_MS = 3200;
+    const frames = Math.max(1, Math.round(MAX_DURATION_MS / FRAME_MS));
+    const step = Math.max(1, Math.ceil(text.length / frames));
     const timer = window.setInterval(() => {
       setVisibleCount((current) => {
         const next = Math.min(text.length, current + step);
         if (next >= text.length) {
           window.clearInterval(timer);
-          window.setTimeout(() => onRevealDone?.(), 120);
+          window.setTimeout(() => onRevealDone?.(), 140);
         }
         return next;
       });
-    }, 16);
+    }, FRAME_MS);
     return () => window.clearInterval(timer);
   }, [onRevealDone, reveal, text]);
 

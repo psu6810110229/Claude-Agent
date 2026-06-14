@@ -258,6 +258,7 @@ export function sendChat(
   message: string,
   choice?: ProviderChoice,
   sessionId?: string,
+  geminiModel?: string,
 ): Promise<ChatResult> {
   const base =
     choice === "auto"
@@ -265,9 +266,13 @@ export function sendChat(
       : choice
         ? { message, provider: choice }
         : { message };
+  // Only attach the model override when Gemini is the explicit choice; the
+  // backend ignores it for other providers anyway.
+  const withModel =
+    choice === "gemini" && geminiModel ? { ...base, geminiModel } : base;
   return request<ChatResult>("/api/chat", {
     method: "POST",
-    body: JSON.stringify(sessionId ? { ...base, sessionId } : base),
+    body: JSON.stringify(sessionId ? { ...withModel, sessionId } : withModel),
   });
 }
 

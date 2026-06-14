@@ -43,6 +43,12 @@ export class ClaudeError extends Error {
 export interface ClaudeInvokeOptions {
   /** Override the hard timeout (ms) for this call. Defaults to CLAUDE_TIMEOUT_MS. */
   timeoutMs?: number;
+  /**
+   * Per-call model override. Only the Gemini invoker honors this (validated
+   * against the GEMINI_MODELS allowlist upstream); the Claude invoker ignores
+   * it and keeps using CLAUDE_MODEL.
+   */
+  model?: string;
 }
 
 /**

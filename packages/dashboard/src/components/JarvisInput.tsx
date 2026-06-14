@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ArrowUp, ChevronDown, Moon, Sparkles, Sun } from "lucide-react";
-import type { ProviderChoice, BriefType } from "@/lib/types";
+import { GEMINI_MODEL_OPTIONS, type ProviderChoice, type BriefType } from "@/lib/types";
 
 const PROVIDER_OPTIONS: { id: ProviderChoice; label: string; title: string }[] = [
   { id: "auto", label: "Auto", title: "Backend picks the best provider per task" },
@@ -21,6 +21,8 @@ export function JarvisInput({
   briefBusy = null,
   provider = "claude",
   onProviderChange,
+  geminiModel,
+  onGeminiModelChange,
 }: {
   onSubmit: (text: string) => void | Promise<void>;
   onBrief?: (type: BriefType) => void | Promise<void>;
@@ -29,6 +31,8 @@ export function JarvisInput({
   briefBusy?: BriefType | null;
   provider?: ProviderChoice;
   onProviderChange?: (provider: ProviderChoice) => void;
+  geminiModel?: string;
+  onGeminiModelChange?: (model: string) => void;
 }) {
   const [text, setText] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -83,6 +87,23 @@ export function JarvisInput({
             </button>
           ))}
         </div>
+      )}
+      {provider === "gemini" && onGeminiModelChange && (
+        <label className="ji-model" title="Choose which Gemini model answers">
+          <span className="sr-only">Gemini model</span>
+          <select
+            value={geminiModel ?? GEMINI_MODEL_OPTIONS[0].id}
+            disabled={disabled}
+            onChange={(e) => onGeminiModelChange(e.target.value)}
+            aria-label="Gemini model"
+          >
+            {GEMINI_MODEL_OPTIONS.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
       )}
       {onBrief && (
         <div className="ji-menu-wrap">

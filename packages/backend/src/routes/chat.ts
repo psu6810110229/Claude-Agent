@@ -170,6 +170,7 @@ async function handleChat(
     provider: requestedProvider,
     mode: requestedMode,
     sessionId,
+    geminiModel,
   } = body.data;
   const mode = requestedMode ?? "manual";
   
@@ -249,8 +250,21 @@ async function handleChat(
 
   logActivity("ai.provider.selected", resolved.selection.reason);
 
+  // Per-turn Gemini model override: only honored when the resolved provider is
+  // Gemini. Threaded into invoke opts; the Gemini invoker re-checks the
+  // allowlist. The chosen model is echoed back as `selectedModel`.
+  const useGeminiModel =
+    geminiModel && resolved.selection.selectedProvider === "gemini"
+      ? geminiModel
+      : undefined;
+  const effectiveModel = useGeminiModel ?? resolved.selection.selectedModel;
+
   // Tests inject `aiInvoker`; otherwise invoke the selected provider directly.
-  const invoke = injectedInvoker ?? resolved.provider.invoke;
+  const baseInvoke = injectedInvoker ?? resolved.provider.invoke;
+  const invoke: ClaudeInvoker = useGeminiModel
+    ? (prompt, callOpts) =>
+        baseInvoke(prompt, { ...callOpts, model: useGeminiModel })
+    : baseInvoke;
   const verified = isVerified(sessionId, true); // `true` updates the idle timeout
   const result = await runChat(message, invoke, fetchGoogle, { verified, sessionId, originalMessage });
 
@@ -310,7 +324,7 @@ async function handleChat(
     resultSpoken: result.resultSpoken ?? null,
     mode,
     provider: resolved.selection.selectedProvider,
-    selectedModel: resolved.selection.selectedModel ?? null,
+    selectedModel: effectiveModel ?? null,
     requestedProvider: resolved.selection.requestedProvider ?? null,
     providerReason: resolved.selection.reason,
     approvals: result.approvals,

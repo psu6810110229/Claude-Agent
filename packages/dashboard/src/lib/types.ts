@@ -304,6 +304,22 @@ export type AiProviderMode = "manual" | "auto";
  */
 export type ProviderChoice = AiProviderId | "auto";
 
+/**
+ * Selectable Gemini models (mirrors backend GEMINI_MODELS default; the backend
+ * is the source of truth and validates the id, so an extra/stale entry here
+ * just fails closed rather than running a wrong model). `id` is the API model
+ * string; `label` is the short UI name.
+ */
+export const GEMINI_MODEL_OPTIONS: { id: string; label: string }[] = [
+  { id: "gemini-3.1-flash-lite", label: "3.1 Flash Lite" },
+  { id: "gemini-2.5-flash-lite", label: "2.5 Flash Lite" },
+  { id: "gemini-3-flash", label: "3 Flash" },
+  { id: "gemini-3.5-flash", label: "3.5 Flash" },
+];
+
+/** Default Gemini model (fastest, matches backend default). */
+export const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
+
 export interface ChatResult {
   kind: "chat";
   reply: string;

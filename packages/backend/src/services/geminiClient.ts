@@ -5,6 +5,7 @@ import {
   GEMINI_API_KEY,
   GEMINI_MODEL,
   GEMINI_TIMEOUT_MS,
+  isAllowedGeminiModel,
 } from "../config.js";
 
 /**
@@ -56,9 +57,13 @@ export const realGeminiInvoker: ClaudeInvoker = async (prompt, opts) => {
   }
 
   const timeoutMs = opts?.timeoutMs ?? GEMINI_TIMEOUT_MS;
+  // Per-call model override, but only if it is on the allowlist; anything else
+  // falls back to the configured default (never trust an arbitrary id).
+  const modelId =
+    opts?.model && isAllowedGeminiModel(opts.model) ? opts.model : GEMINI_MODEL;
 
   const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+  const model = genAI.getGenerativeModel({ model: modelId });
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   let text: string;
