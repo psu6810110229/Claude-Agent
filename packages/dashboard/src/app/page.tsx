@@ -840,26 +840,40 @@ function ChatSkeleton() {
   );
 }
 
+/**
+ * Honest, generic phases shown while Jarvis is working. These describe the
+ * real request lifecycle (thinking → processing → composing) — never fabricated
+ * specifics like "checking your calendar" that may not be happening.
+ */
+const THINKING_PHASES = ["สักครู่ครับ"];
+
 function ThinkingContent({
   status,
 }: {
   status?: string | null;
 }) {
+  const [phase, setPhase] = useState(0);
+
+  // Cycle the generic phases only when no explicit (truthful) status is given.
+  useEffect(() => {
+    if (status) return;
+    const timer = window.setInterval(
+      () => setPhase((current) => (current + 1) % THINKING_PHASES.length),
+      2200,
+    );
+    return () => window.clearInterval(timer);
+  }, [status]);
+
+  const label = status ?? THINKING_PHASES[phase];
+
   return (
     <div className="thinking-content" aria-live="polite">
       <div className="thinking-line">
-        <span className="thinking-dots" aria-hidden="true">
-          <i />
-          <i />
-          <i />
+        <span className="thinking-orb" aria-hidden="true" />
+        <span className="thinking-label" key={label}>
+          {label}
         </span>
       </div>
-      <div className="thinking-progress" aria-hidden="true" />
-      {status && (
-        <div style={{ color: "var(--muted)", fontSize: "11px", marginTop: "4px", opacity: 0.85 }}>
-          {status}
-        </div>
-      )}
     </div>
   );
 }
@@ -992,7 +1006,14 @@ function ChatBubble({
   onClarificationSkip: () => void;
 }) {
   const isUser = msg.role === "user";
-  const actions = parseActions(msg.actions_json);
+  // Show approval cards ONLY for items still awaiting the user's explicit
+  // confirmation. Anything Jarvis already handled itself (auto-executed →
+  // approved, or rejected) is hidden — no noisy "done" cards. A failed
+  // auto-exec stays `pending`, so it correctly remains visible for retry.
+  const actions = parseActions(msg.actions_json).filter((action) => {
+    const approval = approvalMap[action.id];
+    return !approval || approval.status === "pending";
+  });
 
   return (
     <div className={`chat-bubble-wrapper ${isUser ? "user" : "assistant"}`}>
