@@ -197,7 +197,8 @@
 - **Chat context:** recent LINE messages across all chats (capped, fail-soft → []) injected into recall (`chat.ts` + `chatPrompt.ts`), like Gmail/Contacts/Drive. Redacted to [] for unverified requester.
 - **Schemas:** `schemas/lineChat.ts` (message + chat summary + list responses). No payload schemas (read-only).
 - **Drop new exports into `data/line-exports/`** (re-export to refresh; not live). Dashboard `/line` page deferred to a follow-up.
-- **Verification:** `npm run smoke:step20` (28 assertions: fail-closed when disabled, registry split of spaced names, multiline, sender-less system, Bangkok→UTC, README skipped, traversal guard, routes, no `line.*` action types — temp export dir, no real LINE files/DB). `npm run build` clean.
+- **Verification:** `npm run smoke:step20` (32 assertions: fail-closed when disabled, registry split of spaced names, multiline, sender-less system, Bangkok→UTC, README skipped, traversal guard, routes, per-chat recall, no `line.*` action types — temp export dir, no real LINE files/DB). `npm run build` clean.
+- **Phase A = DONE** (connector + chat recall above). **Phase B (RPA auto-export) + Phase C (deploy on dedicated desktop + Tailscale) = TODO** — full plan, feasibility findings, and a COLD-session handoff are in **`docs/step20-line-phaseB-handoff.md`** (read it on the desktop before continuing). Auto-freshness needs RPA on a dedicated always-on desktop because the live `.edb` is encrypted (key in `LINE.exe`) and the UI is a Qt opaque canvas (no addressable controls) — see the doc.
 
 ## Out of scope (must NOT add without explicit approval)
 
