@@ -474,6 +474,42 @@ export const GOOGLE_ALL_SCOPES = [
 ];
 
 /**
+ * Step 20 — LINE connector (READ-ONLY, local export ingest).
+ *
+ * The LINE Windows desktop app stores chat history in an ENCRYPTED + locked
+ * SQLite `.edb` file that better-sqlite3 cannot open, so reading the live DB is
+ * impossible. Instead this connector ingests LINE's manual chat-export `.txt`
+ * files dropped into a local folder. Read-only: NO write action types exist for
+ * LINE. Disabled by default; fails closed (disabled / missing dir / parse error
+ * → empty + available:false). Message text is NEVER logged.
+ */
+
+/** LINE connector is OFF unless explicitly enabled. DB config overrides env. */
+export const LINE_ENABLED = /^(1|true)$/i.test(process.env.LINE_ENABLED ?? "");
+
+/** Folder holding LINE chat-export .txt files. Gitignored (under data/). */
+export const LINE_EXPORT_DIR =
+  process.env.LINE_EXPORT_DIR ?? path.join(DATA_DIR, "line-exports");
+
+/** Max messages returned per LINE query. */
+export const LINE_MAX_RESULTS = Number(process.env.LINE_MAX_RESULTS ?? 50);
+
+/** Recent LINE messages (across all chats) injected into chat recall context. */
+export const LINE_CHAT_CONTEXT_CAP = Number(
+  process.env.LINE_CHAT_CONTEXT_CAP ?? 8,
+);
+
+/** Recent messages included PER chat in chat recall context (Part 1). */
+export const LINE_CONTEXT_PER_CHAT = Number(
+  process.env.LINE_CONTEXT_PER_CHAT ?? 6,
+);
+
+/** Max chats (most-recently-active first) surfaced with recent messages. */
+export const LINE_CONTEXT_MAX_CHATS = Number(
+  process.env.LINE_CONTEXT_MAX_CHATS ?? 6,
+);
+
+/**
  * Step 16 — real memory (fact store). Facts are durable, recallable statements
  * about the user. Local-only like the memory files, so no enable flag: auto-
  * capture is governed by the existing auto-execute flag; recall is always on.

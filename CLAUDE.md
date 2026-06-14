@@ -186,17 +186,31 @@
 - **OAuth scope:** `contacts.readonly` added to `GOOGLE_ALL_SCOPES`; re-run `npm run google-auth` once.
 - **Verification:** `npm run smoke:step18` (7 assertions: disabled flag, scopes, HTTP routes fail-closed — no real People API calls).
 
+## Step 20 scope (done) — LINE connector (READ-ONLY, local export ingest)
+
+- **Live LINE DB is NOT usable.** LINE for Windows v26 stores chats in an ENCRYPTED, locked `.edb` SQLite file (`%LOCALAPPDATA%\LINE\Data\db\*.edb`; first 16 magic bytes replaced → better-sqlite3 `unable to open database file`; also exclusive-locked while LINE runs). Reading it live is impossible without reverse-engineering the key (fragile, version-specific, out of scope). **Decision: ingest LINE's manual chat-export `.txt` files instead.**
+- **Read-only. NO write action types for LINE** (no executor/registry/approval changes). Disabled by default (`LINE_ENABLED`), fail-closed (disabled / missing dir / parse error → `available:false`), message text **never logged**.
+- **Export format (LINE Win v26):** date header `YYYY.MM.DD Weekday`; message `HH:mm <sender> <message>` **single-space delimited**; continuation lines (incl. blank lines) belong to the message above. Times are Bangkok local, minute-granularity (no seconds/tz) → stored as **approximate UTC** (`−7h`).
+- **Parser (`services/lineChat.ts`) — registry-based sender split** (space delimiter + display names with spaces make first-token splitting wrong): pass 1 harvests reliable sender names from media/`unsent` lines (sender = prefix before a fixed English suffix like ` Photos` / ` unsent a message.`); pass 2 splits each message by **longest known-sender prefix**, falling back to first-token. Sender-less system lines (`Message unsent.`) → `sender:null`. mtime-keyed parse cache = semi-live re-read on file change.
+- **Config (off by default):** `LINE_ENABLED` (DB `line_enabled` overrides), `LINE_EXPORT_DIR` (default gitignored `data/line-exports/`), `LINE_MAX_RESULTS` (50), `LINE_CHAT_CONTEXT_CAP` (8).
+- **Read routes:** `GET /api/line/chats` (summaries), `GET /api/line/messages?chat=&limit=` (per-chat, filename id, path-traversal guarded). Both fail-closed.
+- **Chat context:** recent LINE messages across all chats (capped, fail-soft → []) injected into recall (`chat.ts` + `chatPrompt.ts`), like Gmail/Contacts/Drive. Redacted to [] for unverified requester.
+- **Schemas:** `schemas/lineChat.ts` (message + chat summary + list responses). No payload schemas (read-only).
+- **Drop new exports into `data/line-exports/`** (re-export to refresh; not live). Dashboard `/line` page deferred to a follow-up.
+- **Verification:** `npm run smoke:step20` (28 assertions: fail-closed when disabled, registry split of spaced names, multiline, sender-less system, Bangkok→UTC, README skipped, traversal guard, routes, no `line.*` action types — temp export dir, no real LINE files/DB). `npm run build` clean.
+
 ## Out of scope (must NOT add without explicit approval)
 
 - MCP
-- External connectors **other than Google Calendar (Step 10), Gmail (Step 17), Google Contacts (Step 18)**
+- External connectors **other than Google Calendar (Step 10), Gmail (Step 17), Google Contacts (Step 18), Google Drive (Step 19), LINE read-only export ingest (Step 20)**
 - **Local filesystem write/delete** (Step 14 expanded Google Calendar to full CRUD but deliberately did **not** grant local file mutation)
 - Auto-executing **non-recoverable destructive** actions (`*.archive` / memory `replace` stay confirm-gated even with auto-execute on). **Exception (Step 14.5, user-approved):** recoverable `google_event.delete` (snapshot → restorable) may auto-execute when the opt-in `CLAUDE_AGENT_AUTO_EXECUTE_DESTRUCTIVE_ENABLED` toggle is on.
 - Auto-morning-brief scheduler (timer-driven Claude invocation — Step 11 scheduler does **not** call Claude)
 - **Voice input** (STT, microphone, wake word) — voice **output** (TTS) is in-scope via Step 13; input stays out
 - Claude-generated spoken lines for scheduler/approval-nag (Step 13 keeps these templated/deterministic — no Claude)
-- Google Drive, Notion
-- LINE, Instagram (approved in principle but not yet implemented)
+- Notion
+- LINE **write** actions (Step 20 is read-only export ingest; no send/reply) and LINE **live `.edb` decryption**
+- Instagram (approved in principle but not yet implemented)
 - Local filesystem scanning
 - Authentication **beyond minimal OAuth for Google APIs**
 
@@ -241,6 +255,7 @@ Claude_Agent/
 - `npm run smoke:step10` — Step 10 Google Calendar smoke (stubbed; no network)
 - `npm run smoke:step11` — Step 11 scheduler smoke (stubbed notifier + temp DB; no real toast)
 - `npm run smoke:step12` — Step 12 chat smoke (stubbed invoker + temp DB; real `claude` never called)
+- `npm run smoke:step20` — Step 20 LINE read-only smoke (temp export dir; no real LINE files/DB)
 - `npm run google-auth` — one-time Google Calendar OAuth setup
 - `npm run db:init` — initialize the SQLite database
 - `npm run dev` — run backend in watch mode (127.0.0.1:8787)

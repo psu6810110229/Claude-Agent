@@ -39,6 +39,10 @@ import {
   isContactsEnabled,
 } from "./googleContacts.js";
 import { getRecentDriveFiles } from "./googleDrive.js";
+import {
+  getLineChatSummariesSafe,
+  getRecentLineByChatSafe,
+} from "./lineChat.js";
 import type { Approval } from "../schemas/approval.js";
 import {
   CLAUDE_BRIEF_TIMEOUT_MS,
@@ -48,6 +52,8 @@ import {
   CHAT_GOOGLE_WINDOW_DAYS,
   CHAT_GOOGLE_EVENT_CAP,
   CHAT_HISTORY_LIMIT,
+  LINE_CONTEXT_PER_CHAT,
+  LINE_CONTEXT_MAX_CHATS,
   nowIso,
 } from "../config.js";
 import { classifySensitivity } from "./privacyClassifier.js";
@@ -283,6 +289,27 @@ export async function buildChatContext(
   // Step 19 — Recent Drive files for AI awareness (capped at 10; fail silently).
   const recentDriveFiles = await getRecentDriveFiles(10);
 
+  // Step 20 / Part 1 — LINE: the full chat LIST (so Jarvis knows every chat) +
+  // recent messages grouped per chat for the most-active chats. Fail-soft → [].
+  // Times shown are Asia/Bangkok wall-clock (the export's native time) — NOT UTC.
+  const lineChats = getLineChatSummariesSafe().map((c) => ({
+    name: c.name,
+    messageCount: c.messageCount,
+    lastMessageAt: c.lastMessageAt,
+  }));
+  const lineMessages = getRecentLineByChatSafe(
+    LINE_CONTEXT_PER_CHAT,
+    LINE_CONTEXT_MAX_CHATS,
+  ).flatMap((g) =>
+    g.messages.map((m) => ({
+      chat: g.chat,
+      sender: m.sender,
+      text: m.text.slice(0, 200),
+      date: m.date,
+      time: m.time,
+    })),
+  );
+
   const GENERIC_BUSY = "ไม่ว่าง (รายละเอียดส่วนตัว)";
   const GENERIC_TASK = "งานส่วนตัว";
   const GENERIC_REMINDER = "เตือนความจำส่วนตัว";
@@ -305,6 +332,8 @@ export async function buildChatContext(
       gmailUnread: [],
       contacts: [],
       recentDriveFiles: [],
+      lineChats: [],
+      lineMessages: [],
       autoExecute: isAutoExecuteEnabled(),
       autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
       restricted: true,
@@ -326,6 +355,8 @@ export async function buildChatContext(
     gmailUnread,
     contacts,
     recentDriveFiles,
+    lineChats,
+    lineMessages,
     autoExecute: isAutoExecuteEnabled(),
     autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
     restricted: false,

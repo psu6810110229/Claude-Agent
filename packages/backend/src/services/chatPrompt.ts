@@ -78,6 +78,30 @@ export interface ChatContext {
    * recently modified files so it can reference them by name.
    */
   recentDriveFiles: { id: string; name: string; mimeType: string }[];
+  /**
+   * Step 20 — recent LINE messages across all exported chats (read-only),
+   * newest first, capped to LINE_CHAT_CONTEXT_CAP. Empty when LINE is disabled
+   * or no exports exist. Sender attribution is best-effort (space-delimited
+   * export); times are approximate (minute granularity, Bangkok → UTC).
+   */
+  /**
+   * Step 20 / Part 1 — full list of LINE chats (so Jarvis always knows every
+   * chat that exists + its size, even ones with no recent activity shown below).
+   */
+  lineChats: {
+    name: string;
+    messageCount: number;
+    lastMessageAt: string | null;
+  }[];
+  lineMessages: {
+    chat: string;
+    sender: string | null;
+    text: string;
+    /** Asia/Bangkok local date (YYYY-MM-DD) — the export's native time. */
+    date: string;
+    /** Asia/Bangkok local time (HH:mm). */
+    time: string;
+  }[];
   /** Live runtime: reversible actions execute immediately (no approval queue). */
   autoExecute: boolean;
   /** Live runtime: recoverable destructive Google delete also auto-executes. */
@@ -217,6 +241,26 @@ export function buildChatPrompt(ctx: ChatContext): string {
           })
           .join("\n")
       : "  (none or Drive disabled)";
+
+  const lineChatsList =
+    ctx.lineChats.length > 0
+      ? ctx.lineChats
+          .map(
+            (c) =>
+              `  - "${c.name}" — ${c.messageCount} msgs, last ${c.lastMessageAt ?? "n/a"}`,
+          )
+          .join("\n")
+      : "  (none or LINE disabled)";
+
+  const lineMessages =
+    ctx.lineMessages.length > 0
+      ? ctx.lineMessages
+          .map(
+            (m) =>
+              `  - [${m.chat}] ${m.date} ${m.time} (Asia/Bangkok) ${m.sender ?? "(system)"}: ${m.text}`,
+          )
+          .join("\n")
+      : "  (none or LINE disabled)";
 
   return `You are Jarvis (Thai: จาวิส), the user's personal AI secretary inside
 a local-first Personal Agent OS. "Jarvis"/"จาวิส" is your stable user-facing
@@ -433,6 +477,21 @@ FALLBACK & CLARIFICATION RULES:
 - Do not propose an action until the user answers the clarification and the
   resulting action passes the normal approval policy.
 
+SOURCE ATTRIBUTION RULES (CRITICAL — do not mix data sources):
+- Each context section below is a SEPARATE source: UNREAD GMAIL = email only;
+  LINE MESSAGES = LINE chat only; GOOGLE CALENDAR / LOCAL EVENTS = calendar;
+  REMINDERS = reminders. They are NOT interchangeable.
+- When the user names a source (ไลน์/LINE, อีเมล/เมล/Gmail, ปฏิทิน/calendar),
+  answer ONLY from that source's section. NEVER report a Gmail/email item as a
+  LINE message, or a LINE message as email. Sender/subject like airlines,
+  Coursera, LinkedIn, banks = EMAIL, never LINE.
+- If the named source's section is empty or says disabled, say plainly there is
+  nothing from THAT source — do NOT substitute another source to fill the gap.
+- "ข้อความใหม่/ยังไม่ได้อ่าน" only maps to UNREAD GMAIL when the user is asking
+  about EMAIL. If they asked about LINE, use LINE MESSAGES and remember LINE has
+  no read/unread state (it is just the most recent exported messages).
+- If you cannot tell which source they mean, ask one short question first.
+
 LOCAL CONTEXT (read-only; recall this to ground your replies):
 
 OPEN TASKS (for resolving task ids; do not invent ids):
@@ -449,6 +508,22 @@ ${contacts}
 GOOGLE DRIVE (10 most recently modified files; search/read/upload on the /drive
 dashboard page; you can reference these by name or id when the user asks):
 ${driveFiles}
+
+LINE CHATS (read-only; the COMPLETE list of LINE chats available to you, with
+size + last-activity time. Use this to answer "how many chats" / "which chats"
+truthfully. Recent messages for the most-active ones are listed below):
+${lineChatsList}
+
+LINE MESSAGES (read-only; recent messages grouped by chat for the most-active
+chats; times shown are already Asia/Bangkok local — report them as-is, do NOT
+subtract/add hours. CRITICAL CAVEATS: LINE exports carry NO read/unread status,
+no delivery state, and nothing newer than the user's last export — so NEVER call
+a message "unread", never claim this is the full/complete inbox, never imply it
+is live. Only recent messages per chat are shown (not full history); if asked
+about older messages not shown, say you only see recent ones. Sender names are
+best-effort from a space-delimited export. There is NO LINE write action — you
+can only summarise or answer):
+${lineMessages}
 
 GOOGLE CALENDAR (the user's PRIMARY schedule; today + next 7 days; use the
 shown id= value as the "id" for google_event.update / google_event.delete; do
