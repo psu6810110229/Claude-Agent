@@ -39,6 +39,15 @@ import {
   deleteGoogleCalendarEvent,
   GoogleCalendarError,
 } from "./googleCalendar.js";
+import {
+  createGmailDraft,
+  sendGmailEmail,
+  GmailError,
+} from "./gmail.js";
+import type {
+  GmailDraftPayload,
+  GmailSendPayload,
+} from "../schemas/gmail.js";
 import { getActionMeta } from "./actionRegistry.js";
 
 /** Thrown when an approval cannot be executed (bad payload or unknown target). */
@@ -245,6 +254,26 @@ export async function executeAction(
         summary: `forgot fact #${fact.id}`,
         undoJson: JSON.stringify(prior),
       };
+    }
+    case "gmail.draft": {
+      const data = parsed.data as GmailDraftPayload;
+      try {
+        const draft = await createGmailDraft(data);
+        return { summary: `created Gmail draft ${draft.draftId} to ${data.to}` };
+      } catch (err) {
+        if (err instanceof GmailError) throw new ExecutorError(err.message);
+        throw err;
+      }
+    }
+    case "gmail.send": {
+      const data = parsed.data as GmailSendPayload;
+      try {
+        const sent = await sendGmailEmail(data);
+        return { summary: `sent Gmail email ${sent.messageId} to ${data.to}` };
+      } catch (err) {
+        if (err instanceof GmailError) throw new ExecutorError(err.message);
+        throw err;
+      }
     }
   }
 }

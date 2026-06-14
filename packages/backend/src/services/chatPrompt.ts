@@ -61,6 +61,11 @@ export interface ChatContext {
   }[];
   /** Prior conversation turns (oldest first), capped to CHAT_HISTORY_LIMIT. */
   history: { role: "user" | "assistant"; content: string }[];
+  /**
+   * Step 17 — unread Gmail messages (capped at 5). Empty when Gmail is
+   * disabled or unavailable. Never includes full body — snippet only.
+   */
+  gmailUnread: { id: string; from: string; subject: string; snippet: string }[];
   /** Live runtime: reversible actions execute immediately (no approval queue). */
   autoExecute: boolean;
   /** Live runtime: recoverable destructive Google delete also auto-executes. */
@@ -173,6 +178,16 @@ export function buildChatPrompt(ctx: ChatContext): string {
           .map((m) => `  [${m.role}]: ${m.content}`)
           .join("\n")
       : "  (none — this is the first turn)";
+
+  const gmailUnread =
+    ctx.gmailUnread.length > 0
+      ? ctx.gmailUnread
+          .map(
+            (m) =>
+              `  - id=${m.id} from="${m.from}" subject="${m.subject}" snippet="${m.snippet}"`,
+          )
+          .join("\n")
+      : "  (none or Gmail disabled)";
 
   return `You are Jarvis (Thai: จาวิส), the user's personal AI secretary inside
 a local-first Personal Agent OS. "Jarvis"/"จาวิส" is your stable user-facing
@@ -393,6 +408,10 @@ LOCAL CONTEXT (read-only; recall this to ground your replies):
 
 OPEN TASKS (for resolving task ids; do not invent ids):
 ${tasks}
+
+UNREAD GMAIL (up to 5 most recent; use id= for replyToMessageId in gmail.draft
+/ gmail.send to thread the reply correctly; do not invent ids):
+${gmailUnread}
 
 GOOGLE CALENDAR (the user's PRIMARY schedule; today + next 7 days; use the
 shown id= value as the "id" for google_event.update / google_event.delete; do
