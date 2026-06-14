@@ -34,6 +34,11 @@ import {
   fetchUnreadGmailMessages,
   isGmailEnabled,
 } from "./gmail.js";
+import {
+  fetchGoogleContacts,
+  isContactsEnabled,
+} from "./googleContacts.js";
+import { getRecentDriveFiles } from "./googleDrive.js";
 import type { Approval } from "../schemas/approval.js";
 import {
   CLAUDE_BRIEF_TIMEOUT_MS,
@@ -264,6 +269,20 @@ export async function buildChatContext(
     }
   }
 
+  // Step 18 — Google Contacts (capped at 50 for prompt; fail gracefully).
+  let contacts: ChatContext["contacts"] = [];
+  if (isContactsEnabled()) {
+    try {
+      const all = await fetchGoogleContacts(50);
+      contacts = all.map((c) => ({ name: c.name, email: c.email }));
+    } catch {
+      contacts = [];
+    }
+  }
+
+  // Step 19 — Recent Drive files for AI awareness (capped at 10; fail silently).
+  const recentDriveFiles = await getRecentDriveFiles(10);
+
   const GENERIC_BUSY = "ไม่ว่าง (รายละเอียดส่วนตัว)";
   const GENERIC_TASK = "งานส่วนตัว";
   const GENERIC_REMINDER = "เตือนความจำส่วนตัว";
@@ -284,6 +303,8 @@ export async function buildChatContext(
       approvalOutcomes: [],
       history: [],
       gmailUnread: [],
+      contacts: [],
+      recentDriveFiles: [],
       autoExecute: isAutoExecuteEnabled(),
       autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
       restricted: true,
@@ -303,6 +324,8 @@ export async function buildChatContext(
     approvalOutcomes,
     history,
     gmailUnread,
+    contacts,
+    recentDriveFiles,
     autoExecute: isAutoExecuteEnabled(),
     autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
     restricted: false,

@@ -99,6 +99,50 @@ export interface GmailListResponse {
   available: boolean;
 }
 
+// --- Google Drive (Step 19) -----------------------------------------------
+
+export interface DriveFile {
+  id: string;
+  name: string;
+  mimeType: string;
+  webViewLink?: string;
+  modifiedTime?: string;
+  owners?: { displayName: string }[];
+  size?: string;
+}
+
+/** GET /api/drive/files — `available` is false when disabled or on fetch error. */
+export interface DriveListResponse {
+  files: DriveFile[];
+  available: boolean;
+}
+
+/** GET /api/drive/files/:id/content */
+export interface DriveContentResponse {
+  id: string;
+  name: string;
+  content: string | null;
+  truncated: boolean;
+  available: boolean;
+  message?: string;
+}
+
+/** POST /api/drive/upload */
+export interface DriveUploadBody {
+  name: string;
+  mimeType: string;
+  contentBase64: string;
+  folderId?: string;
+}
+
+export interface DriveUploadResponse {
+  id?: string;
+  name?: string;
+  webViewLink?: string | null;
+  available: boolean;
+  message?: string;
+}
+
 export type ReminderStatus = "active" | "done" | "archived";
 
 export interface Reminder {
