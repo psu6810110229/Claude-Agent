@@ -408,11 +408,41 @@ export const GOOGLE_CONTACTS_SCOPES = [
   "https://www.googleapis.com/auth/contacts.readonly",
 ];
 
+/**
+ * Step 19 — Google Drive connector.
+ *
+ * Uses the same OAuth client + credential files as Calendar, Gmail, Contacts.
+ * Requires drive.readonly (search + read) and drive.file (upload) scopes.
+ * Re-run `npm run google-auth` after enabling. Disabled by default.
+ */
+
+/** Google Drive connector is OFF unless explicitly enabled. */
+export const GOOGLE_DRIVE_ENABLED = /^(1|true)$/i.test(
+  process.env.GOOGLE_DRIVE_ENABLED ?? "",
+);
+
+/** Max files returned per search query. */
+export const GOOGLE_DRIVE_MAX_RESULTS = Number(
+  process.env.GOOGLE_DRIVE_MAX_RESULTS ?? 30,
+);
+
+/** Max characters read from a single file's content before truncation. */
+export const GOOGLE_DRIVE_CONTENT_MAX_CHARS = Number(
+  process.env.GOOGLE_DRIVE_CONTENT_MAX_CHARS ?? 30_000,
+);
+
+/** Drive OAuth scopes: read all files + create/upload files this app manages. */
+export const GOOGLE_DRIVE_SCOPES = [
+  "https://www.googleapis.com/auth/drive.readonly",
+  "https://www.googleapis.com/auth/drive.file",
+];
+
 /** All Google OAuth scopes requested in a single consent flow. */
 export const GOOGLE_ALL_SCOPES = [
   ...GOOGLE_CALENDAR_SCOPES,
   ...GOOGLE_GMAIL_SCOPES,
   ...GOOGLE_CONTACTS_SCOPES,
+  ...GOOGLE_DRIVE_SCOPES,
 ];
 
 /**

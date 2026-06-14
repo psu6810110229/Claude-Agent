@@ -30,7 +30,8 @@
     "smoke:step16": "tsx scripts/smoke-step16.ts",
     "smoke:privacy-persist": "tsx scripts/smoke-privacy-persist.ts",
     "smoke:step17": "tsx scripts/smoke-step17.ts",
-    "smoke:step18": "tsx scripts/smoke-step18.ts"
+    "smoke:step18": "tsx scripts/smoke-step18.ts",
+    "smoke:step19": "tsx scripts/smoke-step19.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

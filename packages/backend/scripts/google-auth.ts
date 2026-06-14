@@ -65,6 +65,7 @@ async function main(): Promise<void> {
   console.log("Set GOOGLE_CALENDAR_ENABLED=1 to activate Calendar.");
   console.log("Set GMAIL_ENABLED=1 to activate Gmail (draft + send).");
   console.log("Set GOOGLE_CONTACTS_ENABLED=1 to activate Contacts (read-only).");
+  console.log("Set GOOGLE_DRIVE_ENABLED=1 to activate Drive (search, read, upload).");
 }
 
 /** Start a tiny loopback server, print the consent URL, resolve with the code. */

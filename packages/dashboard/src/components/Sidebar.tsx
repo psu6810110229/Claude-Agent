@@ -11,6 +11,7 @@ import {
   FolderKanban,
   Files,
   Home,
+  HardDrive,
   ListTodo,
   Mail,
   NotebookPen,
@@ -20,6 +21,7 @@ import {
 import {
   getCalendarUpcoming,
   getChatHistory,
+  getDriveFiles,
   getGmailUnread,
   getSettings,
   listActivity,
@@ -39,6 +41,7 @@ const PRELOADERS: Record<string, () => void> = {
   "/settings":  () => preload("/api/settings",  getSettings),
   "/memory":    () => preload("/api/memory",    listMemory),
   "/gmail":     () => preload("/api/gmail/unread", getGmailUnread),
+  "/drive":     () => preload("/api/drive/files", () => getDriveFiles()),
   "/upcoming":  () =>
     preload("/api/upcoming", () =>
       Promise.all([getCalendarUpcoming(), listEvents(), listReminders()]).then(
@@ -57,6 +60,7 @@ const MORE_LINKS = [
   { href: "/activity",  label: "Activity",      icon: Activity      },
   { href: "/upcoming",  label: "Upcoming",      icon: CalendarDays  },
   { href: "/gmail",     label: "Gmail",         icon: Mail          },
+  { href: "/drive",     label: "Drive",         icon: HardDrive     },
   { href: "/memory",    label: "Memory",        icon: Brain         },
   { href: "/files",     label: "File Explorer", icon: Files         },
   { href: "/notepad",   label: "Notepad",       icon: NotebookPen   },

@@ -72,6 +72,12 @@ export interface ChatContext {
    * drafting or sending via gmail.draft / gmail.send.
    */
   contacts: { name: string; email?: string }[];
+  /**
+   * Step 19 — Recent Google Drive files (capped at 10, name + id + type).
+   * Empty when Drive is disabled or unavailable. Gives the AI awareness of
+   * recently modified files so it can reference them by name.
+   */
+  recentDriveFiles: { id: string; name: string; mimeType: string }[];
   /** Live runtime: reversible actions execute immediately (no approval queue). */
   autoExecute: boolean;
   /** Live runtime: recoverable destructive Google delete also auto-executes. */
@@ -201,6 +207,16 @@ export function buildChatPrompt(ctx: ChatContext): string {
           .map((c) => `  - ${c.name}${c.email ? ` <${c.email}>` : ""}`)
           .join("\n")
       : "  (none or Contacts disabled)";
+
+  const driveFiles =
+    ctx.recentDriveFiles.length > 0
+      ? ctx.recentDriveFiles
+          .map((f) => {
+            const type = f.mimeType.replace("application/vnd.google-apps.", "").replace("application/", "");
+            return `  - id=${f.id} "${f.name}" [${type}]`;
+          })
+          .join("\n")
+      : "  (none or Drive disabled)";
 
   return `You are Jarvis (Thai: จาวิส), the user's personal AI secretary inside
 a local-first Personal Agent OS. "Jarvis"/"จาวิส" is your stable user-facing
@@ -429,6 +445,10 @@ ${gmailUnread}
 GOOGLE CONTACTS (your address book; use the email shown here when filling the
 "to" field in gmail.draft / gmail.send — do not guess or invent email addresses):
 ${contacts}
+
+GOOGLE DRIVE (10 most recently modified files; search/read/upload on the /drive
+dashboard page; you can reference these by name or id when the user asks):
+${driveFiles}
 
 GOOGLE CALENDAR (the user's PRIMARY schedule; today + next 7 days; use the
 shown id= value as the "id" for google_event.update / google_event.delete; do

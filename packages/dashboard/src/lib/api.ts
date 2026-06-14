@@ -10,6 +10,10 @@ import type {
   CalendarEvent,
   ChatMessage,
   ChatResult,
+  DriveContentResponse,
+  DriveListResponse,
+  DriveUploadBody,
+  DriveUploadResponse,
   FollowupResult,
   CommandMode,
   CommandResult,
@@ -543,4 +547,25 @@ export function generateEveningBrief(): Promise<BriefResult> {
 
 export function getGmailUnread(): Promise<GmailListResponse> {
   return request<GmailListResponse>("/api/gmail/unread");
+}
+
+// --- Google Drive (Step 19) ------------------------------------------------
+
+export function getDriveFiles(q = "", sharedWith?: string): Promise<DriveListResponse> {
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  if (sharedWith) params.set("sharedWith", sharedWith);
+  const qs = params.toString();
+  return request<DriveListResponse>(`/api/drive/files${qs ? `?${qs}` : ""}`);
+}
+
+export function getDriveFileContent(fileId: string): Promise<DriveContentResponse> {
+  return request<DriveContentResponse>(`/api/drive/files/${fileId}/content`);
+}
+
+export function uploadToDrive(body: DriveUploadBody): Promise<DriveUploadResponse> {
+  return request<DriveUploadResponse>("/api/drive/upload", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
