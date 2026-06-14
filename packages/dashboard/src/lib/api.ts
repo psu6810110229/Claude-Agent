@@ -15,6 +15,7 @@ import type {
   CommandResult,
   CreateFactProposalBody,
   CreateMemoryProposalBody,
+  GmailListResponse,
   GoogleEventListResponse,
   MemoryContent,
   MemoryEntry,
@@ -536,4 +537,10 @@ export function generateDailyBrief(): Promise<BriefResult> {
 
 export function generateEveningBrief(): Promise<BriefResult> {
   return request<BriefResult>("/api/briefs/evening", { method: "POST" });
+}
+
+// --- Gmail (Step 17) -------------------------------------------------------
+
+export function getGmailUnread(): Promise<GmailListResponse> {
+  return request<GmailListResponse>("/api/gmail/unread");
 }

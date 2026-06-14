@@ -81,6 +81,9 @@ const ALWAYS_CONFIRM_TYPES: ReadonlySet<ActionType> = new Set<ActionType>([
   "reminder.archive",
   "fact.update",
   "fact.forget",
+  // Sent email cannot be recalled — always require explicit confirm regardless
+  // of auto-execute setting. gmail.draft is NOT here and may auto-execute.
+  "gmail.send",
 ]);
 
 /**

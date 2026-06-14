@@ -30,6 +30,10 @@ import {
   realGoogleEventsFetcher,
   type GoogleEventsFetcher,
 } from "./googleCalendar.js";
+import {
+  fetchUnreadGmailMessages,
+  isGmailEnabled,
+} from "./gmail.js";
 import type { Approval } from "../schemas/approval.js";
 import {
   CLAUDE_BRIEF_TIMEOUT_MS,
@@ -244,6 +248,22 @@ export async function buildChatContext(
     content: m.content,
   }));
 
+  // Step 17 — Gmail unread (capped at 5; fail gracefully when disabled/error).
+  let gmailUnread: ChatContext["gmailUnread"] = [];
+  if (isGmailEnabled()) {
+    try {
+      const msgs = await fetchUnreadGmailMessages(5);
+      gmailUnread = msgs.map((m) => ({
+        id: m.id,
+        from: m.from,
+        subject: m.subject,
+        snippet: m.snippet,
+      }));
+    } catch {
+      gmailUnread = [];
+    }
+  }
+
   const GENERIC_BUSY = "ไม่ว่าง (รายละเอียดส่วนตัว)";
   const GENERIC_TASK = "งานส่วนตัว";
   const GENERIC_REMINDER = "เตือนความจำส่วนตัว";
@@ -263,6 +283,7 @@ export async function buildChatContext(
       reminders: reminders.map((r) => ({ ...r, title: GENERIC_REMINDER })),
       approvalOutcomes: [],
       history: [],
+      gmailUnread: [],
       autoExecute: isAutoExecuteEnabled(),
       autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
       restricted: true,
@@ -281,6 +302,7 @@ export async function buildChatContext(
     reminders,
     approvalOutcomes,
     history,
+    gmailUnread,
     autoExecute: isAutoExecuteEnabled(),
     autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
     restricted: false,

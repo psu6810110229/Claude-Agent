@@ -36,7 +36,9 @@ export type ActionType =
   | "google_event.delete"
   | "fact.remember"
   | "fact.update"
-  | "fact.forget";
+  | "fact.forget"
+  | "gmail.draft"
+  | "gmail.send";
 
 // --- Events & reminders (Step 9) ------------------------------------------
 
@@ -76,6 +78,24 @@ export interface GoogleEvent {
 /** GET /api/calendar/* — `available` is false when disabled or on fetch error. */
 export interface GoogleEventListResponse {
   events: GoogleEvent[];
+  available: boolean;
+}
+
+// --- Gmail (Step 17) -------------------------------------------------------
+
+export interface GmailMessage {
+  id: string;
+  threadId: string;
+  from: string;
+  subject: string;
+  snippet: string;
+  receivedAt: string;
+  unread: boolean;
+}
+
+/** GET /api/gmail/unread — `available` is false when disabled or on fetch error. */
+export interface GmailListResponse {
+  messages: GmailMessage[];
   available: boolean;
 }
 

@@ -12,6 +12,7 @@ import {
   Files,
   Home,
   ListTodo,
+  Mail,
   NotebookPen,
   Brain,
   CalendarDays,
@@ -19,6 +20,7 @@ import {
 import {
   getCalendarUpcoming,
   getChatHistory,
+  getGmailUnread,
   getSettings,
   listActivity,
   listApprovals,
@@ -36,6 +38,7 @@ const PRELOADERS: Record<string, () => void> = {
   "/activity":  () => preload("/api/activity",  () => listActivity(100)),
   "/settings":  () => preload("/api/settings",  getSettings),
   "/memory":    () => preload("/api/memory",    listMemory),
+  "/gmail":     () => preload("/api/gmail/unread", getGmailUnread),
   "/upcoming":  () =>
     preload("/api/upcoming", () =>
       Promise.all([getCalendarUpcoming(), listEvents(), listReminders()]).then(
@@ -53,6 +56,7 @@ const MORE_LINKS = [
   { href: "/tasks",     label: "Tasks",         icon: ListTodo      },
   { href: "/activity",  label: "Activity",      icon: Activity      },
   { href: "/upcoming",  label: "Upcoming",      icon: CalendarDays  },
+  { href: "/gmail",     label: "Gmail",         icon: Mail          },
   { href: "/memory",    label: "Memory",        icon: Brain         },
   { href: "/files",     label: "File Explorer", icon: Files         },
   { href: "/notepad",   label: "Notepad",       icon: NotebookPen   },

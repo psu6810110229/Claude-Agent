@@ -4,7 +4,7 @@ import { google } from "googleapis";
 import {
   GOOGLE_CLIENT_SECRET_PATH,
   GOOGLE_TOKEN_PATH,
-  GOOGLE_CALENDAR_SCOPES,
+  GOOGLE_ALL_SCOPES,
   GOOGLE_OAUTH_REDIRECT_PORT,
 } from "../src/config.js";
 import { extractClientConfig } from "../src/services/googleCalendar.js";
@@ -42,7 +42,7 @@ async function main(): Promise<void> {
   const authUrl = client.generateAuthUrl({
     access_type: "offline",
     prompt: "consent", // force a refresh_token even on re-consent
-    scope: GOOGLE_CALENDAR_SCOPES,
+    scope: GOOGLE_ALL_SCOPES,
   });
 
   const code = await waitForCode(authUrl, redirectUri);
@@ -62,7 +62,8 @@ async function main(): Promise<void> {
     { mode: 0o600 },
   );
   console.log(`\nSaved refresh token to ${GOOGLE_TOKEN_PATH}`);
-  console.log("Set GOOGLE_CALENDAR_ENABLED=1 to activate the connector.");
+  console.log("Set GOOGLE_CALENDAR_ENABLED=1 to activate Calendar.");
+  console.log("Set GMAIL_ENABLED=1 to activate Gmail (draft + send).");
 }
 
 /** Start a tiny loopback server, print the consent URL, resolve with the code. */

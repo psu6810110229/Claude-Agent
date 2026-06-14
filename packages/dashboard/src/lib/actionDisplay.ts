@@ -33,6 +33,8 @@ export const ACTION_TYPES: readonly ActionType[] = [
   "fact.remember",
   "fact.update",
   "fact.forget",
+  "gmail.draft",
+  "gmail.send",
 ];
 
 export function isActionType(value: string): value is ActionType {
@@ -58,6 +60,8 @@ const HUMAN_LABELS: Record<ActionType, string> = {
   "fact.remember": "Remember a fact",
   "fact.update": "Update a fact",
   "fact.forget": "Forget a fact",
+  "gmail.draft": "Create Gmail draft",
+  "gmail.send": "Send Gmail email",
 };
 
 export function humanLabel(actionType: ActionType): string {
@@ -157,6 +161,24 @@ export function actionQuestion(action: ActionLike): ActionQuestion {
         approve: "ลืม",
         reject: "ไม่ลืม",
       };
+    case "gmail.draft": {
+      const to = stringField(payload, "to");
+      const subject = stringField(payload, "subject");
+      return {
+        question: `ต้องการสร้างแบบร่างอีเมล${subject ? ` "${subject}"` : ""}${to ? ` ถึง ${to}` : ""} ไหม`,
+        approve: "สร้างแบบร่าง",
+        reject: "ไม่สร้าง",
+      };
+    }
+    case "gmail.send": {
+      const to = stringField(payload, "to");
+      const subject = stringField(payload, "subject");
+      return {
+        question: `ยืนยันส่งอีเมล${subject ? ` "${subject}"` : ""}${to ? ` ถึง ${to}` : ""} เลยไหม (ส่งแล้วเรียกคืนไม่ได้)`,
+        approve: "ส่งเลย",
+        reject: "ไม่ส่ง",
+      };
+    }
     default:
       return {
         question: "ต้องการดำเนินการนี้ไหม",

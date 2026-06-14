@@ -22,6 +22,10 @@ import {
   factUpdatePayloadSchema,
   factForgetPayloadSchema,
 } from "./fact.js";
+import {
+  gmailDraftPayloadSchema,
+  gmailSendPayloadSchema,
+} from "./gmail.js";
 
 /**
  * The ONLY action types the executor will run. Most are internal operations
@@ -47,6 +51,8 @@ export const actionTypeSchema = z.enum([
   "fact.remember",
   "fact.update",
   "fact.forget",
+  "gmail.draft",
+  "gmail.send",
 ]);
 export type ActionType = z.infer<typeof actionTypeSchema>;
 
@@ -82,6 +88,8 @@ export const actionPayloadSchemas = {
   "fact.remember": factRememberPayloadSchema,
   "fact.update": factUpdatePayloadSchema,
   "fact.forget": factForgetPayloadSchema,
+  "gmail.draft": gmailDraftPayloadSchema,
+  "gmail.send": gmailSendPayloadSchema,
 } as const;
 
 export const approvalStatusSchema = z.enum(["pending", "approved", "rejected"]);
