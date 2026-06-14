@@ -66,6 +66,12 @@ export interface ChatContext {
    * disabled or unavailable. Never includes full body — snippet only.
    */
   gmailUnread: { id: string; from: string; subject: string; snippet: string }[];
+  /**
+   * Step 18 — Google Contacts (capped at 50, name + primary email). Empty when
+   * Contacts is disabled or unavailable. Used for email auto-completion when
+   * drafting or sending via gmail.draft / gmail.send.
+   */
+  contacts: { name: string; email?: string }[];
   /** Live runtime: reversible actions execute immediately (no approval queue). */
   autoExecute: boolean;
   /** Live runtime: recoverable destructive Google delete also auto-executes. */
@@ -188,6 +194,13 @@ export function buildChatPrompt(ctx: ChatContext): string {
           )
           .join("\n")
       : "  (none or Gmail disabled)";
+
+  const contacts =
+    ctx.contacts.length > 0
+      ? ctx.contacts
+          .map((c) => `  - ${c.name}${c.email ? ` <${c.email}>` : ""}`)
+          .join("\n")
+      : "  (none or Contacts disabled)";
 
   return `You are Jarvis (Thai: จาวิส), the user's personal AI secretary inside
 a local-first Personal Agent OS. "Jarvis"/"จาวิส" is your stable user-facing
@@ -412,6 +425,10 @@ ${tasks}
 UNREAD GMAIL (up to 5 most recent; use id= for replyToMessageId in gmail.draft
 / gmail.send to thread the reply correctly; do not invent ids):
 ${gmailUnread}
+
+GOOGLE CONTACTS (your address book; use the email shown here when filling the
+"to" field in gmail.draft / gmail.send — do not guess or invent email addresses):
+${contacts}
 
 GOOGLE CALENDAR (the user's PRIMARY schedule; today + next 7 days; use the
 shown id= value as the "id" for google_event.update / google_event.delete; do

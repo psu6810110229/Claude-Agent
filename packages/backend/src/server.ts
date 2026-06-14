@@ -15,6 +15,7 @@ import { chatRoutes } from "./routes/chat.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { ttsRoutes } from "./routes/tts.js";
 import { gmailRoutes } from "./routes/gmail.js";
+import { contactsRoutes } from "./routes/contacts.js";
 import type { ClaudeInvoker } from "./services/claudeClient.js";
 import type { GoogleEventsFetcher } from "./services/googleCalendar.js";
 import type { TtsSynthesizer } from "./services/tts.js";
@@ -56,5 +57,6 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   app.register(settingsRoutes);
   app.register(ttsRoutes, { synthesizer: options.ttsSynthesizer });
   app.register(gmailRoutes);
+  app.register(contactsRoutes);
   return app;
 }

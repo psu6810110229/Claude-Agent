@@ -385,10 +385,34 @@ export const GOOGLE_GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.compose",
 ];
 
+/**
+ * Step 18 — Google Contacts connector.
+ *
+ * Uses the same OAuth client secret + token file as Calendar and Gmail.
+ * Requires contacts.readonly scope — re-run `npm run google-auth` after
+ * enabling to get a token with the expanded scope. Disabled by default.
+ */
+
+/** Google Contacts connector is OFF unless explicitly enabled. */
+export const GOOGLE_CONTACTS_ENABLED = /^(1|true)$/i.test(
+  process.env.GOOGLE_CONTACTS_ENABLED ?? "",
+);
+
+/** Cap on contacts fetched (People API max page is 1000). */
+export const GOOGLE_CONTACTS_MAX_RESULTS = Number(
+  process.env.GOOGLE_CONTACTS_MAX_RESULTS ?? 200,
+);
+
+/** Contacts OAuth scope. */
+export const GOOGLE_CONTACTS_SCOPES = [
+  "https://www.googleapis.com/auth/contacts.readonly",
+];
+
 /** All Google OAuth scopes requested in a single consent flow. */
 export const GOOGLE_ALL_SCOPES = [
   ...GOOGLE_CALENDAR_SCOPES,
   ...GOOGLE_GMAIL_SCOPES,
+  ...GOOGLE_CONTACTS_SCOPES,
 ];
 
 /**

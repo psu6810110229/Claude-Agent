@@ -166,18 +166,39 @@
 - **14.5 — AI can propose Google update/delete + opt-in destructive auto-exec (done).** Bugfix: `schemas/aiCommand.ts` `aiActionSchema` union was missing `google_event.update` / `google_event.delete`, so any AI/chat proposal to update or delete a Google event failed strict validation (chat → 400, "รูปแบบคำตอบไม่พร้อมใช้งาน"). Added both union members; chat context now also exposes each Google event's string `id` (chat.ts + chatPrompt.ts) so the model can target the right event. **User then explicitly approved auto-executing recoverable destructive Google deletes** (snapshot → `undo_json` → restorable). New flag `CLAUDE_AGENT_AUTO_EXECUTE_DESTRUCTIVE_ENABLED` (**default off**) + runtime DB override `auto_execute_destructive_enabled` (Settings toggle "Auto-execute Google delete"). When BOTH auto-execute and this toggle are on, `dispatchProposedAction` lets `RECOVERABLE_DESTRUCTIVE_TYPES` (currently only `google_event.delete`) execute immediately; `*.archive` and `memory.write` `replace` **still always require confirm**. Executor remains the single gate; reporting still truthful. `npm run smoke:step14b` extended (toggle exempts only Google delete; archive/memory-replace stay gated).
 - **Still NOT in scope (Step 14):** local filesystem write/delete (deliberately excluded — too risky); Claude executing directly (executor is the only gate); auto-executing **non-recoverable** destructive actions (`*.archive`, memory `replace` stay confirm-gated).
 
+## Step 17 scope (done) — Gmail connector (read inbox + draft + send)
+
+- **Gmail connector** via existing Google OAuth client (`buildOAuthClient()` from googleCalendar.ts). Reuses same credential files; single `npm run google-auth` run gets combined scopes. Disabled by default (`GMAIL_ENABLED`).
+- **Read:** `GET /api/gmail/unread` — returns up to `GMAIL_MAX_RESULTS` (default 20) unread inbox messages with metadata only (from/subject/snippet/date); never full body. Fails closed to `{ available: false, messages: [] }`.
+- **Write (approval-gated):** `gmail.draft` (auto-executable, low risk — stays in Drafts) and `gmail.send` (ALWAYS confirm-gated, never auto-executed — sent mail cannot be recalled). Both in `ALWAYS_CONFIRM_TYPES` for send; draft is not. Executor is the only gate.
+- **Chat context:** up to 5 unread Gmail messages included (fail-gracefully when disabled/error).
+- **Dashboard:** `/gmail` page (read-only inbox, SWR refresh 5 min); sidebar link; Thai approval copy for both types.
+- **Schemas:** `gmail.draft` payload `{ to, subject, body, cc?, bcc?, replyToMessageId? }` — same shape for send.
+- **OAuth scopes:** `gmail.readonly` + `gmail.compose` added to `GOOGLE_ALL_SCOPES`; re-run `npm run google-auth` to get fresh token.
+- **Verification:** `npm run smoke:step17` (16 assertions: action types, registry/risk, confirmation policy, schema validation, HTTP routes, approval proposals — all pass, no real credentials needed).
+
+## Step 18 scope (done) — Google Contacts connector (read-only)
+
+- **Google Contacts** via People API v1 (`people.connections.list`). Reuses same OAuth client + credential files as Calendar and Gmail. Disabled by default (`GOOGLE_CONTACTS_ENABLED`).
+- **Read:** `GET /api/contacts` — returns up to `GOOGLE_CONTACTS_MAX_RESULTS` (default 200) contacts (name + primary email + phone). `GET /api/contacts/search?q=` — filters by name or email. Both fail closed to `{ available: false, contacts: [] }`.
+- **Write:** none — contacts is read-only. No action types added for contacts.
+- **Chat context:** up to 50 contacts (name + email) included so AI can look up correct email addresses when proposing `gmail.draft` / `gmail.send`. Fails gracefully when disabled.
+- **OAuth scope:** `contacts.readonly` added to `GOOGLE_ALL_SCOPES`; re-run `npm run google-auth` once.
+- **Verification:** `npm run smoke:step18` (7 assertions: disabled flag, scopes, HTTP routes fail-closed — no real People API calls).
+
 ## Out of scope (must NOT add without explicit approval)
 
 - MCP
-- External connectors **other than Step 10 Google Calendar connector**
+- External connectors **other than Google Calendar (Step 10), Gmail (Step 17), Google Contacts (Step 18)**
 - **Local filesystem write/delete** (Step 14 expanded Google Calendar to full CRUD but deliberately did **not** grant local file mutation)
 - Auto-executing **non-recoverable destructive** actions (`*.archive` / memory `replace` stay confirm-gated even with auto-execute on). **Exception (Step 14.5, user-approved):** recoverable `google_event.delete` (snapshot → restorable) may auto-execute when the opt-in `CLAUDE_AGENT_AUTO_EXECUTE_DESTRUCTIVE_ENABLED` toggle is on.
 - Auto-morning-brief scheduler (timer-driven Claude invocation — Step 11 scheduler does **not** call Claude)
 - **Voice input** (STT, microphone, wake word) — voice **output** (TTS) is in-scope via Step 13; input stays out
 - Claude-generated spoken lines for scheduler/approval-nag (Step 13 keeps these templated/deterministic — no Claude)
-- Notion, Gmail, Google Drive
+- Google Drive, Notion
+- LINE, Instagram (approved in principle but not yet implemented)
 - Local filesystem scanning
-- Authentication **beyond minimal OAuth for Google Calendar event access**
+- Authentication **beyond minimal OAuth for Google APIs**
 
 ## Rules for future Claude Code sessions
 
