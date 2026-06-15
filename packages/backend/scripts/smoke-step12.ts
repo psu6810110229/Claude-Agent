@@ -16,6 +16,18 @@ process.env.CLAUDE_AGENT_AI_ENABLED = "1";        // enabled — stubs injected
 process.env.GOOGLE_CALENDAR_ENABLED = "";          // Google off — stub injected
 process.env.CLAUDE_AGENT_SCHEDULER_ENABLED = "";   // scheduler off
 process.env.CLAUDE_AGENT_DESKTOP_NOTIFICATIONS_ENABLED = "";
+// Hermetic: neutralize a local .env that may enable the privacy guard (would make
+// the default no-session requester unverified and skip dispatch) or auto-execute
+// (would run actions immediately instead of leaving them pending). Step 12 asserts
+// the pending-approval baseline.
+process.env.CLAUDE_AGENT_PRIVACY_GUARD_ENABLED = "";
+process.env.CLAUDE_AGENT_AUTO_EXECUTE_ENABLED = "";
+process.env.CLAUDE_AGENT_AUTO_EXECUTE_DESTRUCTIVE_ENABLED = "";
+// Gemini must read as UNCONFIGURED here: the test asserts a manual gemini request
+// fails closed (503). A local .env with GEMINI_ENABLED/GEMINI_API_KEY would make
+// it "available" and return 201 instead.
+process.env.GEMINI_ENABLED = "";
+process.env.GEMINI_API_KEY = "";
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.CLAUDE_AGENT_SMOKE_PORT ?? 8812);
@@ -161,10 +173,25 @@ async function main(): Promise<void> {
   assert(
     readOnlyPrompt.includes("You are Jarvis") &&
       readOnlyPrompt.includes("Never say you have no name") &&
-      readOnlyPrompt.includes('"ผม" and "ครับ"') &&
+      readOnlyPrompt.includes('masculine polite phrasing: "ผม"') &&
+      readOnlyPrompt.includes('Use "ครับ" SPARINGLY') &&
       readOnlyPrompt.includes("chief-of-staff reasoning") &&
       readOnlyPrompt.includes("Never expose internal implementation labels"),
     "prompt pins Jarvis identity, Thai tone, and hides internal role labels",
+  );
+  // Persona fine-tune (this step): particle ban + adaptive length + inline-only follow-up.
+  assert(
+    readOnlyPrompt.includes("PARTICLE BAN") &&
+      readOnlyPrompt.includes("RESPONSE LENGTH RULES") &&
+      readOnlyPrompt.includes("INLINE FOLLOW-UP RULES"),
+    "prompt carries particle ban + adaptive-length + inline-follow-up rules",
+  );
+  // The imitable ACK template strings must no longer TEACH the นะครับ particle
+  // (the only "นะครับ" left should be inside the ban rule's "Wrong:" examples).
+  assert(
+    !readOnlyPrompt.includes("รอคุณยืนยันนะครับ") &&
+      !readOnlyPrompt.includes("ขอดูให้ก่อนนะครับ"),
+    "execution-policy ACK examples are de-particled (no นะครับ in imitable templates)",
   );
   assert(
     readOnlyPrompt.includes("MEMORY CAPTURE RULES") &&

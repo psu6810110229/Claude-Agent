@@ -129,7 +129,7 @@ function buildActionReport(
   }
   if (pending.length > 0) {
     lines.push(
-      `📝 อีก ${pending.length} รายการผมเตรียมไว้ให้แล้ว รอคุณกดยืนยันนะครับ`,
+      `📝 อีก ${pending.length} รายการผมเตรียมไว้ให้แล้ว รอคุณกดยืนยันครับ`,
     );
   }
   if (lines.length === 0) return null;

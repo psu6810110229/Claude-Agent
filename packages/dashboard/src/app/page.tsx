@@ -290,7 +290,7 @@ export default function HomePage() {
           const errorText = "❌ ยืนยันตัวตนไม่สำเร็จหลายครั้ง กรุณารอสักครู่แล้วลองใหม่ครับ";
           const failMsg: ChatMessage = fallbackAssistantMessage(errorText);
           setMessages((prev) => [...prev, failMsg]);
-          if (!muted) void speak("รหัสผิดหลายครั้ง พักก่อนนะครับ");
+          if (!muted) void speak("ลองใหม่อีกครั้งภายหลังครับ");
           
           setSending(false);
           setOrbState("idle");
@@ -389,9 +389,10 @@ export default function HomePage() {
         result.clarification_choices,
       );
       setActiveClarification(clarification);
-      // Offer a proactive follow-up after a quiet pause — but not while we are
-      // already waiting on the user to answer a clarification.
-      if (!clarification) scheduleFollowup();
+      // Delayed auto follow-up disabled (spec §D): the ~5s proactive nudge was
+      // off-topic and interruptive. Inline follow-up now lives in the reply
+      // itself (prompt rules). The /api/chat/followup route + scheduleFollowup()
+      // remain available but are no longer auto-fired here.
     } catch (err) {
       let message = err instanceof ApiError ? err.message : String(err);
       // Phase 4 — Auto mode never switches providers silently. On failure the
