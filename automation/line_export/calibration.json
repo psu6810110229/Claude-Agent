@@ -1,0 +1,10 @@
+{
+  "_note": "Window-relative fractions derived from operator screenshot points on a 1920x1080 reference layout. Live-verified in supervised mode 2026-06-15 (search_box, chat_menu, save_chat_item). Flow opens the chat via the search row; Enter-to-open was unreliable so first_result is unused by the Enter path. LINE must be maximized at a known resolution for these to hold.",
+  "_reference": "1920x1080",
+  "calibrated": true,
+  "search_box": [0.127604, 0.094444],
+  "search_result": [0.130208, 0.162037],
+  "first_result": [0.140625, 0.495370],
+  "chat_menu": [0.986458, 0.092593],
+  "save_chat_item": [0.924, 0.377]
+}
