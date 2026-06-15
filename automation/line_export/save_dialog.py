@@ -200,6 +200,9 @@ def save_line_chat_from_native_dialog(
     # file is moved into `out_dir` by the relocate step below — that is what
     # makes the export dir predictable.
     _set_filename(dialog, safe_name)
+    # Mark the instant just before Save so relocation only ever considers files
+    # LINE writes from THIS export (candidate mtime must be >= export_started_at).
+    export_started_at = time.time()
     _commit_save(dialog)
 
     # Expected (not an error): re-exporting an existing chat triggers an
@@ -225,93 +228,167 @@ def save_line_chat_from_native_dialog(
                            "a second popup or a permission issue.")
 
     # The native dialog ignores the *directory* part of a full path placed via
-    # SetValue: LINE writes the real content into its own current folder (e.g.
-    # the OneDrive-redirected Documents) and only an empty stub (if any) lands at
-    # our path. Relocate the real, just-saved file into the requested export dir
-    # so the result is predictable (requirement 8). Trigger when the target is
-    # missing OR a 0-byte stub.
+    # SetValue: LINE writes the real content into its OWN current folder (e.g.
+    # the OneDrive-redirected Documents), not the directory we asked for. We
+    # relocate that just-saved file into the requested export dir so the result
+    # is predictable.
+    #
+    # Hardened source selection (see _find_fresh_source) — only LINE's likely
+    # save dirs, candidate mtime >= export_started_at, size-stable, largest-wins
+    # — so a re-export can never grab a stale or half-written copy (which once
+    # regressed the export dir to an older, shorter file).
     try:
-        target_ok = target.exists() and target.stat().st_size > 0
+        target_fresh = (target.exists() and target.stat().st_size > 0
+                        and target.stat().st_mtime >= export_started_at)
     except Exception:
-        target_ok = False
-    if not target_ok:
-        # LINE writes the file asynchronously after the dialog closes (it may
-        # briefly be 0 bytes mid-write). Poll for a non-empty saved file before
-        # relocating. Bounded — no unbounded loop.
-        for _ in range(20):  # ~6s max
-            if _locate_recent_save(target.name) is not None:
-                break
-            time.sleep(0.3)
-        _relocate_to_target(target)
+        target_fresh = False
+
+    if target_fresh:
+        # LINE saved straight into the export dir; nothing to relocate. Stamp the
+        # mtime so the backend's mtime-keyed parse cache re-reads it.
+        try:
+            os.utime(target, None)
+        except Exception:
+            pass
+        logger.info("Export written directly into the export dir.")
+    else:
+        source = _find_fresh_source(target, since=export_started_at)
+        if source is None:
+            # Fail loudly rather than copy an ambiguous/stale file into the
+            # export dir (the previous best-effort heuristic could regress data).
+            raise SaveDialogError(
+                "No stable, freshly-saved export appeared in LINE's save folders "
+                "after Save (looked for a file newer than this export with a "
+                "settled size in Documents / OneDrive\\Documents). Refusing to "
+                "copy an ambiguous or stale file into the export dir.")
+        _relocate_from_source(source, target)
 
     logger.info("Saved LINE export to: %s", target)
     return target
 
 
-def _relocate_to_target(target: Path) -> bool:
-    """Move a just-saved export into `target` if the dialog wrote it elsewhere.
+# Set True only once the hardened source selection is verified live. While OFF
+# the relocator never deletes the original file LINE wrote (safer during
+# validation: a wrong pick can be inspected/recovered, not silently removed).
+DELETE_SOURCE_AFTER_RELOCATE = False
 
-    The Windows Save dialog may save the file (with our sanitized basename) into
-    its own current folder rather than the directory we specified. We find that
-    freshly-written file by basename + recent mtime in the usual save folders and
-    move it to `target`. Returns True if `target` exists afterwards.
+
+def _relocate_from_source(source: Path, target: Path) -> bool:
+    """Copy a VERIFIED freshly-saved `source` export into `target`.
+
+    `source` must already be validated by the caller (`_find_fresh_source`:
+    from this export, size-stable, non-empty). This only places that copy at the
+    predictable export-dir path. Returns True if `target` exists afterwards.
+
+    Source deletion is gated by DELETE_SOURCE_AFTER_RELOCATE (OFF during the
+    hardening validation) — we never remove the original while proving the new
+    source-selection logic is correct.
     """
-    found = _locate_recent_save(target.name)
-    if found is None:
-        logger.warning("Saved file not found for relocation; left where the "
-                       "dialog wrote it.")
-        return target.exists()
-    if found.resolve() == target.resolve():
-        return target.exists()
+    try:
+        if source.resolve() == target.resolve():
+            return target.exists()
+    except Exception:
+        pass
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        # Remove an empty/stale stub the dialog may have created at our path.
+        # Remove an empty/stale stub or the old export at our path.
         if target.exists():
             target.unlink()
-        # Copy (not move): the source may be a OneDrive-synced file that is
-        # locked against deletion. Placing the content is what matters; removing
-        # the original is best-effort.
-        shutil.copy2(str(found), str(target))
-        logger.info("Relocated export into the requested export dir.")
+        # Copy (not move): the source may be a OneDrive-synced file locked
+        # against deletion. Placing the content is what matters.
+        shutil.copy2(str(source), str(target))
+        # copy2 preserves the SOURCE mtime; stamp the target NOW so the backend's
+        # mtime-keyed parse cache sees a changed mtime and re-reads the new file.
         try:
-            found.unlink()
+            os.utime(target, None)
         except Exception:
-            logger.info("Original copy left in place (locked); content is in "
-                        "the export dir.")
+            pass
+        logger.info("Relocated export into the requested export dir.")
+        if DELETE_SOURCE_AFTER_RELOCATE:
+            try:
+                source.unlink()
+            except Exception:
+                logger.info("Original copy left in place (locked); content is in "
+                            "the export dir.")
     except Exception as exc:  # pragma: no cover - filesystem dependent
         logger.warning("Could not relocate export: %s", exc)
     return target.exists()
 
 
-def _locate_recent_save(name: str, max_age: float = 180.0):
-    """Find a recently-written file named `name` in the usual save folders.
-
-    Direct path joins only (no glob) so names containing glob metacharacters
-    like ``[LINE]`` are matched literally. Non-recursive: the dialog writes the
-    file directly into its current folder.
-    """
-    now = time.time()
+def _line_save_dirs() -> list[Path]:
+    """LINE's likely native Save-As destination folders. Deliberately NARROW:
+    only the Documents pair. We do NOT search Downloads/Desktop/home — searching
+    those let a re-export grab an unrelated stale ``[LINE]`` file by newest mtime
+    and regress the export dir."""
     home = Path.home()
-    roots = [
-        home / "OneDrive" / "Documents",
-        home / "Documents",
-        home / "Downloads",
-        home / "Desktop",
-        home / "OneDrive" / "Desktop",
-        home,
-    ]
-    best = None
-    for r in roots:
-        try:
-            p = r / name
-            st = p.stat()
-            # Ignore 0-byte stubs the dialog may leave; we want the real export.
-            if st.st_size > 0 and (now - st.st_mtime) <= max_age:
-                if best is None or st.st_mtime > best.stat().st_mtime:
-                    best = p
-        except Exception:
-            continue
-    return best
+    return [home / "Documents", home / "OneDrive" / "Documents"]
+
+
+def _stable_stat(p: Path, settle: float = 0.5):
+    """Return p's stat iff it exists, is non-empty, and its (size, mtime) are
+    UNCHANGED across a ~`settle`s window — i.e. LINE has finished writing it.
+    Otherwise None (missing, empty, or still being written)."""
+    try:
+        st1 = p.stat()
+    except Exception:
+        return None
+    if st1.st_size <= 0:
+        return None
+    time.sleep(settle)
+    try:
+        st2 = p.stat()
+    except Exception:
+        return None
+    if (st2.st_size == st1.st_size and st2.st_mtime == st1.st_mtime
+            and st2.st_size > 0):
+        return st2
+    return None
+
+
+def _find_fresh_source(target: Path, *, since: float,
+                       timeout: float = 10.0, settle: float = 0.5):
+    """Find the export LINE wrote for THIS run, robustly. Returns a Path or None.
+
+    A qualifying candidate (ALL required):
+      - lives in `_line_save_dirs()` (no Downloads/Desktop/home),
+      - basename == ``target.name`` (literal join; never globs ``[LINE]``),
+      - is NOT the export-dir target itself (outside the target path),
+      - has mtime >= `since` (the instant just before Save → only this run),
+      - is size-stable across ~`settle`s and size > 0 (not half-written).
+    Among qualifiers, prefer the LARGEST size; tie → newest mtime. Polls up to
+    `timeout` for LINE's async write to finish. Returns None if nothing
+    qualifies, so the caller fails loudly instead of copying a guess.
+    """
+    try:
+        target_resolved = target.resolve()
+    except Exception:
+        target_resolved = target
+    deadline = time.time() + timeout
+    while True:
+        candidates: list[tuple[Path, int, float]] = []
+        for d in _line_save_dirs():
+            p = d / target.name
+            try:
+                if p.resolve() == target_resolved:
+                    continue  # never the export-dir target itself
+            except Exception:
+                continue
+            # Cheap reject before the costly stability wait: must be from this run.
+            try:
+                if p.stat().st_mtime < since:
+                    continue
+            except Exception:
+                continue
+            st = _stable_stat(p, settle)
+            if st is not None and st.st_mtime >= since:
+                candidates.append((p, st.st_size, st.st_mtime))
+        if candidates:
+            # Largest size first; tie → newest mtime.
+            candidates.sort(key=lambda c: (c[1], c[2]), reverse=True)
+            return candidates[0][0]
+        if time.time() >= deadline:
+            return None
+        time.sleep(0.3)
 
 
 def _list_dialog_hwnds() -> list:

@@ -109,6 +109,10 @@ class Calibration:
     first_result: tuple[float, float] = (0.12, 0.18)
     chat_menu: tuple[float, float] = (0.965, 0.07)
     save_chat_item: tuple[float, float] = (0.92, 0.20)
+    # Point inside the message-history pane (NOT the compose box) used by the
+    # optional ensure-chat-bottom step to focus + scroll the list to the newest
+    # message before saving. Lower-middle of the pane, above the input box.
+    message_pane: tuple[float, float] = (0.6, 0.82)
     calibrated: bool = False
 
     @classmethod
@@ -125,6 +129,7 @@ class Calibration:
             first_result=pt("first_result", cls.first_result),
             chat_menu=pt("chat_menu", cls.chat_menu),
             save_chat_item=pt("save_chat_item", cls.save_chat_item),
+            message_pane=pt("message_pane", cls.message_pane),
             calibrated=bool(data.get("calibrated", False)),
         )
 
@@ -284,6 +289,19 @@ class LineDesktopDriver:
     allow_uncalibrated: bool = False
     settle: float = 0.6  # seconds to wait after each UI action for LINE to react
     search_settle: float = 1.2  # extra wait after pasting the query before clicking the result
+    # Wait AFTER opening the chat (clicking the search result) and BEFORE opening
+    # the 3-dot menu / Save chat. LINE Desktop updates the chat-LIST timestamp
+    # before the main history finishes syncing, so saving too early exports a
+    # stale view (e.g. list shows 17:xx but the export stops at 13:57). Give the
+    # history time to load. Tunable via --post-open-wait-seconds.
+    post_open_settle: float = 5.0
+    # Optional: before saving, click the message pane and scroll to the NEWEST
+    # message (Ctrl+End / End / wheel down) so LINE renders the tail. 'Save chat'
+    # exports what the view holds; a pane not at the bottom can omit the latest
+    # messages (proven: manual save reached 17:11 while automation stopped at
+    # 13:57). OFF by default until verified. Toggle with --ensure-chat-bottom.
+    ensure_bottom: bool = False
+    ensure_bottom_settle: float = 4.0  # wait after scrolling for the tail to render
 
     window: Optional[WindowInfo] = None
 
@@ -414,7 +432,12 @@ class LineDesktopDriver:
         mouse.click(coords=pt)
         time.sleep(self.settle)
 
-    def _paste(self, text: str, desc: str) -> None:
+    def _paste(
+        self,
+        text: str,
+        desc: str,
+        caret_click: tuple[float, float] | None = None,
+    ) -> None:
         # Describe WITHOUT echoing chat content beyond what the operator passed.
         if self.mode == DriverMode.DRY_RUN:
             print(f"[dry-run] would: paste {desc} ({len(text)} chars) via clipboard + Ctrl+V")
@@ -423,6 +446,16 @@ class LineDesktopDriver:
         if not self._gate(f"paste {desc} ({len(text)} chars) via clipboard + Ctrl+V"):
             return
         self._preflight(focus=True, action=f"paste {desc}")
+        # Put the keyboard CARET in the target field before pasting. set_focus()
+        # above only focuses the main window's default control, NOT the text input
+        # we want — and in supervised mode the confirm prompt also pulls focus to
+        # the console. Without this click the keys land nowhere: the classic
+        # "clicked search but typed nothing" bug. Recompute the pixel from the
+        # post-focus rect (self.window was refreshed by the focus=True preflight).
+        if caret_click is not None:
+            from pywinauto import mouse
+            mouse.click(coords=self._point(caret_click))
+            time.sleep(self.settle)
         _set_clipboard_text(text)
         from pywinauto import keyboard
         keyboard.send_keys("^a")          # clear any existing query
@@ -448,7 +481,9 @@ class LineDesktopDriver:
         self._click(self.calibration.search_box, "search box")
 
     def type_chat_name(self, name: str) -> None:
-        self._paste(name, "chat name")
+        # Click the search box again right before pasting so the caret is in the
+        # field (the preceding window set_focus does NOT focus the input itself).
+        self._paste(name, "chat name", caret_click=self.calibration.search_box)
 
     def open_search_result(self) -> None:
         # Click the TOP search-result row to open the chat. We use a calibrated
@@ -459,6 +494,58 @@ class LineDesktopDriver:
     def open_first_result(self) -> None:
         # Legacy Enter-to-open. Kept as a fallback; NOT used by the default flow.
         self._key("{ENTER}", "Enter (open first search result)")
+
+    def _post_open_wait(self) -> None:
+        """Settle after opening the chat so LINE finishes loading the latest
+        messages before we save. Skipped in dry-run and when the wait is <= 0.
+
+        Logs the wait via the module logger — the CLI routes logging to STDERR,
+        so STDOUT still carries only the saved path in real mode.
+        """
+        if self.mode == DriverMode.DRY_RUN:
+            logger.info("[dry-run] would: wait %.1fs after opening chat for "
+                        "latest messages to load", self.post_open_settle)
+            return
+        if self.post_open_settle <= 0:
+            return
+        logger.info("Waiting %.1fs after opening chat for latest messages to "
+                    "sync before saving.", self.post_open_settle)
+        time.sleep(self.post_open_settle)
+
+    def _ensure_chat_bottom(self) -> None:
+        """Scroll the open chat to its NEWEST message before saving.
+
+        'Save chat' exports what the message pane currently holds; if the pane is
+        not at the bottom the export can stop short of the latest messages. Click
+        the pane to focus it, press Ctrl+End then End, nudge the wheel down, and
+        wait for LINE to render/sync the tail. Skipped unless `ensure_bottom`.
+        """
+        if not self.ensure_bottom:
+            return
+        if self.mode == DriverMode.DRY_RUN:
+            logger.info("[dry-run] would: ensure chat at bottom — click pane %s, "
+                        "Ctrl+End / End, wheel down, wait %.1fs",
+                        self.calibration.message_pane, self.ensure_bottom_settle)
+            return
+        # Focus the message pane (read-only: clicking empty list space selects
+        # nothing and sends nothing — LINE stays read-only).
+        self._click(self.calibration.message_pane,
+                    "message pane (focus before scroll-to-newest)")
+        if not self._gate("scroll chat to newest (Ctrl+End / End / wheel down)"):
+            return
+        self._preflight(focus=True, action="ensure chat at bottom")
+        from pywinauto import keyboard, mouse
+        keyboard.send_keys("^{END}")   # jump to newest
+        keyboard.send_keys("{END}")    # belt-and-suspenders for list widgets
+        try:
+            # Negative wheel_dist scrolls DOWN toward the newest messages.
+            mouse.scroll(coords=self._point(self.calibration.message_pane),
+                         wheel_dist=-3)
+        except Exception:
+            pass
+        logger.info("Scrolled chat to newest; waiting %.1fs for the tail to render.",
+                    self.ensure_bottom_settle)
+        time.sleep(self.ensure_bottom_settle)
 
     def open_chat_menu(self) -> None:
         self._click(self.calibration.chat_menu, "chat 3-dot/hamburger (☰) menu")
@@ -487,6 +574,10 @@ class LineDesktopDriver:
         if self.mode != DriverMode.DRY_RUN:
             time.sleep(self.search_settle)  # let results render before clicking
         self.open_search_result()
+        # Let LINE load the freshly-opened chat's latest history BEFORE saving.
+        self._post_open_wait()
+        # Optionally force the pane to the newest message so the export includes it.
+        self._ensure_chat_bottom()
         self.open_chat_menu()
         self.click_save_chat()
 

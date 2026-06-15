@@ -290,18 +290,28 @@ Exporter = Callable[[str, Optional[str], Optional[str], bool], bool]
 
 
 def _real_exporter(search: str, calibration: Optional[str],
-                   export_dir: Optional[str], yes: bool) -> bool:
+                   export_dir: Optional[str], yes: bool,
+                   post_open_wait: float = 5.0,
+                   ensure_bottom: bool = False) -> bool:
     """Drive ONE chat through the existing real-mode exporter. True on success.
 
     Lazy-imports `export_chat` so importing this module (and the unit tests)
     never pulls in pywinauto/pywin32 or touches LINE.
+
+    `post_open_wait` is forwarded as `--post-open-wait-seconds` so LINE Desktop
+    can finish loading the freshly-opened chat's latest messages before saving.
+    `ensure_bottom` forwards `--ensure-chat-bottom` so the pane is scrolled to the
+    newest message before saving.
     """
     try:
         from .export_chat import main as export_chat_main  # type: ignore
     except ImportError:  # pragma: no cover - standalone fallback
         from export_chat import main as export_chat_main  # type: ignore
 
-    argv = ["--chat-name", search, "--mode", "real"]
+    argv = ["--chat-name", search, "--mode", "real",
+            "--post-open-wait-seconds", str(post_open_wait)]
+    if ensure_bottom:
+        argv.append("--ensure-chat-bottom")
     if calibration:
         argv += ["--calibration", calibration]
     if export_dir:
@@ -486,6 +496,12 @@ def main(argv: Optional[list[str]] = None, *,
     p.add_argument("--yes", action="store_true",
                    help="Pass --yes through to export_chat (skip per-chat GO "
                         "prompt). Omit to confirm each real export.")
+    p.add_argument("--post-open-wait-seconds", type=float, default=5.0,
+                   help="Seconds each chat waits after opening and before Save "
+                        "chat so LINE loads the latest messages (default: 5).")
+    p.add_argument("--ensure-chat-bottom", action="store_true",
+                   help="Scroll each chat to its newest message before Save chat "
+                        "so the export includes the latest messages. Off by default.")
     p.add_argument("--no-stop-on-failure", action="store_true",
                    help="In --once, continue after a failed export.")
     args = p.parse_args(argv)
@@ -507,7 +523,16 @@ def main(argv: Optional[list[str]] = None, *,
     state_path = Path(args.state) if args.state else default_state_path(export_dir)
     pause_seconds = (args.pause_seconds if args.pause_seconds is not None
                      else config.min_pause_seconds)
-    exporter = exporter or _real_exporter
+    # Default exporter forwards the batch-level post-open wait; an injected
+    # exporter (tests) is used as-is.
+    if exporter is None:
+        _post_open_wait = args.post_open_wait_seconds
+        _ensure_bottom = args.ensure_chat_bottom
+
+        def exporter(search, calibration, export_dir, yes):  # noqa: E306
+            return _real_exporter(search, calibration, export_dir, yes,
+                                  post_open_wait=_post_open_wait,
+                                  ensure_bottom=_ensure_bottom)
 
     if args.dry_run:
         state = load_state(state_path)

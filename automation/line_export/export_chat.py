@@ -103,6 +103,22 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--export-dir", default=None)
     p.add_argument("--calibration", default=None)
     p.add_argument("--allow-uncalibrated", action="store_true")
+    p.add_argument(
+        "--post-open-wait-seconds",
+        type=float,
+        default=5.0,
+        help="Seconds to wait after opening the chat (clicking the search "
+             "result) and before Save chat, so LINE Desktop finishes loading "
+             "the latest messages. Raise this if exports trail the live chat "
+             "(default: 5).",
+    )
+    p.add_argument(
+        "--ensure-chat-bottom",
+        action="store_true",
+        help="Before Save chat, click the message pane and scroll to the newest "
+             "message (Ctrl+End / wheel) so the export includes the latest "
+             "messages. Off by default.",
+    )
     p.add_argument("--list-windows", action="store_true")
     p.add_argument("--yes", action="store_true",
                    help="Skip the one-time real-mode confirmation.")
@@ -128,6 +144,8 @@ def main(argv: list[str] | None = None) -> int:
         mode=args.mode,
         calibration=calibration,
         allow_uncalibrated=args.allow_uncalibrated,
+        post_open_settle=args.post_open_wait_seconds,
+        ensure_bottom=args.ensure_chat_bottom,
     )
 
     try:
