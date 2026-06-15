@@ -223,6 +223,47 @@ function main(): void {
     "report: a failed action never claims 'จัดการให้แล้ว'",
   );
 
+  // --- 10. Spoken parity: TTS contract preserves detail (no 30-word shrink) ---
+  // Regression guard: the old aggressive-shortening rules must be gone.
+  assert(
+    !normal.includes("at most 30 words"),
+    "spoken contract no longer caps at 30 words",
+  );
+  assert(
+    !normal.includes('Drop lists, IDs, URLs, and detail'),
+    "spoken contract no longer says to drop detail",
+  );
+  // Detail-preserving + bounded wording present.
+  assert(
+    normal.includes("but NOT shallow"),
+    "spoken contract: shorter-but-not-shallow rule present",
+  );
+  assert(
+    normal.includes("chat names, dates, times, people, topics"),
+    "spoken contract: preserves chat names / dates / times / people / topics",
+  );
+  assert(
+    normal.includes("the rest is on screen") || normal.includes("ที่เหลือดูบนหน้าจอ"),
+    "spoken contract: very-long reply → 'rest is on screen' fallback",
+  );
+  assert(
+    normal.includes("follow-up question that is not already in"),
+    "spoken contract: no invented follow-up rule",
+  );
+  assert(
+    normal.includes("STRIP markdown"),
+    "spoken contract: strips markdown/IDs/URLs/emoji",
+  );
+
+  // Notification voice lines stay clean (no นะ) — re-affirm parity with text persona.
+  for (const [name, line] of [
+    ["reminderDueLine", rl],
+    ["eventSoonLine", el2],
+    ["approvalNagLine", nl],
+  ] as const) {
+    assert(!line.includes("นะ"), `${name} still carries no นะ particle`);
+  }
+
   console.log("\nPERSONA SMOKE OK");
 }
 
