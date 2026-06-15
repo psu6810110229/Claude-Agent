@@ -102,7 +102,7 @@ export type ChatResult =
  * succeeded, failed (with the real error), or is awaiting their confirmation.
  * Returns null when there were no actions (pure Q&A — nothing to report).
  */
-function buildActionReport(
+export function buildActionReport(
   dispatched: DispatchResult[],
 ): { text: string; spoken: string } | null {
   if (dispatched.length === 0) return null;

@@ -15,8 +15,12 @@
 import {
   buildChatPrompt,
   isOwnerStyleOpener,
+  RESTRICTED_BOUNDARY_EXAMPLES,
   type ChatContext,
 } from "../src/services/chatPrompt.js";
+import { buildActionReport } from "../src/services/chat.js";
+import type { DispatchResult } from "../src/services/actionDispatcher.js";
+import type { Approval } from "../src/schemas/approval.js";
 import {
   reminderDueLine,
   eventSoonLine,
@@ -56,7 +60,21 @@ function makeCtx(over: Partial<ChatContext> = {}): ChatContext {
 }
 
 // Thai mechanism tokens that must NEVER appear in user-facing denial copy.
+// NOTE: used to scan the WHOLE restricted prompt — English tokens (secret /
+// passcode / passphrase) are intentionally NOT here, because the prompt's own
+// INSTRUCTIONS legitimately use those English words to tell the model NOT to say
+// them (e.g. "do not mention any code, passcode, passphrase, or secret").
 const MECHANISM_TOKENS = ["พิน", "รหัส", "คำลับ", "รหัสลับ", "รหัสผ่าน"];
+
+// Full ban list (Thai + English) — applied ONLY to the extracted user-facing
+// boundary EXAMPLE phrases (RESTRICTED_BOUNDARY_EXAMPLES), never the whole prompt.
+const ALL_MECHANISM_TOKENS = [
+  ...MECHANISM_TOKENS,
+  "pin",
+  "secret",
+  "passcode",
+  "passphrase",
+];
 
 function main(): void {
   console.log("Running persona / auth-wording / follow-up smoke...");
@@ -125,6 +143,85 @@ function main(): void {
     assert(line.includes("ครับ"), `${name} stays polite (ครับ)`);
   }
   assert(nl.includes("2"), "approvalNagLine still reports the count");
+
+  // --- 6. Second-pass tuning: new persona rule blocks present ---
+  assert(normal.includes("GROUP G"), "normal prompt has GROUP G (local-vs-durable memory)");
+  assert(
+    normal.includes("ในบทสนทนานี้"),
+    "normal prompt has the LOCAL-only correction phrasing ('ในบทสนทนานี้')",
+  );
+  assert(
+    normal.includes("ACTIVE TOPIC TRACKING"),
+    "normal prompt has ACTIVE TOPIC TRACKING rules",
+  );
+  assert(
+    normal.includes("LOCAL ALIASES & GROUP NAMES"),
+    "normal prompt has LOCAL ALIASES rules",
+  );
+  assert(
+    normal.includes("หมายถึง Family หรือเอ๋วน้องต้าว?"),
+    "normal prompt has the กลุ่มครอบครัว disambiguation question",
+  );
+  assert(
+    normal.includes("RECOMMENDATION & ADVICE RULES"),
+    "normal prompt has RECOMMENDATION & ADVICE grounding rules",
+  );
+
+  // --- 7. New imitable templates carry no นะ particle ---
+  const NEW_TEMPLATES = [
+    "เข้าใจแล้ว ในบทสนทนานี้ผมจะอ่าน 'กลุ่มครอบครัว' เป็นเอ๋วน้องต้าว",
+    "หมายถึง Family หรือเอ๋วน้องต้าว?",
+    "อยากเดินใกล้หรือยอมไปไกลหน่อย?",
+  ];
+  for (const t of NEW_TEMPLATES) {
+    assert(normal.includes(t), `new imitable template present: "${t.slice(0, 28)}..."`);
+    assert(!t.includes("นะ"), `new imitable template carries no นะ: "${t.slice(0, 28)}..."`);
+  }
+
+  // --- 8. Exported boundary examples: appear verbatim + name no mechanism ---
+  assert(RESTRICTED_BOUNDARY_EXAMPLES.length > 0, "RESTRICTED_BOUNDARY_EXAMPLES is non-empty");
+  for (const phrase of RESTRICTED_BOUNDARY_EXAMPLES) {
+    // Drift-proof: each test-mirror phrase must exist verbatim in the real prompt.
+    assert(
+      restricted.includes(phrase),
+      `boundary example appears verbatim in prompt: "${phrase.slice(0, 24)}..."`,
+    );
+    const low = phrase.toLowerCase();
+    for (const tok of ALL_MECHANISM_TOKENS) {
+      assert(
+        !low.includes(tok.toLowerCase()),
+        `boundary example never names auth mechanism ('${tok}'): "${phrase.slice(0, 24)}..."`,
+      );
+    }
+    assert(!phrase.includes("นะ"), `boundary example carries no นะ: "${phrase.slice(0, 24)}..."`);
+  }
+
+  // --- 9. buildActionReport honesty (no false "จัดการให้แล้ว") ---
+  const fakeApproval = (over: Partial<Approval> = {}): Approval =>
+    ({ action_type: "task.create", execution_error: null, ...over }) as Approval;
+  const r = (mode: DispatchResult["mode"], over?: Partial<Approval>): DispatchResult =>
+    ({ mode, approval: fakeApproval(over) }) as DispatchResult;
+
+  assert(buildActionReport([]) === null, "report: no actions → null (pure Q&A says nothing)");
+
+  const pendingOnly = buildActionReport([r("pending")]);
+  assert(pendingOnly !== null, "report: pending-only produces a line");
+  assert(
+    !pendingOnly!.text.includes("จัดการให้แล้ว"),
+    "report: pending-only never claims 'จัดการให้แล้ว'",
+  );
+
+  const executedReport = buildActionReport([r("executed")]);
+  assert(
+    !!executedReport && executedReport.text.includes("จัดการให้แล้ว"),
+    "report: a real executed action DOES report 'จัดการให้แล้ว'",
+  );
+
+  const failedReport = buildActionReport([r("failed", { execution_error: "boom" })]);
+  assert(
+    !!failedReport && !failedReport.text.includes("จัดการให้แล้ว"),
+    "report: a failed action never claims 'จัดการให้แล้ว'",
+  );
 
   console.log("\nPERSONA SMOKE OK");
 }
