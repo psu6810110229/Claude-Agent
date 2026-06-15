@@ -510,6 +510,16 @@ export const LINE_CONTEXT_MAX_CHATS = Number(
 );
 
 /**
+ * Max keyword-matched LINE messages injected into chat recall context. Read-only
+ * retrieval over the ingested exports. Clamped to [0, 50]; invalid/NaN → 12.
+ */
+export const LINE_SEARCH_CAP = (() => {
+  const raw = Number(process.env.LINE_SEARCH_CAP ?? 12);
+  if (!Number.isFinite(raw)) return 12;
+  return Math.max(0, Math.min(50, Math.trunc(raw)));
+})();
+
+/**
  * Step 16 — real memory (fact store). Facts are durable, recallable statements
  * about the user. Local-only like the memory files, so no enable flag: auto-
  * capture is governed by the existing auto-execute flag; recall is always on.

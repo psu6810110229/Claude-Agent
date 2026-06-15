@@ -81,6 +81,12 @@ async function main(): Promise<void> {
     const offMsgs = await getJson("/api/line/messages?chat=[LINE]TestChat.txt");
     assert(offMsgs.json.available === false, "messages available:false when disabled");
 
+    // searchLineMessages fails closed (returns []) while LINE is disabled.
+    assert(
+      line.searchLineMessages(["สวัสดี"], 12).length === 0,
+      "searchLineMessages returns [] when disabled",
+    );
+
     // --- 3. Enable via DB config override ---
     setConfigBool("line_enabled", true);
     assert(line.isLineEnabled(), "isLineEnabled() true after DB config enable");
@@ -150,6 +156,43 @@ async function main(): Promise<void> {
     assert(byChat.length === 1, "getRecentLineByChatSafe groups by chat");
     assert(byChat[0].chat === "TestChat", "per-chat group tagged with chat name");
     assert(byChat[0].messages.length === 3, "per-chat group respects perChat limit");
+
+    // --- 7c. Keyword retrieval (read-only) — assert on counts/flags only,
+    //          NEVER print message bodies. ---
+    const hit = line.searchLineMessages(["สวัสดี"], 12);
+    assert(hit.length >= 1, "searchLineMessages finds a matching message");
+    assert(hit[0].chat === "TestChat", "search result tagged with chat name");
+    assert(
+      hit.every((m) => m.sender !== undefined),
+      "search results carry a sender field",
+    );
+    assert(
+      line.searchLineMessages([], 12).length === 0,
+      "searchLineMessages returns [] for no keywords",
+    );
+    assert(
+      line.searchLineMessages(["สวัสดี"], 0).length === 0,
+      "searchLineMessages returns [] when cap<=0",
+    );
+    assert(
+      line.searchLineMessages(["zzznomatch"], 12).length === 0,
+      "searchLineMessages returns [] when nothing matches",
+    );
+    // System lines (e.g. "...joined the group.") must be excluded from matches.
+    assert(
+      line.searchLineMessages(["joined the group"], 12).length === 0,
+      "searchLineMessages excludes system lines",
+    );
+
+    // Keyword extraction strips broad stopwords, keeps the topic term.
+    const { extractLineKeywords } = await import("../src/services/chat.js");
+    const kw = extractLineKeywords("who asked latest in LINE about กยศ");
+    assert(kw.includes("กยศ"), "extractLineKeywords keeps the topic keyword");
+    assert(
+      !kw.some((k) => ["who", "asked", "latest", "in", "line", "about"].includes(k)),
+      "extractLineKeywords removes English stopwords",
+    );
+    assert(kw.length <= 6, "extractLineKeywords caps to ~6 keywords");
 
     // --- 8. Routes serve data when enabled ---
     const onChats = await getJson("/api/line/chats");
