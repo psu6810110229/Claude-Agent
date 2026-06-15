@@ -28,3 +28,11 @@ google-token.json
 # Only the folder README (template/instructions) is tracked.
 memory/*.md
 !memory/README.md
+
+# LINE batch runner config (real chat names — local only; chats.example.json is the tracked template).
+automation/line_export/chats.json
+automation/line_export/chats.test.json
+
+# Python bytecode
+automation/**/__pycache__/
+automation/**/*.pyc

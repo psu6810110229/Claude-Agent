@@ -19,11 +19,17 @@ async function runGuardOff() {
   fs.mkdirSync(TEST_MEMORY_DIR, { recursive: true });
   process.env.CLAUDE_AGENT_MEMORY_DIR = TEST_MEMORY_DIR;
   process.env.CLAUDE_AGENT_DB_PATH = TEST_DB_PATH;
+  // Hermetic: explicitly force the guard OFF for this stage so a local .env that
+  // enables it cannot redact the secret task we are asserting on. (The guard-ON
+  // stage sets it to "1"; set "" here, set BEFORE the config import.)
+  process.env.CLAUDE_AGENT_PRIVACY_GUARD_ENABLED = "";
+  process.env.CLAUDE_AGENT_OWNER_PIN = "";
+  process.env.CLAUDE_AGENT_OWNER_SECRET_PHRASE = "";
 
-  const serverPath = pathToFileURL("d:/Fran's Folder/Project-archive/Claude_Agent/packages/backend/src/server.js").href;
-  const initPath = pathToFileURL("d:/Fran's Folder/Project-archive/Claude_Agent/packages/backend/src/db/init.js").href;
-  const connPath = pathToFileURL("d:/Fran's Folder/Project-archive/Claude_Agent/packages/backend/src/db/connection.js").href;
-  const taskRepoPath = pathToFileURL("d:/Fran's Folder/Project-archive/Claude_Agent/packages/backend/src/db/repositories/taskRepo.js").href;
+  const serverPath = new URL("../src/server.js", import.meta.url).href;
+  const initPath = new URL("../src/db/init.js", import.meta.url).href;
+  const connPath = new URL("../src/db/connection.js", import.meta.url).href;
+  const taskRepoPath = new URL("../src/db/repositories/taskRepo.js", import.meta.url).href;
 
   const { buildServer } = await import(serverPath);
   const { initDb } = await import(initPath);
@@ -70,15 +76,15 @@ async function runGuardOn() {
   process.env.CLAUDE_AGENT_DB_PATH = TEST_DB_PATH;
   process.env.CLAUDE_AGENT_PRIVACY_GUARD_ENABLED = "1";
   process.env.CLAUDE_AGENT_OWNER_PIN = "123456";
-  process.env.CLAUDE_AGENT_OWNER_SECRET_PHRASE = "โอเค";
+  process.env.CLAUDE_AGENT_OWNER_SECRET_PHRASE = "กุญแจทอง7788";
   process.env.CLAUDE_AGENT_PRIVACY_VERIFY_MAX_ATTEMPTS = "3";
   process.env.CLAUDE_AGENT_PRIVACY_VERIFY_LOCKOUT_MS = "1000";
 
-  const serverPath = pathToFileURL("d:/Fran's Folder/Project-archive/Claude_Agent/packages/backend/src/server.js").href;
-  const initPath = pathToFileURL("d:/Fran's Folder/Project-archive/Claude_Agent/packages/backend/src/db/init.js").href;
-  const connPath = pathToFileURL("d:/Fran's Folder/Project-archive/Claude_Agent/packages/backend/src/db/connection.js").href;
-  const taskRepoPath = pathToFileURL("d:/Fran's Folder/Project-archive/Claude_Agent/packages/backend/src/db/repositories/taskRepo.js").href;
-  const classifierPath = pathToFileURL("d:/Fran's Folder/Project-archive/Claude_Agent/packages/backend/src/services/privacyClassifier.js").href;
+  const serverPath = new URL("../src/server.js", import.meta.url).href;
+  const initPath = new URL("../src/db/init.js", import.meta.url).href;
+  const connPath = new URL("../src/db/connection.js", import.meta.url).href;
+  const taskRepoPath = new URL("../src/db/repositories/taskRepo.js", import.meta.url).href;
+  const classifierPath = new URL("../src/services/privacyClassifier.js", import.meta.url).href;
 
   const { buildServer } = await import(serverPath);
   const { initDb } = await import(initPath);
@@ -133,7 +139,7 @@ async function runGuardOn() {
   const v2 = await fetch(`${BASE}/api/chat/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sessionId: "session-1", input: "โอเค" }),
+    body: JSON.stringify({ sessionId: "session-1", input: "กุญแจทอง7788" }),
   });
   assert(v2.status === 200, "correct Secret Phrase verifies successfully");
 
@@ -171,11 +177,11 @@ async function runGuardOn() {
   assert(!lastPrompt.includes("Secret task of owner"), "different session ID remains unverified and redacted");
 
   // Assertion 7: No secret leakage (PIN/phrase never in prompt or logged activity)
-  assert(!lastPrompt.includes("123456") && !lastPrompt.includes("โอเค"), "secrets never appear in prompt");
+  assert(!lastPrompt.includes("123456") && !lastPrompt.includes("กุญแจทอง7788"), "secrets never appear in prompt");
   const logs = getDb().prepare("SELECT detail FROM activity_log").all() as { detail: string | null }[];
   for (const l of logs) {
     if (l.detail) {
-      assert(!l.detail.includes("123456") && !l.detail.includes("โอเค"), "secrets never appear in logs");
+      assert(!l.detail.includes("123456") && !l.detail.includes("กุญแจทอง7788"), "secrets never appear in logs");
     }
   }
   console.log("  PASS: secrets never logged in activity_log");
@@ -215,10 +221,10 @@ async function runGuardUnconfigured() {
   process.env.CLAUDE_AGENT_OWNER_PIN = ""; // missing
   process.env.CLAUDE_AGENT_OWNER_SECRET_PHRASE = ""; // missing
 
-  const serverPath = pathToFileURL("d:/Fran's Folder/Project-archive/Claude_Agent/packages/backend/src/server.js").href;
-  const initPath = pathToFileURL("d:/Fran's Folder/Project-archive/Claude_Agent/packages/backend/src/db/init.js").href;
-  const connPath = pathToFileURL("d:/Fran's Folder/Project-archive/Claude_Agent/packages/backend/src/db/connection.js").href;
-  const taskRepoPath = pathToFileURL("d:/Fran's Folder/Project-archive/Claude_Agent/packages/backend/src/db/repositories/taskRepo.js").href;
+  const serverPath = new URL("../src/server.js", import.meta.url).href;
+  const initPath = new URL("../src/db/init.js", import.meta.url).href;
+  const connPath = new URL("../src/db/connection.js", import.meta.url).href;
+  const taskRepoPath = new URL("../src/db/repositories/taskRepo.js", import.meta.url).href;
 
   const { buildServer } = await import(serverPath);
   const { initDb } = await import(initPath);
