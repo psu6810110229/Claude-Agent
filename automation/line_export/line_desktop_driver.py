@@ -178,29 +178,74 @@ def list_line_candidates() -> list[WindowInfo]:
             if w.title.strip() == _LINE_TITLE and not _is_popup_class(w.cls)]
 
 
-def find_line_window() -> WindowInfo:
-    """Locate the single LINE Desktop MAIN window, or raise on uncertainty.
+def _is_viable_main(w: WindowInfo) -> bool:
+    """True if `w` is a usable, maximized-like main LINE window.
 
-    Targets the main-window class (``Qt...QWindowIcon``) and ignores LINE's
-    popup windows (e.g. the chat dropdown ``Qt663QWindowPopupSaveBits``), which
-    also carry the title 'LINE'. Raises LineWindowError when zero or
-    more-than-one plausible MAIN windows match — we never guess which to drive.
+    LINE spawns small auxiliary ``Qt...QWindowIcon`` windows (e.g. a ~280x164
+    hidden/helper window) that share the main window's class and the title
+    'LINE'. They must NOT make selection ambiguous, so we keep only candidates
+    that are non-minimized, on-screen, and within the calibrated maximized-size
+    envelope — the small auxiliaries fall below `_MIN_W`/`_MIN_H` and drop out.
+    """
+    import win32gui
+    try:
+        if win32gui.IsIconic(w.hwnd):
+            return False
+    except Exception:
+        pass
+    if not _LINE_MAIN_CLASS_RE.match(w.cls):
+        return False
+    l, t, r, b = w.rect
+    width, height = r - l, b - t
+    if not (_MIN_W <= width <= _MAX_W and _MIN_H <= height <= _MAX_H):
+        return False
+    if l < _MIN_LEFT or t < _MIN_TOP:
+        return False
+    return True
+
+
+def find_line_window() -> WindowInfo:
+    """Locate the single maximized LINE Desktop MAIN window, or raise on uncertainty.
+
+    Targets the main-window class (``Qt...QWindowIcon``), ignores LINE's popup
+    windows (e.g. ``Qt663QWindowPopupSaveBits``), and ignores small auxiliary
+    main-class windows that fall outside the maximized-size envelope. Among the
+    remaining viable windows: exactly one → use it; more than one → raise (we
+    never guess). Largest area first only as a tiebreaker for the report.
     """
     cands = list_line_candidates()  # already popup-free
     mains = [w for w in cands if _LINE_MAIN_CLASS_RE.match(w.cls)]
-    chosen = mains or cands
-    if not chosen:
+    viable = [w for w in mains if _is_viable_main(w)]
+    # Sort largest-area first so any reporting/tiebreak is deterministic.
+    viable.sort(key=lambda w: w.size[0] * w.size[1], reverse=True)
+
+    for w in mains:
+        if w not in viable:
+            logger.info("Ignoring non-viable LINE main candidate: hwnd=%s class=%s "
+                        "rect=%s size=%s (too small / off-screen / minimized)",
+                        w.hwnd, w.cls, w.rect, w.size)
+
+    if not viable:
+        if mains:
+            desc = "; ".join(f"hwnd={w.hwnd} class={w.cls!r} rect={w.rect} size={w.size}"
+                             for w in mains)
+            raise LineWindowError(
+                f"Found {len(mains)} 'LINE' main-class window(s) but none match the "
+                f"maximized-size envelope {(_MIN_W, _MIN_H)}..{(_MAX_W, _MAX_H)} "
+                f"[{desc}]. Open and maximize LINE Desktop."
+            )
         raise LineWindowError(
             "No visible main window titled 'LINE' found. Open and log into LINE "
             "Desktop first, and make sure it is not minimized."
         )
-    if len(chosen) > 1:
-        desc = "; ".join(f"hwnd={w.hwnd} class={w.cls!r} rect={w.rect}" for w in chosen)
+    if len(viable) > 1:
+        desc = "; ".join(f"hwnd={w.hwnd} class={w.cls!r} rect={w.rect} size={w.size}"
+                         for w in viable)
         raise LineWindowError(
-            f"Ambiguous: {len(chosen)} main windows titled 'LINE' [{desc}]. "
+            f"Ambiguous: {len(viable)} viable maximized 'LINE' windows [{desc}]. "
             "Refusing to guess which to drive."
         )
-    return chosen[0]
+    return viable[0]
 
 
 # ---------------------------------------------------------------------------
