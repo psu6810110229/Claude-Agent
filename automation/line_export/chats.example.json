@@ -1,0 +1,35 @@
+{
+  "defaults": {
+    "enabled": true,
+    "chat_kind": "group",
+    "calibration": "automation/line_export/calibration.json",
+    "stop_on_failure": true,
+    "min_pause_seconds": 10
+  },
+  "chats": [
+    {
+      "name": "เอ๋วน้องต้าว",
+      "search": "เอ๋วน้องต้าว",
+      "refresh_minutes": 15,
+      "priority": 100
+    },
+    {
+      "name": "คุยกันเรื่อง กยศ",
+      "search": "คุยกันเรื่อง กยศ",
+      "refresh_minutes": 30,
+      "priority": 80
+    },
+    {
+      "name": "ENGINEERING PSU 68",
+      "search": "ENGINEERIN",
+      "refresh_minutes": 30,
+      "priority": 80
+    },
+    {
+      "name": "กลุ่มลูกค้ารถตู้",
+      "search": "กลุ่มลูกค้ารถตู้",
+      "refresh_minutes": 180,
+      "priority": 40
+    }
+  ]
+}
