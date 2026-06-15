@@ -88,6 +88,10 @@ export const aiActionSchema = z.discriminatedUnion("action_type", [
     action_type: z.literal("gmail.send"),
     payload: actionPayloadSchemas["gmail.send"],
   }),
+  z.object({
+    action_type: z.literal("line_followup.create"),
+    payload: actionPayloadSchemas["line_followup.create"],
+  }),
 ]);
 export type AiAction = z.infer<typeof aiActionSchema>;
 

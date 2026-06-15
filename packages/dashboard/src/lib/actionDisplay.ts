@@ -35,6 +35,7 @@ export const ACTION_TYPES: readonly ActionType[] = [
   "fact.forget",
   "gmail.draft",
   "gmail.send",
+  "line_followup.create",
 ];
 
 export function isActionType(value: string): value is ActionType {
@@ -62,6 +63,7 @@ const HUMAN_LABELS: Record<ActionType, string> = {
   "fact.forget": "Forget a fact",
   "gmail.draft": "Create Gmail draft",
   "gmail.send": "Send Gmail email",
+  "line_followup.create": "Schedule LINE follow-up check",
 };
 
 export function humanLabel(actionType: ActionType): string {
@@ -177,6 +179,14 @@ export function actionQuestion(action: ActionLike): ActionQuestion {
         question: `ยืนยันส่งอีเมล${subject ? ` "${subject}"` : ""}${to ? ` ถึง ${to}` : ""} เลยไหม (ส่งแล้วเรียกคืนไม่ได้)`,
         approve: "ส่งเลย",
         reject: "ไม่ส่ง",
+      };
+    }
+    case "line_followup.create": {
+      const topic = stringField(payload, "topic");
+      return {
+        question: `ตั้งให้ผมเช็ก LINE (จากไฟล์ export) เรื่อง${topic ? ` "${topic}"` : "นี้"} ตามเวลาที่กำหนดไหม`,
+        approve: "ตั้งเลย",
+        reject: "ไม่ตั้ง",
       };
     }
     default:

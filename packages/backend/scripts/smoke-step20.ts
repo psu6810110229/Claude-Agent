@@ -204,11 +204,30 @@ async function main(): Promise<void> {
     assert(onMsgs.json.available === true, "messages available:true when enabled");
     assert(onMsgs.json.messages.length === 2, "route honours limit");
 
-    // --- 9. No LINE write action types exist (read-only invariant) ---
-    const { ACTION_TYPES } = await import("../src/services/actionRegistry.js");
+    // --- 9. No LINE *mutation* action types exist (read-only invariant) ---
+    // Step 21 adds the ONLY line-domain action: `line_followup.create`, which is
+    // local-only (writes a local watch row; never sends/replies/updates LINE).
+    // The read-only-toward-LINE invariant still holds: no send/reply/update/delete.
+    const { ACTION_TYPES, getActionMeta } = await import(
+      "../src/services/actionRegistry.js"
+    );
+    const lineActions = ACTION_TYPES.filter((t) => t.startsWith("line"));
     assert(
-      !ACTION_TYPES.some((t) => t.startsWith("line")),
-      "no line.* action types in the executor allowlist (read-only)",
+      JSON.stringify(lineActions) === JSON.stringify(["line_followup.create"]),
+      "the only line* action is the local-only line_followup.create",
+    );
+    assert(
+      !ACTION_TYPES.some((t) =>
+        /line.*(send|reply|update|delete|draft|message)/.test(t),
+      ),
+      "no LINE send/reply/update/delete action types (read-only toward LINE)",
+    );
+    assert(
+      getActionMeta("line_followup.create").policies.includes("local-only") &&
+        !getActionMeta("line_followup.create").policies.includes(
+          "external-service",
+        ),
+      "line_followup.create is local-only, never external-service",
     );
 
     console.log("\nAll Step 20 smoke assertions passed.");

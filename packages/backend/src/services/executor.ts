@@ -48,6 +48,9 @@ import type {
   GmailDraftPayload,
   GmailSendPayload,
 } from "../schemas/gmail.js";
+import { createLineFollowup } from "../db/repositories/lineFollowupRepo.js";
+import type { CreateLineFollowupPayload } from "../schemas/lineFollowup.js";
+import { nowIso } from "../config.js";
 import { getActionMeta } from "./actionRegistry.js";
 
 /** Thrown when an approval cannot be executed (bad payload or unknown target). */
@@ -274,6 +277,20 @@ export async function executeAction(
         if (err instanceof GmailError) throw new ExecutorError(err.message);
         throw err;
       }
+    }
+    case "line_followup.create": {
+      const data = parsed.data as CreateLineFollowupPayload;
+      // baseline_at is fixed to creation time so the scheduled check only ever
+      // surfaces messages that arrive AFTER the user asked for the follow-up.
+      // This writes a LOCAL row only — it never touches LINE.
+      const watch = createLineFollowup({
+        topic: data.topic,
+        keywords: data.keywords,
+        chat_filter: data.chat_filter ?? null,
+        due_at: data.due_at,
+        baseline_at: nowIso(),
+      });
+      return { summary: `created LINE follow-up watch #${watch.id}` };
     }
   }
 }

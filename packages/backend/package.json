@@ -32,7 +32,8 @@
     "smoke:step17": "tsx scripts/smoke-step17.ts",
     "smoke:step18": "tsx scripts/smoke-step18.ts",
     "smoke:step19": "tsx scripts/smoke-step19.ts",
-    "smoke:step20": "tsx scripts/smoke-step20.ts"
+    "smoke:step20": "tsx scripts/smoke-step20.ts",
+    "smoke:step21": "tsx scripts/smoke-step21.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

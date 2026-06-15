@@ -8,12 +8,20 @@ import {
   SCHEDULER_EVENT_LEAD_MS,
   TTS_APPROVAL_NAG_DELAY_MS,
   TTS_APPROVAL_NAG_INTERVAL_MS,
+  LINE_FOLLOWUP_SNIPPET_CAP,
+  LINE_FOLLOWUP_SNIPPET_CHARS,
+  LINE_FOLLOWUP_SEARCH_CAP,
 } from "../config.js";
 import { getConfigBool } from "../db/repositories/configRepo.js";
 import { listReminders } from "../db/repositories/reminderRepo.js";
 import { listEvents } from "../db/repositories/eventRepo.js";
 import { listPendingApprovals } from "../db/repositories/approvalRepo.js";
 import { insertNotificationIfNew } from "../db/repositories/notificationRepo.js";
+import {
+  listDueLineFollowups,
+  markLineFollowupFired,
+} from "../db/repositories/lineFollowupRepo.js";
+import { searchLineMessages, isLineEnabled } from "./lineChat.js";
 import { logActivity } from "../db/repositories/activityRepo.js";
 import { bucketReminders } from "./agenda.js";
 import type { DesktopNotifier } from "./desktopNotifier.js";
@@ -96,6 +104,73 @@ async function speakLine(text: string, voice: SchedulerVoice): Promise<void> {
 }
 
 /**
+ * Step 21 — LINE follow-up checks. For each pending watch whose due_at has
+ * arrived, search the EXPORTED LINE files (read-only, no live LINE, NO Claude)
+ * for messages newer than the watch's baseline that match its keywords, then
+ * fire ONE dedup'd `line.followup` notification and mark the watch fired.
+ *
+ * Safety:
+ * - Read-only: only `searchLineMessages` (the existing keyword search) is used.
+ * - Fail-soft: LINE disabled / unavailable → an explicit "couldn't check" /
+ *   "no new matches" notification, never a throw.
+ * - Activity log carries COUNTS ONLY — never message text, keywords, or topic.
+ * - Snippets (capped, truncated) appear ONLY in the user-facing notification body.
+ */
+export function runLineFollowupChecks(
+  nowUtc: string,
+  notifier: DesktopNotifier,
+): void {
+  const due = listDueLineFollowups(nowUtc);
+  if (due.length === 0) return;
+
+  const lineOn = isLineEnabled();
+
+  for (const watch of due) {
+    let title: string;
+    let body: string;
+    let matchCount = 0;
+
+    if (!lineOn) {
+      title = `LINE: ${watch.topic}`;
+      body = "ตรวจสอบไม่ได้ตอนนี้ (LINE export ปิดอยู่)";
+    } else {
+      // Newest-first across all exported chats; fail-soft → [].
+      const hits = searchLineMessages(watch.keywords, LINE_FOLLOWUP_SEARCH_CAP)
+        .filter((m) => m.atUtc > watch.baseline_at)
+        .filter((m) =>
+          watch.chat_filter
+            ? m.chat.toLowerCase().includes(watch.chat_filter.toLowerCase())
+            : true,
+        );
+      matchCount = hits.length;
+      title = `LINE: ${watch.topic}`;
+      if (matchCount === 0) {
+        body = "ยังไม่พบข้อความใหม่ที่ตรงกับเรื่องนี้ (อิงจากไฟล์ export ล่าสุด)";
+      } else {
+        const snippets = hits
+          .slice(0, LINE_FOLLOWUP_SNIPPET_CAP)
+          .map((m) => {
+            const who = m.sender ?? "(system)";
+            const text = m.text.slice(0, LINE_FOLLOWUP_SNIPPET_CHARS);
+            return `${who}: ${text}`;
+          })
+          .join("\n");
+        body = `พบ ${matchCount} ข้อความใหม่ที่ตรงกับ "${watch.topic}"\n${snippets}`;
+      }
+    }
+
+    insertNotificationIfNew("line.followup", watch.id, title, body, nowUtc);
+    // Counts only — never message text, keywords, or topic.
+    logActivity(
+      "line_followup.checked",
+      `id=${watch.id} matches=${matchCount} line_enabled=${lineOn ? 1 : 0}`,
+    );
+    notifier.notify(title, body);
+    markLineFollowupFired(watch.id);
+  }
+}
+
+/**
  * One scheduler tick. Pure side-effects (DB reads + writes + log + toast + voice).
  * Safe to call at any time; wrapped in try/catch by `startScheduler`.
  *
@@ -168,6 +243,16 @@ export function runSchedulerTick(
         void speakLine(eventSoonLine(e.title, e.location ?? undefined), voice);
       }
     }
+  }
+
+  // --- LINE follow-up checks (Step 21) ---
+  // Read-only export search; isolated try/catch so a LINE issue never blocks
+  // reminder/event firing or the approval nag.
+  try {
+    runLineFollowupChecks(nowUtc, notifier);
+  } catch (err: unknown) {
+    const detail = err instanceof Error ? err.message : String(err);
+    logActivity("line_followup.error", detail);
   }
 
   // --- Approval nag (Phase 13.3) ---
