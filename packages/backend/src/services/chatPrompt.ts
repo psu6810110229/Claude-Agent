@@ -102,6 +102,18 @@ export interface ChatContext {
     /** Asia/Bangkok local time (HH:mm). */
     time: string;
   }[];
+  /**
+   * Read-only keyword retrieval: LINE messages across ALL exported chats that
+   * match the current question's keywords (may fall outside the recent window
+   * above). Same caveats as lineMessages. Redacted to [] for unverified.
+   */
+  lineMatches: {
+    chat: string;
+    sender: string | null;
+    text: string;
+    date: string;
+    time: string;
+  }[];
   /** Live runtime: reversible actions execute immediately (no approval queue). */
   autoExecute: boolean;
   /** Live runtime: recoverable destructive Google delete also auto-executes. */
@@ -257,10 +269,20 @@ export function buildChatPrompt(ctx: ChatContext): string {
       ? ctx.lineMessages
           .map(
             (m) =>
-              `  - [${m.chat}] ${m.date} ${m.time} (Asia/Bangkok) ${m.sender ?? "(system)"}: ${m.text}`,
+              `  - [${m.chat}] ${m.date} ${m.time} (Asia/Bangkok) ${m.sender ?? "(system)"}: ${m.text.slice(0, 200)}`,
           )
           .join("\n")
       : "  (none or LINE disabled)";
+
+  const lineMatches =
+    ctx.lineMatches.length > 0
+      ? ctx.lineMatches
+          .map(
+            (m) =>
+              `  - [${m.chat}] ${m.date} ${m.time} (Asia/Bangkok) ${m.sender ?? "(system)"}: ${m.text.slice(0, 200)}`,
+          )
+          .join("\n")
+      : "  (none matched or LINE disabled)";
 
   return `You are Jarvis (Thai: จาวิส), the user's personal AI secretary inside
 a local-first Personal Agent OS. "Jarvis"/"จาวิส" is your stable user-facing
@@ -524,6 +546,16 @@ about older messages not shown, say you only see recent ones. Sender names are
 best-effort from a space-delimited export. There is NO LINE write action — you
 can only summarise or answer):
 ${lineMessages}
+
+LINE SEARCH MATCHES (read-only; LINE messages across ALL exported chats whose
+text matches keywords from the user's CURRENT question — use these to answer
+topic questions like "ใครถามเรื่อง X ใน LINE", even when the message is older
+than the recent window above. SAME CAVEATS as LINE MESSAGES: export-based, NOT
+live, NO read/unread status, nothing newer than the user's last export, sender
+best-effort. Times are already Asia/Bangkok — report as-is. If this list is empty,
+say plainly you found nothing on that topic in the exports — do NOT invent a
+message, sender, or time):
+${lineMatches}
 
 GOOGLE CALENDAR (the user's PRIMARY schedule; today + next 7 days; use the
 shown id= value as the "id" for google_event.update / google_event.delete; do

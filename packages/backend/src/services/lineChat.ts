@@ -342,6 +342,44 @@ export function getRecentLineMessages(
 }
 
 /**
+ * Read-only keyword retrieval over the ingested exports. Returns the newest
+ * `cap` messages whose text contains ANY of the keywords (case-insensitive
+ * substring — Thai has no word spaces, so substring beats token equality).
+ * System/empty lines are skipped. FAIL-SOFT: [] on disabled / no keywords /
+ * cap<=0 / any error. Message text is NEVER logged.
+ */
+export function searchLineMessages(
+  keywords: string[],
+  cap: number,
+): (LineMessage & { chat: string })[] {
+  if (!isLineEnabled()) return [];
+  if (cap <= 0) return [];
+  const needles = keywords
+    .map((k) => k.trim().toLowerCase())
+    .filter((k) => k.length > 0);
+  if (needles.length === 0) return [];
+  try {
+    const matches: (LineMessage & { chat: string })[] = [];
+    for (const file of listExportFiles()) {
+      const name = chatNameFromFile(file);
+      for (const m of readFileMessages(file)) {
+        if (m.system) continue;
+        const text = m.text;
+        if (text.length === 0) continue;
+        const hay = text.toLowerCase();
+        if (needles.some((n) => hay.includes(n))) {
+          matches.push({ ...m, chat: name });
+        }
+      }
+    }
+    matches.sort((a, b) => (a.atUtc < b.atUtc ? 1 : a.atUtc > b.atUtc ? -1 : 0));
+    return matches.slice(0, cap);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Part 1 — fail-soft chat summaries for recall context (so Jarvis always KNOWS
  * every chat that exists, not just the most active one). [] on disabled/error.
  */

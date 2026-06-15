@@ -42,6 +42,7 @@ import { getRecentDriveFiles } from "./googleDrive.js";
 import {
   getLineChatSummariesSafe,
   getRecentLineByChatSafe,
+  searchLineMessages,
 } from "./lineChat.js";
 import type { Approval } from "../schemas/approval.js";
 import {
@@ -54,6 +55,7 @@ import {
   CHAT_HISTORY_LIMIT,
   LINE_CONTEXT_PER_CHAT,
   LINE_CONTEXT_MAX_CHATS,
+  LINE_SEARCH_CAP,
   nowIso,
 } from "../config.js";
 import { classifySensitivity } from "./privacyClassifier.js";
@@ -163,6 +165,45 @@ function chatFailureMessage(reason: string): string {
 
 const invalidOutputMessage =
   "ผมยังตอบข้อความนี้ให้ครบไม่ได้ครับ รูปแบบคำตอบไม่พร้อมใช้งาน ลองส่งใหม่อีกครั้งได้";
+
+/**
+ * Broad words that carry no topic signal — dropped before LINE keyword search so
+ * a question like "ใน LINE ใครถามเรื่อง กยศ ล่าสุด" searches for "กยศ", not "ใคร".
+ * Lowercase. Thai + English. Substring matching means we keep this list short and
+ * only strip truly generic terms.
+ */
+const LINE_STOPWORDS = new Set<string>([
+  // Thai
+  "ใคร", "อะไร", "ที่ไหน", "เมื่อไหร่", "เมื่อไร", "ทำไม", "ยังไง", "อย่างไร",
+  "ล่าสุด", "บ้าง", "ไหม", "มั้ย", "หรอ", "หรือ", "ที่", "ของ", "ใน", "กับ",
+  "และ", "แล้ว", "เรื่อง", "ข้อความ", "line", "ไลน์", "คน", "มี", "ถาม", "พูด",
+  "คุย", "ส่ง", "ช่วย", "ขอ", "ดู", "หา", "ให้", "ได้", "ครับ", "ค่ะ", "นะ",
+  // English
+  "the", "a", "an", "is", "are", "was", "were", "in", "on", "of", "to", "for",
+  "and", "or", "who", "what", "when", "where", "why", "how", "latest", "recent",
+  "any", "did", "does", "do", "ask", "asked", "about", "message", "chat", "me",
+  "my", "i", "you", "show", "find", "tell",
+]);
+
+/**
+ * Deterministic keyword extraction from the user's message for LINE retrieval.
+ * Splits on whitespace + punctuation, lowercases, drops short/stopword tokens,
+ * dedupes, caps to ~6. No AI call. Returns [] when nothing topical remains
+ * (search then becomes a no-op and the recent-window context still applies).
+ */
+export function extractLineKeywords(message: string): string[] {
+  const tokens = message
+    .toLowerCase()
+    .split(/[\s,.!?;:"'()[\]{}<>/\\|@#$%^&*+=~`‘’“”]+/u)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2 && !LINE_STOPWORDS.has(t));
+  const out: string[] = [];
+  for (const t of tokens) {
+    if (!out.includes(t)) out.push(t);
+    if (out.length >= 6) break;
+  }
+  return out;
+}
 
 /** Build compact recall context for a chat turn. Exported for the idle follow-up. */
 export async function buildChatContext(
@@ -310,6 +351,20 @@ export async function buildChatContext(
     })),
   );
 
+  // Read-only keyword retrieval: surface LINE messages relevant to THIS question
+  // even when they fall outside the recent-window above. Fail-soft → []. No-op
+  // when no topical keywords remain. Redacted to [] for unverified (see below).
+  const lineMatches = searchLineMessages(
+    extractLineKeywords(message),
+    LINE_SEARCH_CAP,
+  ).map((m) => ({
+    chat: m.chat,
+    sender: m.sender,
+    text: m.text.slice(0, 200),
+    date: m.date,
+    time: m.time,
+  }));
+
   const GENERIC_BUSY = "ไม่ว่าง (รายละเอียดส่วนตัว)";
   const GENERIC_TASK = "งานส่วนตัว";
   const GENERIC_REMINDER = "เตือนความจำส่วนตัว";
@@ -334,6 +389,7 @@ export async function buildChatContext(
       recentDriveFiles: [],
       lineChats: [],
       lineMessages: [],
+      lineMatches: [],
       autoExecute: isAutoExecuteEnabled(),
       autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
       restricted: true,
@@ -357,6 +413,7 @@ export async function buildChatContext(
     recentDriveFiles,
     lineChats,
     lineMessages,
+    lineMatches,
     autoExecute: isAutoExecuteEnabled(),
     autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
     restricted: false,
