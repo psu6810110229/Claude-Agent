@@ -70,3 +70,43 @@ Windows 11. Read before changing the helper.
 - **Invalid-character popup path is implemented but NOT live-tested** (the test
   chat name had no illegal chars). Sanitizer is unit-tested for illegal chars;
   the live error-popup was never triggered.
+
+## Front-half driver (`line_desktop_driver.py`) — lessons
+
+The front half (focus → search → open chat → ☰ menu → "Save chat") was added and
+live-verified after the tail half. Notes from supervised + real-mode runs:
+
+- **Window discovery sees more than one 'LINE' window.** The chat dropdown is a
+  separate top-level popup (`Qt663QWindowPopupSaveBits`) and LINE also spawns a
+  **small auxiliary `Qt...QWindowIcon`** window (seen ~280x164). Both carry the
+  title 'LINE'. The driver excludes popup classes AND filters non-viable
+  candidates by a maximized **size envelope** (min/max W·H, on-screen, not
+  minimized), so only the real maximized window is driven. Multiple *viable*
+  large windows still stop as ambiguous — never guess.
+- **The window minimizes / its rect DPI-flips between steps.** Reported rect
+  swung between 1550x878 (logical, 125% DPI) and 1938x1098 (physical). So every
+  click/key **preflights**: re-find → validate (visible, not minimized,
+  on-screen, in size envelope) → focus → **recompute the pixel from the current
+  rect**. One process keeps focus; a mid-run focus steal makes preflight *stop*
+  rather than misclick.
+- **Don't focus the main window while the dropdown is open** — it dismisses the
+  menu. The "Save chat" click uses `focus=False` (validates the main window for
+  coordinates via popup-excluded discovery, but does not raise it).
+- **Enter-to-open the top search result was unreliable** on the opaque Qt list
+  (often did nothing). Use a **calibrated click on the search-result row**
+  instead (`search_result` point).
+- **Thai chat names: paste via clipboard (Ctrl+V), never per-keystroke.** And
+  the `--chat-name` must be a substring LINE's search actually matches; display
+  truncation/spelling matters. The saved filename comes from LINE's auto-filled
+  name, not the search string.
+- **Official / business account menus differ from group/private.** Group and
+  private chats share one ☰ menu layout (current calibration). An Official
+  account (e.g. ShopeeTH) has a **different menu** → the `chat_menu` /
+  `save_chat_item` points miss → export fails. Officials need a **separate
+  calibration profile**; out of scope for the current profile.
+- **Real mode should stay stop-on-first-failure.** A wrong/garbage window state
+  or an unexpected menu must halt, not soldier on — continuing risks clicking
+  into the wrong UI. Batch loops (see `automation/README.md`) must check the exit
+  code and break on the first non-zero.
+- **Calibration is screen/DPI/layout dependent** — `calibration.json` fractions
+  are tied to this display + LINE layout/version. Recalibrate on any change.

@@ -34,6 +34,79 @@ What it does (deterministic, bounded — no retry loop):
 
 `sanitize_filename()` is a pure function — unit-tested without a desktop.
 
+## Front half — `line_export/line_desktop_driver.py` + `export_chat.py`
+
+Drives an **already-open, logged-in, maximized** LINE Desktop window from focus
+through clicking "Save chat", then hands off to `save_dialog.py`. Coordinate /
+clipboard automation (the Qt UI is opaque — no addressable controls). Reuses
+`pywinauto` + `pywin32`; no new deps. **One chat per run — no batch built in.**
+
+### Real-mode export (one chat)
+
+```
+python -m automation.line_export.export_chat \
+  --chat-name "คุยกันเรื่อง กยศ" \
+  --mode real \
+  --calibration automation/line_export/calibration.json
+```
+
+- Prompts once for `GO` (type it). Add `--yes` to skip the prompt.
+- Prints ONLY the saved path on success (stdout is UTF-8 — Thai-safe).
+- Modes: `dry-run` (locate + print points, no side effects) → `supervised`
+  (confirm before each click/key) → `real`. Always dry-run on a new machine
+  first.
+
+### Safe batch template (PowerShell)
+
+Batch is **not** a feature of the tool — loop the one-chat CLI yourself, and
+**stop on the first failure** (do not blindly continue; a wrong menu can misfire):
+
+```powershell
+$ErrorActionPreference = "Stop"
+$env:LINE_EXPORT_DIR = "D:\Project-server_side\Claude-Agent\packages\backend\data\line-exports"
+$chats = @(
+  "กลุ่มลูกค้ารถตู้",
+  "Freshman 25",
+  "สิงหนครอิเล็กทรอนิ"
+)
+foreach ($c in $chats) {
+  Write-Host "Exporting: $c"
+  python -m automation.line_export.export_chat --chat-name "$c" --mode real `
+    --calibration automation/line_export/calibration.json --yes
+  if ($LASTEXITCODE -ne 0) {
+    Write-Error "Export FAILED for '$c' (exit $LASTEXITCODE). Stopping batch."
+    break
+  }
+  Start-Sleep -Seconds 2   # let LINE settle between chats
+}
+```
+
+### Requirements & caveats (READ before running)
+
+- **LINE must be open and maximized** at a known resolution. The driver
+  preflights each step and **stops** (no misclick) if the window is minimized,
+  off-screen, or out of the size envelope.
+- **Calibration is screen / DPI / layout dependent.** `calibration.json` holds
+  window-relative fractions tied to this display + LINE layout. A new monitor,
+  DPI change, or LINE UI update means **recalibrate** (dry-run → supervised).
+- **`--chat-name` must be a substring LINE's search can actually find.** Spelling
+  and display truncation matter — use a distinctive substring of the real title
+  (e.g. `สิงหนครอิเล็กทรอนิ` finds `สิงหนครอิเล็กทรอนิกส`). The exported file is
+  named from LINE's own auto-filled name, not your search string.
+- **Group / private chats only (current profile).** **Official / business
+  accounts (e.g. ShopeeTH) have a DIFFERENT menu layout** and will fail with the
+  current `chat_menu` / `save_chat_item` points — they need a separate
+  calibration profile. Not supported yet.
+- **`LINE_EXPORT_DIR` must align with the backend connector.** Set it to the
+  backend's `packages/backend/data/line-exports` (or move files there) so the
+  Step 20 connector ingests the exports. Unset → falls back to
+  `%USERPROFILE%\Documents\LINEExports`, which the backend will not read.
+- **OneDrive / source duplicates may remain.** LINE writes into its own current
+  folder (often OneDrive-redirected Documents); the helper copies the file into
+  `LINE_EXPORT_DIR` but a sync-locked original can persist (best-effort delete).
+- A small auxiliary `Qt...QWindowIcon` LINE window can appear; the driver filters
+  out non-viable small windows so it never picks the wrong one.
+
 ## Dependency
 
 `pywinauto` is **not** part of the Node workspace. Install on the desktop:
