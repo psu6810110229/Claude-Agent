@@ -1,0 +1,11 @@
+# Python deps for the LINE chat-export RPA (Step 20 Phase B).
+# Install on the dedicated desktop only (not part of the Node workspace):
+#   python -m pip install -r automation/requirements.txt
+#
+# pywinauto drives the native Windows "Save As" dialog via the UIA backend.
+# It pulls in comtypes (UIA) automatically.
+pywinauto>=0.6.8
+# pywin32 is used directly to locate the #32770 dialog HWND via Win32
+# EnumWindows/GetForegroundWindow (the UIA desktop-tree walk can miss a dialog
+# owned by another app, e.g. LINE). pywinauto also depends on it on Windows.
+pywin32>=306
