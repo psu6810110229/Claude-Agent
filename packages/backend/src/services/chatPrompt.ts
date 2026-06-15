@@ -133,6 +133,14 @@ export interface ChatContext {
    */
   contacts: { name: string; email?: string }[];
   /**
+   * Step 18 fix — the REAL state of the contacts connector for THIS turn, so the
+   * prompt never conflates the three empty-array cases. `disabled` = connector
+   * off or unavailable; `empty` = enabled but zero contacts returned; `available`
+   * = enabled with contacts; `redacted` = withheld because the requester is not
+   * verified (privacy gate, not a disabled connector). Always set.
+   */
+  contactsStatus: "disabled" | "empty" | "available" | "redacted";
+  /**
    * Step 19 — Recent Google Drive files (capped at 10, name + id + type).
    * Empty when Drive is disabled or unavailable. Gives the AI awareness of
    * recently modified files so it can reference them by name.
@@ -297,12 +305,21 @@ export function buildChatPrompt(ctx: ChatContext): string {
           .join("\n")
       : "  (none or Gmail disabled)";
 
+  // Distinct rendering per real connector state — never the old ambiguous
+  // "(none or Contacts disabled)" that made JARVIS wrongly claim the connector
+  // was off when contacts were merely empty or redacted for an unverified guest.
   const contacts =
-    ctx.contacts.length > 0
-      ? ctx.contacts
-          .map((c) => `  - ${c.name}${c.email ? ` <${c.email}>` : ""}`)
-          .join("\n")
-      : "  (none or Contacts disabled)";
+    ctx.contactsStatus === "redacted"
+      ? "  (withheld — requester not verified. Do NOT say Contacts is disabled; this is the privacy gate. Use the generic identity-verification boundary.)"
+      : ctx.contactsStatus === "disabled"
+        ? "  (Contacts connector is not enabled / unavailable — say it is not connected, do NOT pretend you have contacts.)"
+        : ctx.contactsStatus === "empty"
+          ? "  (Contacts is connected but returned no contacts — say none were found, NOT that it is disabled.)"
+          : ctx.contacts.length > 0
+            ? ctx.contacts
+                .map((c) => `  - ${c.name}${c.email ? ` <${c.email}>` : ""}`)
+                .join("\n")
+            : "  (Contacts is connected but returned no contacts — say none were found, NOT that it is disabled.)";
 
   const driveFiles =
     ctx.recentDriveFiles.length > 0
@@ -702,7 +719,12 @@ UNREAD GMAIL (up to 5 most recent; use id= for replyToMessageId in gmail.draft
 ${gmailUnread}
 
 GOOGLE CONTACTS (your address book; use the email shown here when filling the
-"to" field in gmail.draft / gmail.send — do not guess or invent email addresses):
+"to" field in gmail.draft / gmail.send — do not guess or invent email addresses.
+REPORT THE STATE TRUTHFULLY: if this section lists contacts, answer from them; if
+it says "connected but returned no contacts", say none were found — NOT that
+Contacts is disabled; if it says "not enabled / unavailable", say Contacts is not
+connected; if it says "withheld — requester not verified", do NOT mention Contacts
+being disabled at all — use the generic identity-verification boundary instead):
 ${contacts}
 
 GOOGLE DRIVE (10 most recently modified files; search/read/upload on the /drive

@@ -48,6 +48,7 @@ function makeCtx(over: Partial<ChatContext> = {}): ChatContext {
     history: [],
     gmailUnread: [],
     contacts: [],
+    contactsStatus: "disabled",
     recentDriveFiles: [],
     lineChats: [],
     lineMessages: [],
@@ -263,6 +264,64 @@ function main(): void {
   ] as const) {
     assert(!line.includes("นะ"), `${name} still carries no นะ particle`);
   }
+
+  // --- 11. Contacts state wording: never conflate redacted/empty/disabled ---
+  // The fixed section's HEADER legitimately documents every state, so we assert
+  // against DATA-BLOCK-ONLY markers (phrases that appear only in the rendered
+  // ${contacts} body, never in the explanatory header) to know which branch ran.
+  const REDACTED_MARK = "this is the privacy gate";
+  const DISABLED_MARK = "do NOT pretend you have contacts";
+  const EMPTY_MARK = "NOT that it is disabled";
+  const stateMarks = (p: string) => ({
+    redacted: p.includes(REDACTED_MARK),
+    disabled: p.includes(DISABLED_MARK),
+    empty: p.includes(EMPTY_MARK),
+  });
+
+  // The old ambiguous "(none or Contacts disabled)" must be gone in every state.
+  for (const st of ["redacted", "disabled", "empty", "available"] as const) {
+    const p = buildChatPrompt(makeCtx({ restricted: st === "redacted", contactsStatus: st }));
+    assert(
+      !p.includes("none or Contacts disabled"),
+      `contacts: old ambiguous '(none or Contacts disabled)' wording gone (${st})`,
+    );
+  }
+
+  const mR = stateMarks(buildChatPrompt(makeCtx({ restricted: true, contactsStatus: "redacted" })));
+  assert(
+    mR.redacted && !mR.disabled && !mR.empty,
+    "contacts: redacted renders privacy-gate note only (not a disabled claim)",
+  );
+
+  const mD = stateMarks(buildChatPrompt(makeCtx({ contactsStatus: "disabled" })));
+  assert(
+    mD.disabled && !mD.redacted && !mD.empty,
+    "contacts: disabled renders 'not connected' note only",
+  );
+
+  const mE = stateMarks(buildChatPrompt(makeCtx({ contactsStatus: "empty" })));
+  assert(
+    mE.empty && !mE.disabled && !mE.redacted,
+    "contacts: empty (enabled) renders 'no contacts returned' note only",
+  );
+
+  // Available: renders the contact list and NONE of the state notes. Synthetic
+  // non-PII labels prove the branch lists entries (count-capable) without values.
+  const cAvail = buildChatPrompt(
+    makeCtx({
+      contactsStatus: "available",
+      contacts: [{ name: "CONTACT_A" }, { name: "CONTACT_B" }],
+    }),
+  );
+  const mA = stateMarks(cAvail);
+  assert(
+    cAvail.includes("CONTACT_A") && cAvail.includes("CONTACT_B"),
+    "contacts: available renders the contact list (2 entries)",
+  );
+  assert(
+    !mA.redacted && !mA.disabled && !mA.empty,
+    "contacts: available shows no disabled/empty/redacted note",
+  );
 
   console.log("\nPERSONA SMOKE OK");
 }

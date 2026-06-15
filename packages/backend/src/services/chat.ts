@@ -317,13 +317,18 @@ export async function buildChatContext(
   }
 
   // Step 18 — Google Contacts (capped at 50 for prompt; fail gracefully).
+  // Track the REAL state so the prompt never conflates disabled / empty / error
+  // (all three previously collapsed to an empty array → wrong "disabled" claim).
   let contacts: ChatContext["contacts"] = [];
+  let contactsStatus: ChatContext["contactsStatus"] = "disabled";
   if (isContactsEnabled()) {
     try {
       const all = await fetchGoogleContacts(50);
       contacts = all.map((c) => ({ name: c.name, email: c.email }));
+      contactsStatus = contacts.length > 0 ? "available" : "empty";
     } catch {
       contacts = [];
+      contactsStatus = "disabled"; // enabled but unavailable → treat as not connected
     }
   }
 
@@ -386,6 +391,7 @@ export async function buildChatContext(
       history: [],
       gmailUnread: [],
       contacts: [],
+      contactsStatus: "redacted",
       recentDriveFiles: [],
       lineChats: [],
       lineMessages: [],
@@ -410,6 +416,7 @@ export async function buildChatContext(
     history,
     gmailUnread,
     contacts,
+    contactsStatus,
     recentDriveFiles,
     lineChats,
     lineMessages,
