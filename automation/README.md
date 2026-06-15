@@ -101,11 +101,38 @@ foreach ($c in $chats) {
   backend's `packages/backend/data/line-exports` (or move files there) so the
   Step 20 connector ingests the exports. Unset → falls back to
   `%USERPROFILE%\Documents\LINEExports`, which the backend will not read.
+- **Backend needs two flags in its `.env` to surface chats** (see
+  [Backend connector config](#backend-connector-required-local-config) below).
+  Setting only `LINE_EXPORT_DIR` is not enough — the connector stays disabled
+  until `LINE_ENABLED=1` is also set.
 - **OneDrive / source duplicates may remain.** LINE writes into its own current
   folder (often OneDrive-redirected Documents); the helper copies the file into
   `LINE_EXPORT_DIR` but a sync-locked original can persist (best-effort delete).
 - A small auxiliary `Qt...QWindowIcon` LINE window can appear; the driver filters
   out non-viable small windows so it never picks the wrong one.
+
+## Backend connector — required local config
+
+The Step 20 LINE connector is **off by default**. To make the backend read and
+surface the exported `.txt` files, both flags must be in the **backend's `.env`**
+— either the repo-root `.env` or `packages/backend/.env` (those are the only two
+the backend's loader reads; the file is gitignored — never commit it):
+
+```
+LINE_ENABLED=1
+LINE_EXPORT_DIR=<absolute path to your LINEExports folder>
+```
+
+Notes:
+- `LINE_ENABLED` is a **separate gate** from `LINE_EXPORT_DIR`. Pointing the dir
+  without enabling the flag leaves `GET /api/line/chats` returning
+  `{ available: false }`.
+- Use the **absolute path** to the folder the exporter writes into, e.g.
+  `C:\Users\<you>\Documents\LINEExports` or
+  `D:\path\to\Claude-Agent\packages\backend\data\line-exports`. Backslashes in
+  the value are fine (the loader stores the raw string).
+- Restart the backend after editing `.env` (config is read once at startup).
+- A DB config row `line_enabled` (Settings) overrides the env flag when present.
 
 ## Dependency
 
