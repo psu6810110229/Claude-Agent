@@ -56,9 +56,32 @@ python -m automation.line_export.export_chat \
   (confirm before each click/key) → `real`. Always dry-run on a new machine
   first.
 
+### Batch / priority-refresh runner — `line_export/batch_runner.py`
+
+A **foreground CLI loop** that exports several chats on a refresh schedule by
+reusing the one-chat exporter (no duplicated UI automation). It reads a JSON
+config (`chats.example.json`), picks chats that are *due*, and drives them **one
+at a time** in priority order. **Not** a Windows service / Task Scheduler /
+daemon — runs only while the terminal is open.
+
+```
+# dry-run (no LINE actions): show due chats + planned order
+python -m automation.line_export.batch_runner --config automation/line_export/chats.json --dry-run
+
+# one-shot: export all currently-due chats once
+python -m automation.line_export.batch_runner --config automation/line_export/chats.json --once
+
+# watch loop: export due chats every poll
+python -m automation.line_export.batch_runner --config automation/line_export/chats.json --watch --poll-seconds 60
+```
+
+Full config format, scheduling rules, and all flags: **`line_export/BATCH_USAGE.md`**.
+State (timestamps + status only, never message bodies) lives in
+`<export-dir>/.line-export-state.json`.
+
 ### Safe batch template (PowerShell)
 
-Batch is **not** a feature of the tool — loop the one-chat CLI yourself, and
+If you prefer to loop the one-chat CLI yourself instead of `batch_runner`,
 **stop on the first failure** (do not blindly continue; a wrong menu can misfire):
 
 ```powershell
