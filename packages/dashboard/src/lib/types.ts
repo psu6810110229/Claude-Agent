@@ -38,7 +38,8 @@ export type ActionType =
   | "fact.update"
   | "fact.forget"
   | "gmail.draft"
-  | "gmail.send";
+  | "gmail.send"
+  | "line_followup.create";
 
 // --- Events & reminders (Step 9) ------------------------------------------
 

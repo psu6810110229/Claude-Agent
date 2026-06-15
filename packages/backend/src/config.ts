@@ -520,6 +520,30 @@ export const LINE_SEARCH_CAP = (() => {
 })();
 
 /**
+ * Step 21 — LINE follow-up watches (scheduled READ-ONLY export check).
+ *
+ * At a watch's due_at the scheduler searches the EXPORTED LINE files for the
+ * saved keywords (no live LINE, no Claude) and fires one notification. These
+ * caps bound how many matched snippets land in the user-facing notification
+ * body. Snippets NEVER appear in activity logs (counts only there).
+ */
+
+/** Max matched snippets shown in a line.followup notification body. */
+export const LINE_FOLLOWUP_SNIPPET_CAP = Number(
+  process.env.LINE_FOLLOWUP_SNIPPET_CAP ?? 2,
+);
+
+/** Max characters per snippet shown in a line.followup notification body. */
+export const LINE_FOLLOWUP_SNIPPET_CHARS = Number(
+  process.env.LINE_FOLLOWUP_SNIPPET_CHARS ?? 80,
+);
+
+/** Cap on matched messages the follow-up search scans/considers per check. */
+export const LINE_FOLLOWUP_SEARCH_CAP = Number(
+  process.env.LINE_FOLLOWUP_SEARCH_CAP ?? 50,
+);
+
+/**
  * Step 16 — real memory (fact store). Facts are durable, recallable statements
  * about the user. Local-only like the memory files, so no enable flag: auto-
  * capture is governed by the existing auto-execute flag; recall is always on.

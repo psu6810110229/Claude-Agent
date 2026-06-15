@@ -24,8 +24,16 @@ export type CapabilityId =
   | "google.calendar.update"
   | "google.calendar.delete"
   | "gmail.draft"
-  | "gmail.send";
-export type ActionDomain = "task" | "event" | "reminder" | "memory" | "google" | "gmail";
+  | "gmail.send"
+  | "line.followup";
+export type ActionDomain =
+  | "task"
+  | "event"
+  | "reminder"
+  | "memory"
+  | "google"
+  | "gmail"
+  | "line";
 export type RiskLevel = "low" | "medium" | "high";
 export type ActionPolicy =
   | "approval-required"
@@ -109,6 +117,13 @@ export const capabilityRegistry: Record<CapabilityId, CapabilityMeta> = {
     capability: "gmail.send",
     humanLabel: "Send Gmail email",
     policies: ["approval-required", "external-service", "destructive"],
+  },
+  "line.followup": {
+    capability: "line.followup",
+    humanLabel: "LINE follow-up watch",
+    // Local-only: creating a watch writes a local DB row; it never sends/replies
+    // to LINE and never triggers live LINE automation.
+    policies: ["approval-required", "local-only"],
   },
 };
 
@@ -312,6 +327,17 @@ export const actionRegistry: Record<ActionType, ActionMeta> = {
       '{ "to": string (email address), "subject": string, "body": string (plain text), "cc"?: string, "bcc"?: string, "replyToMessageId"?: string }',
     riskLevel: "high",
     policies: ["approval-required", "external-service", "destructive"],
+    promptExposure: "allowed",
+  },
+  "line_followup.create": {
+    actionType: "line_followup.create",
+    capability: "line.followup",
+    domain: "line",
+    humanLabel: "Schedule LINE follow-up check",
+    payloadShape:
+      '{ "topic": string (short label of what to follow up on), "keywords": string[] (1-10 search terms over EXPORTED LINE text), "chat_filter"?: string (limit to one chat by name), "due_at": <ISO UTC> (when to run the check) }',
+    riskLevel: "low",
+    policies: ["approval-required", "local-only"],
     promptExposure: "allowed",
   },
 };

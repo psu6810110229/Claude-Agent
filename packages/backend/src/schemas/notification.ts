@@ -8,7 +8,11 @@ import { z } from "zod";
  * dashboard. Never hard-deleted.
  */
 
-export const notificationKindSchema = z.enum(["reminder.due", "event.soon"]);
+export const notificationKindSchema = z.enum([
+  "reminder.due",
+  "event.soon",
+  "line.followup",
+]);
 export type NotificationKind = z.infer<typeof notificationKindSchema>;
 
 export const notificationStatusSchema = z.enum(["unread", "read"]);

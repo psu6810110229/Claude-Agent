@@ -127,3 +127,25 @@ CREATE TABLE IF NOT EXISTS memory_fact (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_memory_fact_status ON memory_fact (status);
+
+-- Step 21 — LINE follow-up watches. A user-approved, scheduled READ-ONLY check
+-- over the already-ingested LINE export files. At due_at the scheduler searches
+-- exported messages newer than baseline_at for `keywords` (optionally limited to
+-- chat_filter) and fires ONE 'line.followup' notification (match count + capped
+-- snippets, or an explicit "no new matches"). Creating a watch is the approval-
+-- gated act (action type `line_followup.create`); the row itself writes nothing
+-- back to LINE and triggers no live LINE automation. keywords is a JSON array of
+-- strings. status: 'pending' (not yet checked) -> 'fired' (checked once) or
+-- 'cancelled'. baseline_at defaults to creation time. updated_at app-maintained.
+CREATE TABLE IF NOT EXISTS line_followup (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  topic       TEXT NOT NULL,
+  keywords    TEXT NOT NULL,
+  chat_filter TEXT,
+  due_at      TEXT NOT NULL,
+  baseline_at TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'pending',
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_line_followup_status ON line_followup (status, due_at);
