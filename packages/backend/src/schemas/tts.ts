@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const ttsPresetSchema = z.enum(["warm", "intimate"]);
+export const ttsPresetSchema = z.enum(["warm", "intimate", "calm_female"]);
 export type TtsPreset = z.infer<typeof ttsPresetSchema>;
 
 export const ttsRequestSchema = z.object({

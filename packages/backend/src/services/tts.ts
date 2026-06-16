@@ -20,8 +20,7 @@ export function isTtsEnabled(): boolean {
   return TTS_ENABLED;
 }
 
-const VOICE = "en-AU-WilliamMultilingualNeural";
-const DEFAULT_PRESET: TtsPreset = "warm";
+const DEFAULT_PRESET: TtsPreset = "calm_female";
 
 // FX building blocks (matching POC output)
 // Lead-in silence: browsers/players often clip the first few hundred ms before
@@ -39,18 +38,26 @@ const tameHigh3 = "equalizer=f=5500:width_type=o:width=1.5:g=-3";
 const tameHigh2 = "equalizer=f=5500:width_type=o:width=1.5:g=-2";
 
 interface PresetConfig {
+  voice: string;
   prosody: { pitch: string; rate: string; volume?: string };
   fx: string[];
 }
 
 const PRESETS: Record<TtsPreset, PresetConfig> = {
   warm: {
+    voice: "en-AU-WilliamMultilingualNeural",
     prosody: { pitch: "-8%", rate: "-12%", volume: "+0%" },
     fx: [HP, lowBoost4, body, tameHigh3, COMP, "aecho=0.85:0.82:55:0.18", NORM],
   },
   intimate: {
+    voice: "en-AU-WilliamMultilingualNeural",
     prosody: { pitch: "-10%", rate: "-12%" },
     fx: [HP, lowBoost5, body, tameHigh2, COMP_TIGHT, "aecho=0.9:0.75:25:0.06", NORM],
+  },
+  calm_female: {
+    voice: "th-TH-PremwadeeNeural",
+    prosody: { pitch: "-3%", rate: "-10%", volume: "+0%" },
+    fx: [HP, "equalizer=f=160:width_type=o:width=1.2:g=2", body, tameHigh2, COMP, NORM],
   },
 };
 
@@ -90,7 +97,11 @@ const sleep = (ms: number): Promise<void> =>
  * instead of leaving the HTTP request to hang forever. */
 const TTS_ONCE_TIMEOUT_MS = 8000;
 
-function ttsOnce(text: string, prosody: PresetConfig["prosody"]): Promise<Buffer> {
+function ttsOnce(
+  text: string,
+  voice: string,
+  prosody: PresetConfig["prosody"],
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     let settled = false;
     const finish = (fn: () => void) => {
@@ -106,7 +117,7 @@ function ttsOnce(text: string, prosody: PresetConfig["prosody"]): Promise<Buffer
     void (async () => {
       try {
         const tts = new MsEdgeTTS();
-        await tts.setMetadata(VOICE, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
+        await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
         const { audioStream } = tts.toStream(text, prosody);
         const chunks: Buffer[] = [];
         audioStream.on("data", (c: Buffer) => chunks.push(c));
@@ -119,7 +130,7 @@ function ttsOnce(text: string, prosody: PresetConfig["prosody"]): Promise<Buffer
   });
 }
 
-async function ttsToBuffer(text: string, prosody: PresetConfig["prosody"]): Promise<Buffer> {
+async function ttsToBuffer(text: string, config: PresetConfig): Promise<Buffer> {
   let last: Error = new Error("no attempt");
   // The free Edge endpoint intermittently returns an EMPTY stream when hit
   // again too quickly (the "first works, second silent" symptom). Backing off
@@ -129,7 +140,7 @@ async function ttsToBuffer(text: string, prosody: PresetConfig["prosody"]): Prom
   for (let i = 0; i < backoffMs.length; i++) {
     if (backoffMs[i] > 0) await sleep(backoffMs[i]);
     try {
-      const b = await ttsOnce(text, prosody);
+      const b = await ttsOnce(text, config.voice, config.prosody);
       if (b.length > 1000) return b;
       last = new Error(`empty stream (${b.length} bytes)`);
     } catch (e) {
@@ -166,7 +177,7 @@ class RealTtsSynthesizer implements TtsSynthesizer {
     const wavPath = path.join(os.tmpdir(), `jarvis-tts-${id}.wav`);
 
     try {
-      const mp3 = await ttsToBuffer(withNaturalPauses(text), config.prosody);
+      const mp3 = await ttsToBuffer(withNaturalPauses(text), config);
       await writeFile(mp3Path, mp3);
       await applyFx(mp3Path, wavPath, [LEAD_SILENCE, ...config.fx]);
       const wav = await readFile(wavPath);

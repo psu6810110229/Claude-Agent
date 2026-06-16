@@ -130,6 +130,22 @@ console.log("\nStep 13.1 — TTS smoke tests\n");
   assert(stubPreset.calls[0]?.preset === "intimate", "preset forwarded to synthesizer");
 }
 
+{
+  const stubPreset = new StubTtsSynthesizer(Buffer.from("wav"));
+  const appPreset = buildServer({ ttsSynthesizer: stubPreset });
+  await appPreset.ready();
+  await appPreset.inject({
+    method: "POST",
+    url: "/api/tts",
+    headers: { "content-type": "application/json" },
+    payload: JSON.stringify({ text: "test", preset: "calm_female" }),
+  });
+  assert(
+    stubPreset.calls[0]?.preset === "calm_female",
+    "calm_female preset forwarded to synthesizer",
+  );
+}
+
 // ------------------------------------------------------------------
 // 5. Invalid preset → 400
 // ------------------------------------------------------------------

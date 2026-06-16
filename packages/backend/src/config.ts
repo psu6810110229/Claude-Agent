@@ -308,7 +308,7 @@ export const TTS_ENABLED = /^(1|true)$/i.test(
 );
 
 /** Default TTS preset. Validated to TtsPreset in tts.ts. */
-export const TTS_PRESET = process.env.CLAUDE_AGENT_TTS_PRESET ?? "warm";
+export const TTS_PRESET = process.env.CLAUDE_AGENT_TTS_PRESET ?? "calm_female";
 
 /** Backend speaker playback is OFF unless explicitly enabled. */
 export const TTS_SPEAKER_ENABLED = /^(1|true)$/i.test(
