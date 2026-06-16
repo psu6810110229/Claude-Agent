@@ -167,7 +167,7 @@ console.log("\nStep 13.2 — voiceLines + scheduler voice\n");
 {
   const line = reminderDueLine("Daily standup");
   assert(line.includes("Daily standup"), "reminderDueLine contains title");
-  assert(line.includes("ครับ"), "reminderDueLine is Thai");
+  assert(line.includes("ค่ะ"), "reminderDueLine is Thai");
 }
 
 {
@@ -185,7 +185,7 @@ console.log("\nStep 13.2 — voiceLines + scheduler voice\n");
 {
   const line = approvalNagLine(3);
   assert(line.includes("3"), "approvalNagLine contains count");
-  assert(line.includes("ครับ"), "approvalNagLine is Thai");
+  assert(line.includes("ค่ะ"), "approvalNagLine is Thai");
 }
 
 // ------------------------------------------------------------------

@@ -1,13 +1,13 @@
 /**
  * Persona / auth-wording / follow-up smoke (pure, no server, no DB, no network).
  *
- * Guards the Jarvis fine-tune (this step):
- *  - particle ban (no นะครับ in imitable templates)
+ * Guards the Friday fine-tune (this step):
+ *  - particle ban (no นะคะ in imitable templates)
  *  - adaptive-length + inline-follow-up + context-aware rules present
  *  - unverified BOUNDARY wording never names the auth mechanism (no Thai
  *    พิน/รหัส/คำลับ tokens leak into user-facing copy)
  *  - low-risk conversational grace selector (owner-style opener + non-sensitive)
- *  - voice lines carry no นะ particle and stay polite (ครับ)
+ *  - voice lines carry no นะ particle and stay polite (ค่ะ)
  *
  * These exercise the deterministic prompt builders / pure helpers only — the real
  * Claude/Gemini model, TTS endpoint, and LINE files are never touched.
@@ -83,7 +83,7 @@ function main(): void {
   // --- 1. Owner-style opener detector (pure) ---
   assert(isOwnerStyleOpener("โอเค เดี๋ยวจัดการ"), "opener: 'โอเค ...' is owner-style");
   assert(isOwnerStyleOpener("เดี๋ยวนะ ขอคิดก่อน"), "opener: 'เดี๋ยวนะ ...' is owner-style");
-  assert(isOwnerStyleOpener("จาวิส ช่วยที"), "opener: 'จาวิส ...' is owner-style");
+  assert(isOwnerStyleOpener("ฟรายเดย์ ช่วยที"), "opener: 'ฟรายเดย์ ...' is owner-style");
   assert(isOwnerStyleOpener("คืองี้ คือผมว่า"), "opener: 'คืองี้ ...' is owner-style");
   assert(!isOwnerStyleOpener("ฟานไปไหนกับใคร"), "opener: private probe is NOT owner-style");
   assert(!isOwnerStyleOpener("give me the schedule"), "opener: plain English ask is NOT owner-style");
@@ -141,7 +141,7 @@ function main(): void {
     ["approvalNagLine", nl],
   ] as const) {
     assert(!line.includes("นะ"), `${name} carries no นะ particle`);
-    assert(line.includes("ครับ"), `${name} stays polite (ครับ)`);
+    assert(line.includes("ค่ะ"), `${name} stays polite (ค่ะ)`);
   }
   assert(nl.includes("2"), "approvalNagLine still reports the count");
 
@@ -170,7 +170,7 @@ function main(): void {
 
   // --- 7. New imitable templates carry no นะ particle ---
   const NEW_TEMPLATES = [
-    "เข้าใจแล้ว ในบทสนทนานี้ผมจะอ่าน 'กลุ่มครอบครัว' เป็นเอ๋วน้องต้าว",
+    "เข้าใจแล้ว ในบทสนทนานี้จะอ่าน 'กลุ่มครอบครัว' เป็นเอ๋วน้องต้าว",
     "หมายถึง Family หรือเอ๋วน้องต้าว?",
     "อยากเดินใกล้หรือยอมไปไกลหน่อย?",
   ];

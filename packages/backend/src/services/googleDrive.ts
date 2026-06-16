@@ -173,7 +173,7 @@ export async function getDriveFileContent(fileId: string): Promise<{
     if (sizeBytes !== null && sizeBytes > GOOGLE_DRIVE_CONTENT_MAX_CHARS * 2) {
       throw new DriveError(
         "too_large",
-        `ไฟล์นี้ใหญ่เกินไป (${Math.round(sizeBytes / 1024)} KB) — เปิดดูใน Drive โดยตรงได้เลยครับ`,
+        `ไฟล์นี้ใหญ่เกินไป (${Math.round(sizeBytes / 1024)} KB) — เปิดดูใน Drive โดยตรงได้เลยค่ะ`,
       );
     }
 
@@ -188,7 +188,7 @@ export async function getDriveFileContent(fileId: string): Promise<{
 
   throw new DriveError(
     "unsupported",
-    `ไม่รองรับการอ่านไฟล์ประเภท ${mimeType} — เปิดดูใน Drive โดยตรงได้เลยครับ`,
+    `ไม่รองรับการอ่านไฟล์ประเภท ${mimeType} — เปิดดูใน Drive โดยตรงได้เลยค่ะ`,
   );
 }
 

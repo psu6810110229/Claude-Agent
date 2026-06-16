@@ -270,7 +270,7 @@ function UploadPanel() {
       }
     } catch {
       setStatus("error");
-      setMessage("อัปโหลดไม่สำเร็จ ลองใหม่ได้ครับ");
+      setMessage("อัปโหลดไม่สำเร็จ ลองใหม่ได้ค่ะ");
     }
   };
 

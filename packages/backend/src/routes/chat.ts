@@ -85,9 +85,9 @@ export async function chatRoutes(
           : 401;
 
     const denyMessage = (reason: string): string => {
-      if (reason === "locked") return "ลองใหม่อีกครั้งในภายหลังครับ";
+      if (reason === "locked") return "ลองใหม่อีกครั้งในภายหลังค่ะ";
       if (reason === "not-configured") return "ระบบยังไม่ได้ตั้งค่ารหัสยืนยัน";
-      return "ยืนยันไม่สำเร็จครับ";
+      return "ยืนยันไม่สำเร็จค่ะ";
     };
 
     return reply.code(code).send({
@@ -352,5 +352,5 @@ function pickFollowupProvider() {
 /** User-facing message when a manually requested provider is not usable yet. */
 function providerUnavailableMessage(requested: AiProviderId | undefined): string {
   const name = requested === "gemini" ? "Gemini" : (requested ?? "provider");
-  return `ผู้ช่วย ${name} ยังไม่พร้อมใช้งานครับ ตอนนี้ยังไม่ได้ตั้งค่าไว้ ลองเลือก Claude แทนได้`;
+  return `ผู้ช่วย ${name} ยังไม่พร้อมใช้งานค่ะ ตอนนี้ยังไม่ได้ตั้งค่าไว้ ลองเลือก Claude แทนได้`;
 }

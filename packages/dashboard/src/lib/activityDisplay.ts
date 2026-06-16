@@ -29,22 +29,22 @@ const KNOWN_ACTIVITY: Partial<Record<ActivityEventType, ActivityDisplay>> = {
     tone: "neutral",
   },
   "chat.message.replied": {
-    title: "Jarvis replied",
+    title: "Friday replied",
     source: "Chat",
     tone: "success",
   },
   "chat.message.proposed": {
-    title: "Jarvis requested action approval",
+    title: "Friday requested action approval",
     source: "Chat",
     tone: "warning",
   },
   "chat.message.failed": {
-    title: "Jarvis could not reply",
+    title: "Friday could not reply",
     source: "Chat",
     tone: "danger",
   },
   "chat.message.rejected": {
-    title: "Jarvis reply was rejected",
+    title: "Friday reply was rejected",
     source: "Chat",
     tone: "danger",
   },
@@ -89,7 +89,7 @@ const KNOWN_ACTIVITY: Partial<Record<ActivityEventType, ActivityDisplay>> = {
     tone: "danger",
   },
   "ai.command.clarification": {
-    title: "Jarvis asked for clarification",
+    title: "Friday asked for clarification",
     source: "Chat",
     tone: "warning",
   },

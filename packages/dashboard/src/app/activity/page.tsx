@@ -58,7 +58,7 @@ export default function ActivityPage() {
         <div>
           <p className="page-kicker">Audit Trail</p>
           <h2>Activity</h2>
-          <p className="lede">A readable timeline of recent Jarvis and Fran activity.</p>
+          <p className="lede">A readable timeline of recent Friday and Fran activity.</p>
         </div>
       </header>
 

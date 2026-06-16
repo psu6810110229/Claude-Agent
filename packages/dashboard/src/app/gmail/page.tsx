@@ -104,7 +104,7 @@ export default function GmailPage() {
     <div>
       <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Gmail</h1>
       <p style={{ fontSize: 13, color: "var(--text-3)", marginBottom: 16 }}>
-        กล่องจดหมายที่ยังไม่ได้อ่าน (อ่านอย่างเดียว — ตอบผ่าน Jarvis ในหน้าแชท)
+        กล่องจดหมายที่ยังไม่ได้อ่าน (อ่านอย่างเดียว — ตอบผ่าน Friday ในหน้าแชท)
       </p>
       {data.messages.length === 0 ? (
         <Empty label="ไม่มีอีเมลที่ยังไม่ได้อ่าน" />

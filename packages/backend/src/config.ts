@@ -506,7 +506,7 @@ export const LINE_CONTEXT_PER_CHAT = Number(
 
 /**
  * Max messages loaded for a FOCUSED chat (when the user asks about one specific
- * LINE chat/group by name or alias). Lets Jarvis summarise that chat's content
+ * LINE chat/group by name or alias). Lets Friday summarise that chat's content
  * even when it is not among the most-active chats shown in the recent window.
  */
 export const LINE_FOCUSED_MSG_CAP = Number(

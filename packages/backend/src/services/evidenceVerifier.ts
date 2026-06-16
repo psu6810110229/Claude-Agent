@@ -5,7 +5,7 @@
  * EvidenceVerdict (allowed/blocked claims + guidance) BEFORE prompt generation.
  * Constraining upfront is more reliable than post-hoc NL verification.
  *
- * All guidance lines are in Thai/mixed to match Jarvis persona.
+ * All guidance lines are in Thai/mixed to match Friday persona.
  */
 
 import type { LineEvidence } from "./lineEvidence.js";
@@ -32,7 +32,7 @@ const ALWAYS_GUIDANCE = [
 
 /**
  * Verify evidence for an answer-intent question (e.g. "มีใครตอบยัง?").
- * Returns guardrails for what Jarvis may and may not claim.
+ * Returns guardrails for what Friday may and may not claim.
  */
 export function verifyLineEvidenceAnswerIntent(input: {
   userMessage: string;
@@ -50,7 +50,7 @@ export function verifyLineEvidenceAnswerIntent(input: {
         "ห้ามอ้างข้อมูลจาก LINE ใด ๆ ทั้งสิ้น",
       ],
       allowedClaims: [
-        'may say "ตอนนี้ระบบเข้า LINE export ไม่ได้ ยังตอบเรื่องนี้จาก LINE ไม่ได้ครับ"',
+        'may say "ตอนนี้ระบบเข้า LINE export ไม่ได้ ยังตอบเรื่องนี้จาก LINE ไม่ได้ค่ะ"',
       ],
       blockedClaims: [
         ...ALWAYS_BLOCKED_CLAIMS,

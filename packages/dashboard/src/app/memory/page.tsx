@@ -89,7 +89,7 @@ function KnownFacts() {
       });
       setNotice(
         approval.execution_status === "succeeded"
-          ? "จำไว้ให้แล้วครับ ✅"
+          ? "จำไว้ให้แล้วค่ะ ✅"
           : `ส่งเข้าคิวอนุมัติแล้ว (#${approval.id})`,
       );
       setContent("");
@@ -110,7 +110,7 @@ function KnownFacts() {
       const approval = await forgetFact(fact.id);
       setNotice(
         approval.execution_status === "succeeded"
-          ? "ลืมให้แล้วครับ"
+          ? "ลืมให้แล้วค่ะ"
           : `ส่งคำขอลืมเข้าคิวอนุมัติแล้ว (#${approval.id}) — รอยืนยัน`,
       );
       reload();

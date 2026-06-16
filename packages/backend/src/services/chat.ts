@@ -128,56 +128,56 @@ export function buildActionReport(
   if (executed.length > 0) {
     lines.push(
       executed.length === 1
-        ? "✅ เรียบร้อยครับ ผมจัดการให้แล้ว"
-        : `✅ เรียบร้อยครับ ผมจัดการให้แล้ว ${executed.length} รายการ`,
+        ? "✅ เรียบร้อยค่ะ จัดการให้แล้ว"
+        : `✅ เรียบร้อยค่ะ จัดการให้แล้ว ${executed.length} รายการ`,
     );
   }
   for (const f of failed) {
     const reason = f.approval.execution_error?.trim();
     lines.push(
       reason
-        ? `⚠️ มีรายการที่ทำไม่สำเร็จครับ: ${reason}`
-        : "⚠️ มีรายการที่ทำไม่สำเร็จครับ ลองอีกครั้งได้",
+        ? `⚠️ มีรายการที่ทำไม่สำเร็จค่ะ: ${reason}`
+        : "⚠️ มีรายการที่ทำไม่สำเร็จค่ะ ลองอีกครั้งได้",
     );
   }
   if (pending.length > 0) {
     lines.push(
-      `📝 อีก ${pending.length} รายการผมเตรียมไว้ให้แล้ว รอคุณกดยืนยันครับ`,
+      `📝 อีก ${pending.length} รายการเตรียมไว้ให้แล้ว รอคุณกดยืนยันค่ะ`,
     );
   }
   if (lines.length === 0) return null;
 
   // Spoken: drop emoji + raw error detail; keep the gist for voice.
   // Memory updates are intentionally NOT spoken (user asked not to hear
-  // "เรียบร้อยแล้วครับ" for a memory write / silently remembering a fact) — the
+  // "เรียบร้อยแล้วค่ะ" for a memory write / silently remembering a fact) — the
   // ✅ text line above still shows.
   const SILENT_TYPES = new Set(["memory.write", "fact.remember"]);
   const executedSpeakable = executed.filter(
     (d) => !SILENT_TYPES.has(d.approval.action_type),
   );
   const spokenParts: string[] = [];
-  if (executedSpeakable.length > 0) spokenParts.push("เรียบร้อยแล้วครับ");
-  if (failed.length > 0) spokenParts.push("มีบางรายการทำไม่สำเร็จครับ");
-  if (pending.length > 0) spokenParts.push("อีกบางรายการรอคุณยืนยันครับ");
+  if (executedSpeakable.length > 0) spokenParts.push("เรียบร้อยแล้วค่ะ");
+  if (failed.length > 0) spokenParts.push("มีบางรายการทำไม่สำเร็จค่ะ");
+  if (pending.length > 0) spokenParts.push("อีกบางรายการรอคุณยืนยันค่ะ");
 
   return { text: lines.join("\n"), spoken: spokenParts.join(" ") };
 }
 
 function chatFailureMessage(reason: string): string {
   if (reason === "disabled") {
-    return "ผมยังช่วยคิดด้วย AI ไม่ได้ครับ โหมด AI ยังไม่พร้อมใช้งาน เปิดใช้งานแล้วลองใหม่ได้";
+    return "ยังช่วยคิดด้วย AI ไม่ได้ค่ะ โหมด AI ยังไม่พร้อมใช้งาน เปิดใช้งานแล้วลองใหม่ได้";
   }
   if (reason === "timeout") {
-    return "ผมยังตอบรายการนี้ไม่สำเร็จครับ ระบบใช้เวลานานเกินไป ลองส่งใหม่แบบสั้นลงได้";
+    return "ยังตอบรายการนี้ไม่สำเร็จค่ะ ระบบใช้เวลานานเกินไป ลองส่งใหม่แบบสั้นลงได้";
   }
   if (reason === "rate-limit") {
-    return "Gemini ใช้โควต้าครบชั่วคราวครับ ลองใหม่ภายหลังหรือสลับไปใช้ Claude ได้";
+    return "Gemini ใช้โควต้าครบชั่วคราวค่ะ ลองใหม่ภายหลังหรือสลับไปใช้ Claude ได้";
   }
-  return "ผมยังตอบข้อความนี้ไม่สำเร็จครับ ลองส่งใหม่อีกครั้งได้";
+  return "ยังตอบข้อความนี้ไม่สำเร็จค่ะ ลองส่งใหม่อีกครั้งได้";
 }
 
 const invalidOutputMessage =
-  "ผมยังตอบข้อความนี้ให้ครบไม่ได้ครับ รูปแบบคำตอบไม่พร้อมใช้งาน ลองส่งใหม่อีกครั้งได้";
+  "ยังตอบข้อความนี้ให้ครบไม่ได้ค่ะ รูปแบบคำตอบไม่พร้อมใช้งาน ลองส่งใหม่อีกครั้งได้";
 
 /**
  * Broad words that carry no topic signal — dropped before LINE keyword search so
@@ -412,7 +412,7 @@ export async function buildChatContext(
   // Step 19 — Recent Drive files for AI awareness (capped at 10; fail silently).
   const recentDriveFiles = await getRecentDriveFiles(10);
 
-  // Step 20 / Part 1 — LINE: the full chat LIST (so Jarvis knows every chat) +
+  // Step 20 / Part 1 — LINE: the full chat LIST (so Friday knows every chat) +
   // recent messages grouped per chat for the most-active chats. Fail-soft → [].
   // Times shown are Asia/Bangkok wall-clock (the export's native time) — NOT UTC.
   const lineChats = getLineChatSummariesSafe().map((c) => ({
@@ -435,7 +435,7 @@ export async function buildChatContext(
 
   // FOCUSED chat retrieval: when the user names (or aliases) a specific chat — or
   // follows up about one named earlier — load THAT chat's recent messages so
-  // Jarvis can summarise its CONTENT (not just repeat metadata), even when the
+  // Friday can summarise its CONTENT (not just repeat metadata), even when the
   // chat is not among the most-active ones above. Bangkok-native times. Fail-soft.
   // Redacted to null for unverified (see the hard redaction gate below).
   const knownChatNames = lineChats.map((c) => c.name);

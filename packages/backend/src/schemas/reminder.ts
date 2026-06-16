@@ -11,7 +11,7 @@ import { isoUtcDateTime } from "./event.js";
 /**
  * Reminder lifecycle (Sprint 1). `done` means the user completed it; `archived`
  * means it was filed away without necessarily being done. Both leave the active
- * views (Today/Upcoming/overdue), but they carry different meaning — Jarvis must
+ * views (Today/Upcoming/overdue), but they carry different meaning — Friday must
  * not report an archived reminder as "done". `active` is the only live state.
  */
 export const reminderStatusSchema = z.enum(["active", "done", "archived"]);

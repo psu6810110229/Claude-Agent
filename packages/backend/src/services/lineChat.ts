@@ -335,7 +335,7 @@ export function getLineMessages(
 
 /**
  * Focused retrieval: the most-recent `limit` messages of the chat whose human
- * name EXACTLY matches `chatName` (oldest→newest). Lets Jarvis summarise "what
+ * name EXACTLY matches `chatName` (oldest→newest). Lets Friday summarise "what
  * did we talk about in <chat>" even when that chat is NOT among the most-active
  * ones surfaced in the recent-window context. Fail-soft → [] on disabled / error
  * / no match / limit<=0. Message text is NEVER logged.
@@ -418,7 +418,7 @@ export function searchLineMessages(
 }
 
 /**
- * Part 1 — fail-soft chat summaries for recall context (so Jarvis always KNOWS
+ * Part 1 — fail-soft chat summaries for recall context (so Friday always KNOWS
  * every chat that exists, not just the most active one). [] on disabled/error.
  */
 export function getLineChatSummariesSafe(): LineChatSummary[] {
@@ -433,7 +433,7 @@ export function getLineChatSummariesSafe(): LineChatSummary[] {
 /**
  * Part 1 — recent messages grouped PER chat, for the `maxChats` most-recently-
  * active chats, `perChat` messages each (oldest→newest within a chat). Lets
- * Jarvis answer per-chat questions, not just the global newest. Fail-soft → [].
+ * Friday answer per-chat questions, not just the global newest. Fail-soft → [].
  */
 export function getRecentLineByChatSafe(
   perChat: number,

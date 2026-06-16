@@ -300,10 +300,10 @@ export default function HomePage() {
           };
           setMessages((prev) => [...prev, optimisticUser]);
           
-          const errorText = "❌ ยืนยันตัวตนไม่สำเร็จหลายครั้ง กรุณารอสักครู่แล้วลองใหม่ครับ";
+          const errorText = "❌ ยืนยันตัวตนไม่สำเร็จหลายครั้ง กรุณารอสักครู่แล้วลองใหม่ค่ะ";
           const failMsg: ChatMessage = fallbackAssistantMessage(errorText);
           setMessages((prev) => [...prev, failMsg]);
-          if (!muted) void speak("ลองใหม่อีกครั้งภายหลังครับ");
+          if (!muted) void speak("ลองใหม่อีกครั้งภายหลังค่ะ");
           
           setSending(false);
           setOrbState("idle");
@@ -430,7 +430,7 @@ export default function HomePage() {
           ? (err.details?.fallbackProvider as AiProviderId | null | undefined)
           : undefined;
       if (fallback) {
-        const hint = `ลองใหม่ด้วย ${PROVIDER_LABELS[fallback]} ได้ครับ`;
+        const hint = `ลองใหม่ด้วย ${PROVIDER_LABELS[fallback]} ได้ค่ะ`;
         message = `${message} (${hint})`;
       }
       setMessages((prev) => [
@@ -660,7 +660,7 @@ export default function HomePage() {
                   <span className="avatar-text">J</span>
                 </div>
                 <div className="chat-bubble assistant typing">
-                  <span className="chat-role-label">Jarvis</span>
+                  <span className="chat-role-label">Friday</span>
                   <ThinkingContent status={thinkingStatus} />
                 </div>
               </div>
@@ -672,7 +672,7 @@ export default function HomePage() {
                   <span className="avatar-text">J</span>
                 </div>
                 <div className="chat-bubble assistant typing">
-                  <span className="chat-role-label">Jarvis</span>
+                  <span className="chat-role-label">Friday</span>
                   <ThinkingContent
                     status={`กำลังสร้าง ${briefBusy === "daily" ? "Daily Brief" : "Evening Brief"}`}
                   />
@@ -882,7 +882,7 @@ function ChatSkeleton() {
  * real request lifecycle (thinking → processing → composing) — never fabricated
  * specifics like "checking your calendar" that may not be happening.
  */
-const THINKING_PHASES = ["สักครู่ครับ"];
+const THINKING_PHASES = ["สักครู่ค่ะ"];
 
 function ThinkingContent({
   status,
@@ -985,7 +985,7 @@ function ChatMessageGroup({
   return (
     <section className={`chat-group ${isUser ? "user" : "assistant"}`}>
       <div className="chat-group-header">
-        <span className="chat-role">{isUser ? "You" : "Jarvis"}</span>
+        <span className="chat-role">{isUser ? "You" : "Friday"}</span>
         <span className="ts">{formatTs(first.created_at)}</span>
         {groupProvider && (
           <span className="provider-badge" title="AI provider">
@@ -1068,7 +1068,7 @@ function ChatBubble({
         }`}
       >
         {!isUser && groupedIndex === 0 && (
-          <span className="chat-role-label">Jarvis</span>
+          <span className="chat-role-label">Friday</span>
         )}
         <RichText
           text={msg.content}

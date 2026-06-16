@@ -132,9 +132,9 @@ async function main(): Promise<void> {
 
   const stubClarification: ClaudeInvoker = async () =>
     JSON.stringify({
-      reply: "ผมไม่แน่ใจว่าหมายถึงนัดไหนครับ เลือกจากตัวเลือกนี้ก่อนได้ไหม",
+      reply: "ไม่แน่ใจว่าหมายถึงนัดไหนคะ เลือกจากตัวเลือกนี้ก่อนได้ไหม",
       actions: [],
-      clarification: "หมายถึงนัดไหนครับ",
+      clarification: "หมายถึงนัดไหนคะ",
       clarification_choices: ["นัดวันนี้", "นัดพรุ่งนี้", "ข้ามก่อน"],
     });
 
@@ -171,13 +171,13 @@ async function main(): Promise<void> {
     "prompt explicitly allows read-only chat answers without tool/action proposals",
   );
   assert(
-    readOnlyPrompt.includes("You are Jarvis") &&
+    readOnlyPrompt.includes("You are Friday") &&
       readOnlyPrompt.includes("Never say you have no name") &&
-      readOnlyPrompt.includes('masculine polite phrasing: "ผม"') &&
-      readOnlyPrompt.includes('Use "ครับ" SPARINGLY') &&
+      readOnlyPrompt.includes("feminine polite phrasing") &&
+      readOnlyPrompt.includes('Use "ค่ะ"') &&
       readOnlyPrompt.includes("chief-of-staff reasoning") &&
       readOnlyPrompt.includes("Never expose internal implementation labels"),
-    "prompt pins Jarvis identity, Thai tone, and hides internal role labels",
+    "prompt pins Friday identity, feminine Thai tone, and hides internal role labels",
   );
   // Persona fine-tune (this step): particle ban + adaptive length + inline-only follow-up.
   assert(
@@ -186,12 +186,12 @@ async function main(): Promise<void> {
       readOnlyPrompt.includes("INLINE FOLLOW-UP RULES"),
     "prompt carries particle ban + adaptive-length + inline-follow-up rules",
   );
-  // The imitable ACK template strings must no longer TEACH the นะครับ particle
-  // (the only "นะครับ" left should be inside the ban rule's "Wrong:" examples).
+  // The imitable ACK template strings must no longer TEACH the นะคะ particle
+  // (the only "นะคะ" left should be inside the ban rule's "Wrong:" examples).
   assert(
-    !readOnlyPrompt.includes("รอคุณยืนยันนะครับ") &&
-      !readOnlyPrompt.includes("ขอดูให้ก่อนนะครับ"),
-    "execution-policy ACK examples are de-particled (no นะครับ in imitable templates)",
+    !readOnlyPrompt.includes("รอคุณยืนยันนะคะ") &&
+      !readOnlyPrompt.includes("ขอดูให้ก่อนนะคะ"),
+    "execution-policy ACK examples are de-particled (no นะคะ in imitable templates)",
   );
   assert(
     readOnlyPrompt.includes("MEMORY CAPTURE RULES") &&
@@ -313,7 +313,7 @@ async function main(): Promise<void> {
     "clarification response returns normal chat result",
   );
   assert(
-    clarification.json.clarification === "หมายถึงนัดไหนครับ",
+    clarification.json.clarification === "หมายถึงนัดไหนคะ",
     "clarification question is returned",
   );
   assert(

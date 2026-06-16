@@ -101,7 +101,7 @@ function buildSettingsPayload() {
         enabled: isTtsEnabled(),
         configured: true,
         description:
-          "Speech synthesis (JARVIS voice). Enables spoken chat replies and the " +
+          "Speech synthesis (Friday voice). Enables spoken chat replies and the " +
           "/api/tts endpoint. Uses the Microsoft Edge endpoint (needs internet); " +
           "fail-soft to text. Off by default.",
       },
