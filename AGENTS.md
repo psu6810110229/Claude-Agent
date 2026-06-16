@@ -2,19 +2,21 @@
 
 ## Purpose
 
-Claude_Agent is a local-first Personal Agent OS / personal AI secretary for a Windows PC. The project is being built incrementally, with the smallest usable foundation first, to support tasks, schedule, reminders, memory, projects, notes, approved local files, and Google Calendar as the primary schedule source.
+Claude_Agent is a local-first Personal Agent OS / personal AI secretary for a Windows PC. It supports local tasks, schedule, reminders, memory/facts, approvals, chat, dashboard UI, Google Calendar, Gmail, Google Contacts, Google Drive awareness, TTS voice output, and read-only LINE export ingestion/automation.
 
-Future connectors or capabilities must be added only when explicitly requested.
+Future connectors or new write capabilities must be added only when explicitly requested.
 
 ## Current Architecture
 
-- The deterministic local backend is the system of record. It owns the database, approval queue, logs, connector boundaries, and any future scheduler hooks.
-- AI/Claude is a proposal-only reasoning runtime. It may suggest approved action payloads, but the backend validates them and executes only actions that pass through the approval queue.
-- Claude Code is not a persistent process. When enabled, the backend calls `claude -p` in a controlled way.
+- The deterministic local backend is the system of record. It owns the database, approval queue, logs, scheduler, connector boundaries, notifications, and safety gates.
+- AI providers are proposal-only reasoning runtimes. Claude/Gemini may suggest action payloads, but the backend validates them and executes only through the approval/action dispatcher.
+- Claude Code is not a persistent process. The backend may call provider runtimes in a controlled way; provider calls never bypass backend validation.
+- Gemini is supported. The default Gemini model is `gemini-3.1-flash-lite`; the dashboard currently defaults chat to Gemini. Backend provider policy is still centralized in `services/aiProvider.ts`.
 - Backend and dashboard are separate packages in one npm workspace.
 - The backend binds to `127.0.0.1` only.
 - The dashboard uses same-origin `/api/*`; Next.js rewrites requests to the backend on `127.0.0.1:8787`.
-- Google Calendar is the primary schedule source. It supports read routes and approval-gated create-only writes; local events/reminders are secondary unless the user says otherwise.
+- Google Calendar is the primary schedule source. Local events/reminders are secondary unless the user says otherwise.
+- LINE is read-only and export-based. The backend reads exported `.txt` files only; it never sends or replies in LINE.
 
 ## Stack
 
@@ -25,38 +27,49 @@ Future connectors or capabilities must be added only when explicitly requested.
 - Zod for request/response/action validation
 - Markdown files for human-readable memory
 - npm workspaces
-- UTC ISO 8601 timestamps stored as `TEXT`
+- Python automation helpers for LINE Desktop export on Windows
+- UTC ISO 8601 timestamps stored as `TEXT`; app code maintains `updated_at`
 
 ## Key Commands
 
-Run commands only when they are relevant to the current request and approved by the user.
+Run commands only when relevant to the current request.
 
 - `npm install` - install workspace dependencies; do not run unless explicitly asked.
-- `npm run smoke` - backend smoke test.
-- `npm run smoke:step10` - Google Calendar read/create smoke test with stubbed fetcher; no real network/API call.
-- `npm run ai-smoke` - AI proposal smoke test with stubbed invoker.
-- `npm run brief-smoke` - Daily Brief smoke test.
+- `npm run build` - build the backend workspace.
+- `npm run build:dashboard` - production build of the dashboard.
+- `npm run smoke` - broad backend smoke test.
+- `npm run smoke:step10` - Google Calendar smoke; stubbed, no real Google API.
+- `npm run smoke:step11` - scheduler/notification smoke.
+- `npm run smoke:step12` - chat smoke; stubbed AI.
+- `npm run smoke:step13` - TTS smoke; stubbed TTS/audio.
+- `npm run smoke:step15` - privacy guard/identity smoke.
+- `npm run smoke:step17` - Gmail smoke.
+- `npm run smoke:step18` - Google Contacts smoke.
+- `npm run smoke:step19` - Google Drive smoke.
+- `npm run smoke:step20` - LINE read-only export smoke; temp exports only.
+- `npm run smoke:step21` - LINE follow-up watch smoke.
+- `npm run smoke:persona` - Jarvis persona/prompt invariants.
+- `npm run provider-smoke` / `npm run smoke:phase3` / `npm run smoke:phase4` - provider/Gemini routing checks.
+- `npm run google-auth` - one-time Google OAuth setup; only when explicitly needed.
 - `npm run db:init` - initialize the SQLite database.
 - `npm run dev` - run backend in watch mode on `127.0.0.1:8787`.
-- `npm run dev:dashboard` - run dashboard on `:3000`; backend must also be running.
-- `npm run build` - build the workspace.
-- `npm run build:dashboard` - production build of the dashboard.
-- `npm run google-auth` - one-time Google Calendar OAuth setup for Calendar event access.
+- `npm run dev:dashboard` - run dashboard; backend must also be running.
+- LINE helper tests: `python -m unittest automation.line_export.test_sanitize` and `python -m unittest automation.line_export.test_batch_runner`.
 
 ## Safety Rules
 
 - Read `AGENTS.md` first in future Codex sessions.
 - Keep the project local-first and safe by default.
 - Use read-only access before write access.
-- Ask before destructive, risky, outward-facing, or scope-expanding actions.
+- Ask before destructive, risky, outward-facing, credential, or scope-expanding actions.
 - Do not silently expand scope.
 - Preserve the approval-gated architecture.
-- AI/Claude must propose only; the backend executes only approved actions.
-- Do not bypass the approval queue or add direct write routes for approved-action domains.
-- Keep Google Calendar writes create-only and approval-gated.
-- Do not add Google Calendar update/delete actions.
-- Do not bypass the approval queue for Google Calendar writes.
-- Do not read or modify secrets, tokens, `.env`, `data/`, or Google credential files unless the user explicitly requests it.
+- AI/Claude/Gemini must propose only; the backend executes only approved or explicitly auto-executable actions through the dispatcher.
+- Do not bypass the approval queue/action dispatcher or add direct write routes for approved-action domains.
+- Google Calendar create/update/delete are approval-gated; recoverable delete may auto-execute only when its explicit destructive auto-execute toggle is on.
+- Gmail draft/send are approval-gated; Gmail send must remain confirm-gated.
+- LINE must remain read-only. Do not add LINE send/reply/update/delete actions.
+- Do not read or modify secrets, tokens, `.env`, `data/`, Google credential files, real LINE exports, or local DB contents unless the user explicitly requests it.
 - Do not install packages unless the user explicitly asks.
 - Prefer small, reversible, verifiable changes.
 
@@ -68,42 +81,55 @@ Run commands only when they are relevant to the current request and approved by 
 - Read only the files needed for the current task.
 - Keep responses short and practical.
 - Avoid broad scans.
-- Do not dump database contents, memory file contents, credentials, tokens, or large file bodies into AI context.
-- Keep AI prompt context compact: allowed action types, user input, capped open-task lists, and memory target names only.
+- Do not dump database contents, memory file contents, credentials, tokens, real LINE message bodies, or large file bodies into AI context.
+- Keep AI prompt context compact and capped.
+- Activity logs must not contain LINE message bodies/snippets/keywords or secrets; use counts, ids, and timestamps only.
 
 ## Current Status
 
-- Step 1 is complete: repo instructions, npm workspace skeleton, backend package, Fastify health check, SQLite schema/init, smoke test, and restrictive local binding.
-- Step 3 is complete: Next.js dashboard shell with Today, Tasks, Approvals, Activity, shared nav/layout, typed API client, and backend proxy rewrites.
-- Step 6 is complete: proposal-only Claude runtime, strict JSON/Zod validation, approval creation, action allowlist, and stubbed AI smoke test.
-- Step 7 is complete: dashboard Deterministic/AI command mode toggle, AI result states, approval links, and manual live-Claude test documentation.
-- Step 9 is complete: local events/reminders, approval-gated event/reminder actions, Bangkok-aware agenda bucketing, read-only routes, Today/Upcoming dashboard display, and smoke coverage.
-- Step 10 is complete: Google Calendar connector, read-only calendar routes, approval-gated create-only Google event action, Google events in Daily Brief and dashboard, OAuth helper, and stubbed smoke coverage.
+- Step 1 complete: repo instructions, npm workspace skeleton, backend package, Fastify health check, SQLite schema/init, smoke test, local binding.
+- Step 3 complete: Next.js dashboard shell with Today, Tasks, Approvals, Activity, shared nav/layout, typed API client, backend proxy rewrites.
+- Step 6-7 complete: proposal-only AI runtime, strict JSON/Zod validation, approval creation, action allowlist, dashboard AI toggle/result states.
+- Step 9 complete: local events/reminders, approval-gated actions, Bangkok-aware agenda bucketing, read-only routes, dashboard display.
+- Step 10 complete: Google Calendar connector, read-only routes, approval-gated Google event writes.
+- Step 11 complete: background scheduler, notification rows, desktop notifications.
+- Step 12 complete: multi-turn Jarvis chat with recall, approval proposals, provider metadata, history.
+- Step 13 complete: TTS voice output, browser playback, backend speaker playback for scheduler/nags, spoken reply field.
+- Step 14 complete: Google Calendar update/delete with undo snapshots and optional auto-execute policy.
+- Step 15 complete: privacy guard, owner verification, session persistence, redaction boundary.
+- Step 16 complete: durable fact memory/recall.
+- Step 17 complete: Gmail unread read + approval-gated draft/send.
+- Step 18 complete: Google Contacts read-only connector and contact-state prompt fix.
+- Step 19 complete: Google Drive recent-file awareness/read routes.
+- Step 20 complete: LINE read-only export parser, keyword search, chat context, Windows desktop export automation, batch runner, hardened Save As relocation.
+- Step 21 complete: approval-gated `line_followup.create` and deterministic one-shot LINE export follow-up notifications.
+- Persona/TTS updates complete: Jarvis prompt has stricter tone/auth boundaries and detail-preserving spoken output.
+- Planned next major work: Step 22 Active Intelligence Layer (active topics, LINE evidence bundles, verifier, deterministic proactive triage).
 
-## Out of Scope
+## Out of Scope Unless Explicitly Requested
 
-Do not add these without explicit user approval:
-
-- MCP
-- Notion
-- Gmail
-- Google Drive
-- Voice
-- Scheduler
-- Local filesystem scanning
-- External connectors beyond the existing Google Calendar connector
-- Google Calendar update/delete access
-- Calendar update/delete action types
-- Authentication beyond minimal Google Calendar event OAuth
-- Dashboard or backend scope not requested for the current task
+- New external connectors beyond the current Google/Gmail/Contacts/Drive/LINE set.
+- Notion.
+- MCP.
+- Voice input: STT, microphone, wake word.
+- LINE write actions or live `.edb` decryption.
+- Live LINE automation from backend scheduler.
+- Vector database or new external retrieval service.
+- Broad multi-agent/orchestrator rewrite.
+- Local filesystem scanning or filesystem write/delete outside explicitly approved paths.
+- Contacts write/update/delete.
+- Non-recoverable destructive auto-execution.
 
 ## Testing Rules
 
 - Use focused tests that match the changed surface area.
 - Do not call the live `claude` binary from smoke tests.
-- Do not call the real Google API from smoke tests.
-- For backend changes, consider `npm run build`, `npm run smoke`, and focused smoke scripts.
+- Do not call real Gemini/Google APIs from smoke tests.
+- Do not use real LINE exports in smoke tests; create temp export fixtures.
+- For backend changes, consider `npm run build` plus focused smoke scripts.
 - For dashboard changes, consider `npm run build:dashboard`.
+- For prompt/persona changes, consider `npm run smoke:persona`.
+- For LINE automation Python changes, run the focused Python unit tests.
 - If tests are not run, report that clearly and say why.
 
 ## Working Style
@@ -124,12 +150,12 @@ Do not add these without explicit user approval:
 - Identify the smallest relevant file set.
 - Before reading extra files, state the file path and reason.
 - Ask before risky or destructive work.
-- Do not touch secrets, tokens, `.env`, `data/`, or Google credential files unless explicitly requested.
+- Do not touch secrets, tokens, `.env`, `data/`, Google credential files, real LINE exports, or DB contents unless explicitly requested.
 
 ## After Making Changes
 
-- Run only the commands that are relevant and approved.
+- Run only relevant focused checks.
 - Report the files changed.
 - Summarize key behavior or documentation updates.
-- Report tests or checks run, including failures.
+- Report tests/checks run, including failures.
 - Do not commit unless the user explicitly asks.
