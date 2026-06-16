@@ -504,6 +504,15 @@ export const LINE_CONTEXT_PER_CHAT = Number(
   process.env.LINE_CONTEXT_PER_CHAT ?? 6,
 );
 
+/**
+ * Max messages loaded for a FOCUSED chat (when the user asks about one specific
+ * LINE chat/group by name or alias). Lets Jarvis summarise that chat's content
+ * even when it is not among the most-active chats shown in the recent window.
+ */
+export const LINE_FOCUSED_MSG_CAP = Number(
+  process.env.LINE_FOCUSED_MSG_CAP ?? 20,
+);
+
 /** Max chats (most-recently-active first) surfaced with recent messages. */
 export const LINE_CONTEXT_MAX_CHATS = Number(
   process.env.LINE_CONTEXT_MAX_CHATS ?? 6,

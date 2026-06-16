@@ -205,6 +205,21 @@ function splitSenderMessage(
   };
 }
 
+/**
+ * Asia/Bangkok display "YYYY-MM-DD HH:mm" for a UTC ISO instant. Pure. Used for
+ * USER-FACING rendering only (e.g. a chat's last-activity time); storage + API
+ * keep the UTC ISO. NEVER show the raw UTC digits to the user as local time.
+ */
+export function formatBangkokDateTime(atUtcIso: string): string {
+  const d = new Date(new Date(atUtcIso).getTime() + BANGKOK_OFFSET_MS);
+  const y = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const da = String(d.getUTCDate()).padStart(2, "0");
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${y}-${mo}-${da} ${hh}:${mm}`;
+}
+
 /** Approximate UTC ISO instant for a Bangkok wall-clock date/time. */
 function toUtcIso(e: RawEntry): string {
   const localAsUtcMs = Date.UTC(
@@ -316,6 +331,29 @@ export function getLineMessages(
   const messages = readFileMessages(chatId);
   const n = Math.max(1, Math.min(limit, 500));
   return messages.slice(-n);
+}
+
+/**
+ * Focused retrieval: the most-recent `limit` messages of the chat whose human
+ * name EXACTLY matches `chatName` (oldest→newest). Lets Jarvis summarise "what
+ * did we talk about in <chat>" even when that chat is NOT among the most-active
+ * ones surfaced in the recent-window context. Fail-soft → [] on disabled / error
+ * / no match / limit<=0. Message text is NEVER logged.
+ */
+export function getFocusedChatMessages(
+  chatName: string,
+  limit: number,
+): LineMessage[] {
+  if (!isLineEnabled()) return [];
+  if (limit <= 0) return [];
+  try {
+    const file = listExportFiles().find((f) => chatNameFromFile(f) === chatName);
+    if (!file) return [];
+    const messages = readFileMessages(file);
+    return messages.slice(-Math.min(limit, 500));
+  } catch {
+    return [];
+  }
 }
 
 /**

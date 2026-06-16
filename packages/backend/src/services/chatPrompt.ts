@@ -12,6 +12,7 @@
 
 import { buildAllowedActionsPrompt } from "./actionRegistry.js";
 import { classifySensitivity } from "./privacyClassifier.js";
+import { formatBangkokDateTime } from "./lineChat.js";
 import type { LineEvidence } from "./lineEvidence.js";
 import type { EvidenceVerdict } from "./evidenceVerifier.js";
 
@@ -184,6 +185,17 @@ export interface ChatContext {
     date: string;
     time: string;
   }[];
+  /**
+   * Focused chat: recent messages of the ONE specific LINE chat the user is
+   * asking about (by name or local alias, or carried from an earlier turn), so
+   * Jarvis can summarise its content instead of repeating metadata. Times are
+   * Asia/Bangkok local (export-native). Null when no chat is in focus or the
+   * requester is unverified. Optional so callers that omit it don't crash.
+   */
+  lineFocusedChat?: {
+    chat: string;
+    messages: { sender: string | null; text: string; date: string; time: string }[];
+  } | null;
   /**
    * Step 22 — compact list of active topics the user is tracking. Empty when
    * none exist or requester is unverified. Optional so registry-smoke callers
@@ -364,7 +376,11 @@ export function buildChatPrompt(ctx: ChatContext): string {
       ? ctx.lineChats
           .map(
             (c) =>
-              `  - "${c.name}" — ${c.messageCount} msgs, last ${c.lastMessageAt ?? "n/a"}`,
+              `  - "${c.name}" — ${c.messageCount} msgs, last ${
+                c.lastMessageAt
+                  ? `${formatBangkokDateTime(c.lastMessageAt)} (Asia/Bangkok)`
+                  : "n/a"
+              }`,
           )
           .join("\n")
       : "  (none or LINE disabled)";
@@ -378,6 +394,17 @@ export function buildChatPrompt(ctx: ChatContext): string {
           )
           .join("\n")
       : "  (none or LINE disabled)";
+
+  const lineFocusedChat = ctx.restricted
+    ? "  (withheld — requester not verified)"
+    : ctx.lineFocusedChat && ctx.lineFocusedChat.messages.length > 0
+      ? ctx.lineFocusedChat.messages
+          .map(
+            (m) =>
+              `  - [${ctx.lineFocusedChat!.chat}] ${m.date} ${m.time} (Asia/Bangkok) ${m.sender ?? "(system)"}: ${m.text.slice(0, 200)}`,
+          )
+          .join("\n")
+      : "  (no specific chat in focus this turn — the user did not name one, or the named chat had no recent exported messages)";
 
   const lineMatches =
     ctx.lineMatches.length > 0
@@ -846,6 +873,19 @@ about older messages not shown, say you only see recent ones. Sender names are
 best-effort from a space-delimited export. There is NO LINE write action — you
 can only summarise or answer):
 ${lineMessages}
+
+LINE FOCUSED CHAT MESSAGES (read-only; when the user asks about ONE specific LINE
+chat/group by name or alias — or follows up about one named earlier — its recent
+messages (up to the last 20, oldest→newest) are loaded here. Times are already
+Asia/Bangkok local — report as-is. USE THIS to actually SUMMARISE what was said:
+who said what, the topic, the sentiment, and the practical point / what changed.
+When this section HAS messages, do NOT answer with only the chat's name, size, or
+last-activity timestamp — that is the bug to avoid. If this section is empty or
+says none, do NOT invent content and NEVER say a vague "คุยทั่วไป": say honestly
+that you only see the chat's metadata, or ask which chat they mean. SAME CAVEATS
+as LINE MESSAGES: export-based, NOT live, no read/unread status, nothing newer
+than the user's last export):
+${lineFocusedChat}
 
 LINE SEARCH MATCHES (read-only; LINE messages across ALL exported chats whose
 text matches keywords from the user's CURRENT question — use these to answer

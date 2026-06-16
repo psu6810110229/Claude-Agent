@@ -92,9 +92,13 @@ async function main(): Promise<void> {
   const { verifyLineEvidenceAnswerIntent } = await import(
     "../src/services/evidenceVerifier.js"
   );
-  const { searchLineMessages } = await import("../src/services/lineChat.js");
+  const { searchLineMessages, formatBangkokDateTime } = await import(
+    "../src/services/lineChat.js"
+  );
   const { buildChatPrompt } = await import("../src/services/chatPrompt.js");
-  const { buildChatContext } = await import("../src/services/chat.js");
+  const { buildChatContext, detectFocusedChat } = await import(
+    "../src/services/chat.js"
+  );
 
   initDb();
 
@@ -538,6 +542,73 @@ async function main(): Promise<void> {
       atSectionIdx >= 0 &&
         promptRestricted.slice(atSectionIdx, atSectionIdx + 300).includes("withheld"),
       "buildChatPrompt restricted: active topics section shows '(withheld)'",
+    );
+
+    // ── Case 21: Bangkok display + focused-chat detection (this bugfix) ──────
+
+    // A. lastMessageAt UTC must render as Bangkok local for the user (the
+    //    14:16Z-shown-as-14:16 bug): 2026-06-15T14:16:00Z → 21:16 Bangkok.
+    assert(
+      formatBangkokDateTime("2026-06-15T14:16:00Z") === "2026-06-15 21:16",
+      "formatBangkokDateTime: 14:16Z renders as 21:16 Asia/Bangkok",
+    );
+    const names = ["เอ๋วน้องต้าว", "Family", "P'SARA"];
+    // B. explicit chat name in the message
+    assert(
+      detectFocusedChat("เอ๋วน้องต้าว คุยอะไรกัน", [], names) === "เอ๋วน้องต้าว",
+      "detectFocusedChat: explicit chat name resolves",
+    );
+    // C. content question with no name → carried from prior user turn
+    assert(
+      detectFocusedChat("สรุปข้อความล่าสุด", ["เอ๋วน้องต้าว เป็นไงบ้าง"], names) ===
+        "เอ๋วน้องต้าว",
+      "detectFocusedChat: focus carried from earlier turn for content question",
+    );
+    // D. local alias "กลุ่มครอบครัว" → เอ๋วน้องต้าว (only when target exists)
+    assert(
+      detectFocusedChat("กลุ่มครอบครัวคุยอะไรบ้าง", [], names) === "เอ๋วน้องต้าว",
+      "detectFocusedChat: 'กลุ่มครอบครัว' alias resolves to เอ๋วน้องต้าว",
+    );
+    // E. unrelated question with no named chat → null (no false focus)
+    assert(
+      detectFocusedChat("วันนี้อากาศเป็นยังไง", [], names) === null,
+      "detectFocusedChat: unrelated question yields no focus",
+    );
+    // F. focused-chat prompt section renders messages (not metadata) when present
+    const focusedPrompt = buildChatPrompt({
+      message: "เอ๋วน้องต้าว คุยอะไรกัน",
+      openTasks: [],
+      memorySummaries: [],
+      facts: [],
+      nowUtc: "2026-06-15T00:00:00.000Z",
+      nowBangkok: "2026-06-15 07:00",
+      googleEvents: [],
+      events: [],
+      reminders: [],
+      approvalOutcomes: [],
+      history: [],
+      gmailUnread: [],
+      contacts: [],
+      contactsStatus: "disabled" as const,
+      recentDriveFiles: [],
+      lineChats: [],
+      lineMessages: [],
+      lineFocusedChat: {
+        chat: "เอ๋วน้องต้าว",
+        messages: [
+          { sender: "เอ๋ว", text: "เย็นนี้ว่างมั้ย", date: "2026-06-15", time: "21:16" },
+        ],
+      },
+      lineMatches: [],
+      autoExecute: false,
+      autoExecuteDestructive: false,
+      restricted: false,
+    });
+    assert(
+      focusedPrompt.includes("LINE FOCUSED CHAT MESSAGES") &&
+        focusedPrompt.includes("21:16") &&
+        focusedPrompt.includes("เย็นนี้ว่างมั้ย"),
+      "buildChatPrompt: focused chat section renders the chat's recent messages",
     );
 
     console.log("\nAll Step 22 smoke assertions passed.");

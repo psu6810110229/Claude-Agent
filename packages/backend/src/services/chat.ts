@@ -42,6 +42,7 @@ import { getRecentDriveFiles } from "./googleDrive.js";
 import {
   getLineChatSummariesSafe,
   getRecentLineByChatSafe,
+  getFocusedChatMessages,
   searchLineMessages,
 } from "./lineChat.js";
 import {
@@ -66,6 +67,7 @@ import {
   CHAT_HISTORY_LIMIT,
   LINE_CONTEXT_PER_CHAT,
   LINE_CONTEXT_MAX_CHATS,
+  LINE_FOCUSED_MSG_CAP,
   LINE_SEARCH_CAP,
   nowIso,
 } from "../config.js";
@@ -214,6 +216,70 @@ export function extractLineKeywords(message: string): string[] {
     if (out.length >= 6) break;
   }
   return out;
+}
+
+/**
+ * Local aliases mapping a spoken group reference to an EXACT exported chat name,
+ * for FOCUSED retrieval only (so "กลุ่มครอบครัว" loads the เอ๋วน้องต้าว chat's
+ * recent messages into context). This ONLY decides which chat's messages to LOAD;
+ * the prompt still owns any user-facing ambiguity/clarification wording. An alias
+ * is honored only when its target chat actually exists in the exports.
+ */
+const FOCUSED_CHAT_ALIASES: { alias: string; chat: string }[] = [
+  { alias: "กลุ่มครอบครัว", chat: "เอ๋วน้องต้าว" },
+  { alias: "family group", chat: "เอ๋วน้องต้าว" },
+];
+
+/** Markers for "what did we talk about / summarize the latest" questions. */
+const CHAT_CONTENT_MARKERS = [
+  "คุยอะไร", "คุยเรื่อง", "สรุป", "ล่าสุดคุย", "วันนี้คุย", "เมื่อวานคุย",
+  "พิมพ์อะไร", "ว่าอะไรบ้าง", "talk about", "what did", "summar",
+];
+
+function isChatContentQuestion(message: string): boolean {
+  const m = message.toLowerCase();
+  return CHAT_CONTENT_MARKERS.some((k) => m.includes(k));
+}
+
+/** Find an exact chat name (longest match) or alias referenced in a text. */
+function matchChatInText(text: string, knownNames: string[]): string | null {
+  const lower = text.toLowerCase();
+  let best = "";
+  for (const name of knownNames) {
+    const n = name.toLowerCase();
+    if (n.length >= 2 && n.length > best.length && lower.includes(n)) best = name;
+  }
+  if (best) return best;
+  for (const { alias, chat } of FOCUSED_CHAT_ALIASES) {
+    if (lower.includes(alias.toLowerCase()) && knownNames.includes(chat)) {
+      return chat;
+    }
+  }
+  return null;
+}
+
+/**
+ * Deterministic FOCUSED-chat detection (no AI). Returns the EXACT chat name the
+ * user is asking about so its recent messages can be loaded into context. Checks
+ * the current message first; for content/short follow-up questions that name no
+ * chat, it carries focus from the most recent prior user turn that named one.
+ * Pure — exported for tests.
+ */
+export function detectFocusedChat(
+  message: string,
+  priorUserMessages: string[],
+  knownNames: string[],
+): string | null {
+  if (knownNames.length === 0) return null;
+  const direct = matchChatInText(message, knownNames);
+  if (direct) return direct;
+  if (isChatContentQuestion(message) || isShortFollowupQuestion(message)) {
+    for (let i = priorUserMessages.length - 1; i >= 0; i--) {
+      const carried = matchChatInText(priorUserMessages[i], knownNames);
+      if (carried) return carried;
+    }
+  }
+  return null;
 }
 
 /** Build compact recall context for a chat turn. Exported for the idle follow-up. */
@@ -367,6 +433,36 @@ export async function buildChatContext(
     })),
   );
 
+  // FOCUSED chat retrieval: when the user names (or aliases) a specific chat — or
+  // follows up about one named earlier — load THAT chat's recent messages so
+  // Jarvis can summarise its CONTENT (not just repeat metadata), even when the
+  // chat is not among the most-active ones above. Bangkok-native times. Fail-soft.
+  // Redacted to null for unverified (see the hard redaction gate below).
+  const knownChatNames = lineChats.map((c) => c.name);
+  const priorUserMessages = history
+    .filter((h) => h.role === "user")
+    .map((h) => h.content);
+  const focusedChatName = detectFocusedChat(
+    message,
+    priorUserMessages,
+    knownChatNames,
+  );
+  let lineFocusedChat: ChatContext["lineFocusedChat"] = null;
+  if (focusedChatName) {
+    const msgs = getFocusedChatMessages(focusedChatName, LINE_FOCUSED_MSG_CAP);
+    if (msgs.length > 0) {
+      lineFocusedChat = {
+        chat: focusedChatName,
+        messages: msgs.map((m) => ({
+          sender: m.sender,
+          text: m.text.slice(0, 200),
+          date: m.date,
+          time: m.time,
+        })),
+      };
+    }
+  }
+
   // Read-only keyword retrieval: surface LINE messages relevant to THIS question
   // even when they fall outside the recent-window above. Fail-soft → []. No-op
   // when no topical keywords remain. Redacted to [] for unverified (see below).
@@ -480,6 +576,7 @@ export async function buildChatContext(
       recentDriveFiles: [],
       lineChats: [],
       lineMessages: [],
+      lineFocusedChat: null,
       lineMatches: [],
       // Step 22 — redact all active topic / evidence fields for unverified
       activeTopics: [],
@@ -511,6 +608,7 @@ export async function buildChatContext(
     recentDriveFiles,
     lineChats,
     lineMessages,
+    lineFocusedChat,
     lineMatches,
     // Step 22 — active topics and evidence (verified path only)
     activeTopics: activeTopicsCompact,
