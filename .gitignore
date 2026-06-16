@@ -33,6 +33,9 @@ memory/*.md
 automation/line_export/chats.json
 automation/line_export/chats.test.json
 
+# TTS voice-tuning mockups — local audio artifacts, never commit.
+tts-mockups/
+
 # Python bytecode
 automation/**/__pycache__/
 automation/**/*.pyc

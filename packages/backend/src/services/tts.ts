@@ -54,10 +54,27 @@ const PRESETS: Record<TtsPreset, PresetConfig> = {
     prosody: { pitch: "-10%", rate: "-12%" },
     fx: [HP, lowBoost5, body, tameHigh2, COMP_TIGHT, "aecho=0.9:0.75:25:0.06", NORM],
   },
+  // Tuned voice (host A/B session): younger, graceful Thai secretary ~23-24,
+  // not matronly. Pitch +9% lifts age out of "mature/old"; warmth (230/450 Hz)
+  // + a dark top (high-shelf -3.5 @6.5k, lowpass 8k) keep it soft like a real
+  // throat/mouth rather than a crisp mic; the surgical high-Q notch @850 Hz
+  // removes the nasal "duck" honk without dulling warmth. Calm pace via rate -9%.
   calm_female: {
     voice: "th-TH-PremwadeeNeural",
-    prosody: { pitch: "-3%", rate: "-10%", volume: "+0%" },
-    fx: [HP, "equalizer=f=160:width_type=o:width=1.2:g=2", body, tameHigh2, COMP, NORM],
+    prosody: { pitch: "+9%", rate: "-9%", volume: "+0%" },
+    fx: [
+      "highpass=f=80",
+      "equalizer=f=230:width_type=o:width=1:g=3", // warmth/body
+      "equalizer=f=450:width_type=o:width=1:g=2", // lower-mid fill
+      "equalizer=f=850:width_type=q:width=5:g=-5", // surgical de-nasal (kill duck honk)
+      "equalizer=f=2500:width_type=o:width=1.4:g=0.5", // slight presence
+      "equalizer=f=6500:width_type=o:width=1.5:g=-2.5", // tame sibilance
+      "highshelf=f=6500:g=-3.5", // roll off crisp top
+      "lowpass=f=8000", // soft, mouth-like ceiling
+      COMP,
+      "aecho=0.9:0.85:22:0.06", // tiny room polish
+      NORM,
+    ],
   },
 };
 
