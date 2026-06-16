@@ -27,6 +27,13 @@ import {
   speak,
   verifyIdentity,
 } from "@/lib/api";
+import {
+  cancelAck,
+  nextAckRequestId,
+  preloadAckAudio,
+  settleAckForFinal,
+  startAck,
+} from "@/lib/voiceAcks";
 import { formatTs } from "@/lib/format";
 import { actionQuestion, isActionType } from "@/lib/actionDisplay";
 import { ErrorBanner } from "@/components/States";
@@ -144,6 +151,12 @@ export default function HomePage() {
         setGuardEnabled(res.guardEnabled);
       })
       .catch(() => {});
+  }, []);
+
+  // Step 23 — preload short acknowledgement phrases once on chat page load.
+  // Fail-soft: missing ones fall back to on-demand /api/tts when spoken.
+  useEffect(() => {
+    void preloadAckAudio();
   }, []);
 
   // Cancel any pending follow-up when the component unmounts.
@@ -321,6 +334,11 @@ export default function HomePage() {
       setMessages((prev) => [...prev, optimisticUser]);
     }
 
+    // Step 23 — start the responsive voice ack state machine for this send.
+    // Per-message id so a newer send cancels older pending acknowledgements.
+    const ackRequestId = nextAckRequestId();
+    startAck(ackRequestId, text, muted);
+
     try {
       const result = await sendChat(text, provider, sessionIdRef.current ?? undefined, geminiModel);
       // The instant the reply lands, kick off BOTH the history refetch and TTS
@@ -350,9 +368,13 @@ export default function HomePage() {
         if (!muted && speechText) {
           const speech = prepareSpeech(speechText);
           await speech.ready;
+          // Queue the real reply behind any playing ack; cancel pending ones.
+          await settleAckForFinal(ackRequestId);
           speech.play();
+        } else {
+          await settleAckForFinal(ackRequestId);
         }
-        
+
         setSending(false);
         setOrbState("idle");
         return;
@@ -381,7 +403,10 @@ export default function HomePage() {
           [freshAssistant.id]: result.provider,
         }));
       }
-      speech?.play(); // same tick as the reveal → text and voice together
+      // Text is already revealed above; gate only the VOICE behind any playing
+      // ack so the final answer never overlaps it (and cancel a pending long ack).
+      await settleAckForFinal(ackRequestId);
+      speech?.play(); // text and voice together (after ack, if one was speaking)
       if (!muted && result.resultSpoken) void speak(result.resultSpoken);
       const clarification = buildClarificationPrompt(
         updated,
@@ -394,6 +419,8 @@ export default function HomePage() {
       // itself (prompt rules). The /api/chat/followup route + scheduleFollowup()
       // remain available but are no longer auto-fired here.
     } catch (err) {
+      // No final answer → stop any pending/playing acknowledgement immediately.
+      cancelAck();
       let message = err instanceof ApiError ? err.message : String(err);
       // Phase 4 — Auto mode never switches providers silently. On failure the
       // backend names another available provider; surface it as an explicit
