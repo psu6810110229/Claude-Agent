@@ -50,6 +50,8 @@ import type {
 } from "../schemas/gmail.js";
 import { createLineFollowup } from "../db/repositories/lineFollowupRepo.js";
 import type { CreateLineFollowupPayload } from "../schemas/lineFollowup.js";
+import { createActiveTopic } from "../db/repositories/activeTopicRepo.js";
+import type { CreateActiveTopicPayload } from "../schemas/activeTopic.js";
 import { nowIso } from "../config.js";
 import { getActionMeta } from "./actionRegistry.js";
 
@@ -291,6 +293,23 @@ export async function executeAction(
         baseline_at: nowIso(),
       });
       return { summary: `created LINE follow-up watch #${watch.id}` };
+    }
+    case "active_topic.create": {
+      const data = parsed.data as CreateActiveTopicPayload;
+      // baseline_at set here (NOT trusted from model), created_from hardcoded
+      // to "chat" for this code path. This writes a LOCAL row only — it never
+      // reads live LINE, never sends/replies, never touches external services.
+      const topic = createActiveTopic({
+        title: data.title,
+        source: data.source,
+        keywords: data.keywords,
+        chat_filter: data.chat_filter ?? null,
+        priority: data.priority ?? 50,
+        cooldown_minutes: data.cooldown_minutes ?? 30,
+        baseline_at: nowIso(),
+        created_from: "chat",
+      });
+      return { summary: `created active topic #${topic.id}` };
     }
   }
 }

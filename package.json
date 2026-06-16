@@ -28,6 +28,13 @@
     "smoke:step14b": "npm run smoke:step14b -w @claude-agent/backend",
     "smoke:step20": "npm run smoke:step20 -w @claude-agent/backend",
     "smoke:step21": "npm run smoke:step21 -w @claude-agent/backend",
+    "smoke:step22": "npm run smoke:step22 -w @claude-agent/backend",
+    "smoke:step15": "npm run smoke:step15 -w @claude-agent/backend",
+    "smoke:step16": "npm run smoke:step16 -w @claude-agent/backend",
+    "smoke:step17": "npm run smoke:step17 -w @claude-agent/backend",
+    "smoke:step18": "npm run smoke:step18 -w @claude-agent/backend",
+    "smoke:step19": "npm run smoke:step19 -w @claude-agent/backend",
+    "smoke:persona": "npm run smoke:persona -w @claude-agent/backend",
     "google-auth": "npm run google-auth -w @claude-agent/backend",
     "db:init": "npm run db:init -w @claude-agent/backend",
     "build": "npm run build -w @claude-agent/backend"

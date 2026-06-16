@@ -149,3 +149,32 @@ CREATE TABLE IF NOT EXISTS line_followup (
   updated_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_line_followup_status ON line_followup (status, due_at);
+
+-- Step 22 — Active Intelligence Layer: durable active-topic watch store.
+-- Read-only LINE safety: an active topic only ever *reads* exported LINE files
+-- via the existing keyword search; it never sends/replies/mutates LINE and never
+-- triggers live LINE automation. `updated_at` is app-maintained per project
+-- convention. Rows are soft-archived via status='resolved'/'paused', never
+-- hard-deleted. `baseline_at` is set by the executor at creation (never trusted
+-- from the model). `last_summary` is capped at 200 chars and must never contain
+-- raw message bodies beyond that cap.
+CREATE TABLE IF NOT EXISTS active_topic (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  title            TEXT NOT NULL,
+  source           TEXT NOT NULL,              -- 'line' | 'calendar' | 'mixed' | 'general'
+  keywords         TEXT NOT NULL,              -- JSON string array, hydrated to string[] in code
+  chat_filter      TEXT,                       -- optional LINE chat-name substring filter; null = all
+  status           TEXT NOT NULL DEFAULT 'active', -- 'active' | 'paused' | 'resolved'
+  priority         INTEGER NOT NULL DEFAULT 50,
+  baseline_at      TEXT NOT NULL,              -- ISO 8601 UTC; only evidence newer than this counts
+  last_checked_at  TEXT,                       -- ISO 8601 UTC; last scheduler/evidence pass
+  last_evidence_at TEXT,                       -- ISO 8601 UTC; atUtc of newest evidence surfaced
+  last_summary     TEXT,                       -- capped ≤200 chars, user-safe; NO raw bodies
+  cooldown_minutes INTEGER NOT NULL DEFAULT 30,
+  created_from     TEXT NOT NULL,              -- 'chat' | 'manual' | 'scheduler'
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_active_topic_status_source ON active_topic (status, source);
+CREATE INDEX IF NOT EXISTS idx_active_topic_baseline ON active_topic (baseline_at);
+CREATE INDEX IF NOT EXISTS idx_active_topic_updated ON active_topic (updated_at);

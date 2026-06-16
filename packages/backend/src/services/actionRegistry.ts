@@ -25,7 +25,8 @@ export type CapabilityId =
   | "google.calendar.delete"
   | "gmail.draft"
   | "gmail.send"
-  | "line.followup";
+  | "line.followup"
+  | "active_topic";
 export type ActionDomain =
   | "task"
   | "event"
@@ -33,7 +34,8 @@ export type ActionDomain =
   | "memory"
   | "google"
   | "gmail"
-  | "line";
+  | "line"
+  | "active_topic";
 export type RiskLevel = "low" | "medium" | "high";
 export type ActionPolicy =
   | "approval-required"
@@ -123,6 +125,13 @@ export const capabilityRegistry: Record<CapabilityId, CapabilityMeta> = {
     humanLabel: "LINE follow-up watch",
     // Local-only: creating a watch writes a local DB row; it never sends/replies
     // to LINE and never triggers live LINE automation.
+    policies: ["approval-required", "local-only"],
+  },
+  active_topic: {
+    capability: "active_topic",
+    humanLabel: "Active topic",
+    // Local-only: creates a durable watch row only. Never reads live LINE,
+    // never sends/replies to LINE or any external service.
     policies: ["approval-required", "local-only"],
   },
 };
@@ -337,6 +346,19 @@ export const actionRegistry: Record<ActionType, ActionMeta> = {
     payloadShape:
       '{ "topic": string (short label of what to follow up on), "keywords": string[] (1-10 search terms over EXPORTED LINE text), "chat_filter"?: string (limit to one chat by name), "due_at": <ISO UTC> (when to run the check) }',
     riskLevel: "low",
+    policies: ["approval-required", "local-only"],
+    promptExposure: "allowed",
+  },
+  "active_topic.create": {
+    actionType: "active_topic.create",
+    capability: "active_topic",
+    domain: "active_topic",
+    humanLabel: "Track an active topic",
+    payloadShape:
+      '{ "title": string (short topic label, max 200 chars), "source": "line"|"calendar"|"mixed"|"general", "keywords": string[] (1-10 search terms), "chat_filter"?: string (LINE chat name filter, optional), "priority"?: number (0-100, default 50), "cooldown_minutes"?: number (1-1440, default 30) }',
+    riskLevel: "low",
+    // Local-only: creates one DB row. Never reads live LINE, never sends or
+    // replies to LINE, and never writes any external service.
     policies: ["approval-required", "local-only"],
     promptExposure: "allowed",
   },

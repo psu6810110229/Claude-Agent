@@ -27,6 +27,7 @@ import {
   gmailSendPayloadSchema,
 } from "./gmail.js";
 import { createLineFollowupPayloadSchema } from "./lineFollowup.js";
+import { createActiveTopicPayloadSchema } from "./activeTopic.js";
 
 /**
  * The ONLY action types the executor will run. Most are internal operations
@@ -55,6 +56,7 @@ export const actionTypeSchema = z.enum([
   "gmail.draft",
   "gmail.send",
   "line_followup.create",
+  "active_topic.create",
 ]);
 export type ActionType = z.infer<typeof actionTypeSchema>;
 
@@ -93,6 +95,7 @@ export const actionPayloadSchemas = {
   "gmail.draft": gmailDraftPayloadSchema,
   "gmail.send": gmailSendPayloadSchema,
   "line_followup.create": createLineFollowupPayloadSchema,
+  "active_topic.create": createActiveTopicPayloadSchema,
 } as const;
 
 export const approvalStatusSchema = z.enum(["pending", "approved", "rejected"]);

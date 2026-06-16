@@ -12,6 +12,8 @@
 
 import { buildAllowedActionsPrompt } from "./actionRegistry.js";
 import { classifySensitivity } from "./privacyClassifier.js";
+import type { LineEvidence } from "./lineEvidence.js";
+import type { EvidenceVerdict } from "./evidenceVerifier.js";
 
 /**
  * Owner-style conversational openers (spec §B grace). Pure + deterministic.
@@ -182,6 +184,32 @@ export interface ChatContext {
     date: string;
     time: string;
   }[];
+  /**
+   * Step 22 — compact list of active topics the user is tracking. Empty when
+   * none exist or requester is unverified. Optional so registry-smoke callers
+   * that don't set this field don't crash (access via ?.).
+   */
+  activeTopics?: { id: number; title: string; source: string; priority: number }[];
+  /**
+   * Step 22 — resolved active topic (single strong match from the deterministic
+   * resolver). Null when no topic resolved or requester is unverified.
+   */
+  resolvedActiveTopic?: { id: number; title: string; source: string } | null;
+  /**
+   * Step 22 — ambiguous candidate topics when resolver found ≥2 strong matches.
+   * Null when none or requester is unverified.
+   */
+  activeTopicAmbiguity?: { id: number; title: string }[] | null;
+  /**
+   * Step 22 — LINE evidence bundle for the resolved active topic, built from
+   * exported LINE only. Null when no topic resolved or not warranted by context
+   * router. Available=false when LINE disabled/error (not "no results").
+   */
+  lineEvidence?: LineEvidence | null;
+  /**
+   * Step 22 — verifier verdict for this turn. Null when no evidence was built.
+   */
+  verifierGuidance?: EvidenceVerdict | null;
   /** Live runtime: reversible actions execute immediately (no approval queue). */
   autoExecute: boolean;
   /** Live runtime: recoverable destructive Google delete also auto-executes. */
@@ -360,6 +388,61 @@ export function buildChatPrompt(ctx: ChatContext): string {
           )
           .join("\n")
       : "  (none matched or LINE disabled)";
+
+  // Step 22 — active topics / evidence sections (all optional-chained so
+  // registry-smoke callers that omit these fields don't throw at runtime)
+  const activeTopicsSection = ctx.restricted
+    ? "  (withheld — requester not verified)"
+    : (ctx.activeTopics?.length ?? 0) > 0
+      ? ctx.activeTopics!
+          .map((t) => `  - #${t.id} [${t.source}, prio ${t.priority}] "${t.title}"`)
+          .join("\n")
+      : "  (none)";
+
+  const resolvedActiveTopicSection = ctx.restricted
+    ? "  (withheld)"
+    : ctx.resolvedActiveTopic
+      ? `  - #${ctx.resolvedActiveTopic.id} [${ctx.resolvedActiveTopic.source}] "${ctx.resolvedActiveTopic.title}"`
+      : "  (none)";
+
+  const ambiguitySection = ctx.restricted
+    ? "  (withheld)"
+    : (ctx.activeTopicAmbiguity?.length ?? 0) > 0
+      ? ctx.activeTopicAmbiguity!
+          .map((t) => `  - #${t.id} "${t.title}"`)
+          .join("\n")
+      : "  (none)";
+
+  const lineEvidenceSection = (() => {
+    if (ctx.restricted) return "  (withheld — requester not verified)";
+    const ev = ctx.lineEvidence;
+    if (!ev) return "  (none — context router did not build evidence for this turn)";
+    if (!ev.available) return "  (LINE export not available — connector disabled or error)";
+    if (ev.messages.length === 0)
+      return `  (no messages found newer than topic baseline${ev.staleCaveat ? "; export may be stale" : ""})`;
+    const lines = ev.messages.map((m) => {
+      const tag = m.isCandidateAnswer
+        ? "[answer?]"
+        : m.kind === "question"
+          ? "[question]"
+          : m.kind === "media"
+            ? "[media]"
+            : "";
+      return `  - [${m.chat}] ${m.date} ${m.time} ${m.sender ?? "(system)"} ${tag}: ${m.text}`;
+    });
+    if (ev.staleCaveat) lines.push("  (note: evidence list was capped or export may be stale)");
+    return lines.join("\n");
+  })();
+
+  const verifierSection = (() => {
+    if (ctx.restricted) return "  (withheld)";
+    const v = ctx.verifierGuidance;
+    if (!v) return "  (none — no evidence verified for this turn)";
+    const g = v.guidance.map((l) => `  GUIDANCE: ${l}`).join("\n");
+    const b = v.blockedClaims.map((l) => `  BLOCKED: ${l}`).join("\n");
+    const a = v.allowedClaims.map((l) => `  ALLOWED: ${l}`).join("\n");
+    return [g, b, a].filter(Boolean).join("\n");
+  })();
 
   // §B grace: unverified + benign owner-style opener + not probing private →
   // soften tone (still no private data in context, still generic boundary for
@@ -653,6 +736,18 @@ LINE FOLLOW-UP RULES (Step 21 — scheduled, approval-gated, READ-ONLY):
 - If the export folder is stale, remind the user a follow-up only sees messages
   they have re-exported.
 
+ACTIVE TOPIC RULES (Step 22 — data-backed topics and evidence; follow these if ACTIVE TOPICS, RESOLVED ACTIVE TOPIC, or LINE EVIDENCE BUNDLE below are populated):
+- Use RESOLVED ACTIVE TOPIC to ground short/elliptical follow-ups; do NOT drift to a different topic.
+- If ACTIVE TOPIC AMBIGUITY is non-empty: ask ONE short clarification ("หมายถึงเรื่อง X หรือ Y?") and propose NOTHING until the user answers.
+- If LINE EVIDENCE BUNDLE has items: answer from that evidence first; use the phrasing "จาก export LINE ล่าสุดที่ระบบเห็น" where natural.
+- NEVER say "ไม่มีใครตอบ" / "ไม่มีอัปเดต" as absolute claims unless VERIFIER GUIDANCE explicitly permits it.
+- When answering from evidence, ALWAYS make clear this is from an exported snapshot, not live LINE.
+- If evidence is stale or capped (staleCaveat in bundle), mention it plainly.
+- NEVER invent a sender, time, or chat that is not in the evidence bundle.
+- NEVER claim live LINE access or any read/unread status.
+- Follow VERIFIER GUIDANCE blockedClaims exactly — those phrases are forbidden for this turn.
+- "available:false" in the evidence bundle means LINE is disabled or errored right now — say so; do NOT conflate with "no messages found".
+
 MEMORY TARGETS (the only valid values for memory.write "target"):
 preferences, routines, projects, decisions
 
@@ -756,6 +851,21 @@ best-effort. Times are already Asia/Bangkok — report as-is. If this list is em
 say plainly you found nothing on that topic in the exports — do NOT invent a
 message, sender, or time):
 ${lineMatches}
+
+ACTIVE TOPICS (Step 22 — durable topics the user is tracking; empty = none created yet):
+${activeTopicsSection}
+
+RESOLVED ACTIVE TOPIC (Step 22 — deterministic topic match for this turn; use this to ground short follow-ups):
+${resolvedActiveTopicSection}
+
+ACTIVE TOPIC AMBIGUITY (Step 22 — multiple topics scored strong; if non-empty ask ONE clarification and propose nothing):
+${ambiguitySection}
+
+LINE EVIDENCE BUNDLE (Step 22 — exported LINE evidence for the resolved topic; same caveats as LINE MESSAGES: export-based, approximate Bangkok time, no read/unread, not live; "available:false" means LINE is disabled/error, NOT "no results"):
+${lineEvidenceSection}
+
+VERIFIER GUIDANCE (Step 22 — hard constraints for this turn; BLOCKED claims must NOT appear in reply):
+${verifierSection}
 
 GOOGLE CALENDAR (the user's PRIMARY schedule; today + next 7 days; use the
 shown id= value as the "id" for google_event.update / google_event.delete; do

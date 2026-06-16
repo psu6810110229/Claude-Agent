@@ -44,6 +44,17 @@ import {
   getRecentLineByChatSafe,
   searchLineMessages,
 } from "./lineChat.js";
+import {
+  resolveActiveTopicForMessage,
+  isShortFollowupQuestion,
+  extractTopicKeywords,
+} from "./activeTopicIntelligence.js";
+import { listActiveTopics } from "../db/repositories/activeTopicRepo.js";
+import {
+  buildLineEvidenceForTopic,
+  makeEmptyLineEvidence,
+} from "./lineEvidence.js";
+import { verifyLineEvidenceAnswerIntent } from "./evidenceVerifier.js";
 import type { Approval } from "../schemas/approval.js";
 import {
   CLAUDE_BRIEF_TIMEOUT_MS,
@@ -370,6 +381,80 @@ export async function buildChatContext(
     time: m.time,
   }));
 
+  // Step 22 — conservative context router (deterministic; no model call)
+  // Runs before the verified gate so unverified return can set empty values.
+  // Evidence is only built for verified paths below.
+  const allActiveTopics = listActiveTopics({ status: "active", limit: 20 });
+  const activeTopicsCompact = allActiveTopics.map((t) => ({
+    id: t.id,
+    title: t.title,
+    source: t.source,
+    priority: t.priority,
+  }));
+
+  const resolution = resolveActiveTopicForMessage(message, allActiveTopics);
+
+  let resolvedActiveTopic: ChatContext["resolvedActiveTopic"] = null;
+  let activeTopicAmbiguity: ChatContext["activeTopicAmbiguity"] = null;
+
+  if (resolution.kind === "resolved") {
+    resolvedActiveTopic = {
+      id: resolution.topic.id,
+      title: resolution.topic.title,
+      source: resolution.topic.source,
+    };
+  } else if (resolution.kind === "ambiguous") {
+    activeTopicAmbiguity = resolution.candidates.map((t) => ({
+      id: t.id,
+      title: t.title,
+    }));
+  }
+
+  // Decide whether to build LINE evidence (4 conditions from roadmap §7)
+  const msgLower = message.toLowerCase();
+  const LINE_EVIDENCE_MARKERS = ["line", "ไลน์", "แชท", "chat", "กลุ่ม", "group"];
+  const hasLineMarker =
+    LINE_EVIDENCE_MARKERS.some((m) => msgLower.includes(m)) ||
+    allActiveTopics.some(
+      (t) => t.chat_filter && msgLower.includes(t.chat_filter.toLowerCase()),
+    );
+  const msgKeywords = extractTopicKeywords(message);
+  const keywordOverlap =
+    resolution.kind === "resolved" &&
+    msgKeywords.some((kw) =>
+      resolution.topic.keywords.some(
+        (tk) => tk.toLowerCase().includes(kw) || kw.includes(tk.toLowerCase()),
+      ),
+    );
+  const shouldBuildEvidence =
+    hasLineMarker ||
+    resolution.kind === "resolved" ||
+    isShortFollowupQuestion(message) ||
+    keywordOverlap;
+
+  // Evidence built only for verified users (set below; default empty)
+  let lineEvidenceValue: ChatContext["lineEvidence"] = null;
+  let verifierGuidanceValue: ChatContext["verifierGuidance"] = null;
+  if (shouldBuildEvidence) {
+    // Pick the topic to build evidence for
+    const evidenceTopic =
+      resolution.kind === "resolved"
+        ? allActiveTopics.find((t) => t.id === resolution.topic.id) ?? null
+        : isShortFollowupQuestion(message)
+          ? allActiveTopics.find(
+              (t) => t.source === "line" || t.source === "mixed",
+            ) ?? null
+          : null;
+
+    if (evidenceTopic) {
+      lineEvidenceValue = buildLineEvidenceForTopic(evidenceTopic);
+      verifierGuidanceValue = verifyLineEvidenceAnswerIntent({
+        userMessage: message,
+        evidence: lineEvidenceValue,
+      });
+    }
+  }
+
   const GENERIC_BUSY = "ไม่ว่าง (รายละเอียดส่วนตัว)";
   const GENERIC_TASK = "งานส่วนตัว";
   const GENERIC_REMINDER = "เตือนความจำส่วนตัว";
@@ -396,6 +481,12 @@ export async function buildChatContext(
       lineChats: [],
       lineMessages: [],
       lineMatches: [],
+      // Step 22 — redact all active topic / evidence fields for unverified
+      activeTopics: [],
+      resolvedActiveTopic: null,
+      activeTopicAmbiguity: null,
+      lineEvidence: makeEmptyLineEvidence(false, null),
+      verifierGuidance: null,
       autoExecute: isAutoExecuteEnabled(),
       autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
       restricted: true,
@@ -421,6 +512,12 @@ export async function buildChatContext(
     lineChats,
     lineMessages,
     lineMatches,
+    // Step 22 — active topics and evidence (verified path only)
+    activeTopics: activeTopicsCompact,
+    resolvedActiveTopic,
+    activeTopicAmbiguity,
+    lineEvidence: lineEvidenceValue,
+    verifierGuidance: verifierGuidanceValue,
     autoExecute: isAutoExecuteEnabled(),
     autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
     restricted: false,
