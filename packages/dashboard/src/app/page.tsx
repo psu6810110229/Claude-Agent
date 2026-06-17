@@ -25,6 +25,7 @@ import {
   sendChat,
   prepareSpeech,
   speak,
+  unlockAudioPlayback,
   verifyIdentity,
 } from "@/lib/api";
 import {
@@ -246,6 +247,9 @@ export default function HomePage() {
 
   async function doSend(text: string, isRetry = false) {
     if (briefBusy) return;
+    // Unlock TTS playback while still inside the user's send gesture, so the
+    // reply audio is allowed to play later under strict autoplay policies.
+    unlockAudioPlayback();
     clearFollowup();
     const previousIds = new Set(messages.map((message) => message.id));
     setOrbState("thinking");

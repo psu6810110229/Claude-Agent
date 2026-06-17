@@ -357,9 +357,67 @@ export function updateSetting(
 
 // --- TTS (Step 13.1) -----------------------------------------------------
 
-/** Single module-level audio element for sequential, non-overlapping playback. */
+/**
+ * Single module-level audio element for sequential, non-overlapping playback.
+ * CRITICAL: this element is created ONCE and REUSED for every spoken line. A
+ * fresh `new Audio()` per line is rejected by the browser's autoplay policy
+ * (it has never been activated), so its `play()` promise rejects and the line
+ * is silent — while a long-lived, already-played element stays unlocked. This
+ * is why the ack audio (one reused element) was heard but replies were not.
+ */
 let _audio: HTMLAudioElement | null = null;
 let _currentUrl: string | null = null;
+/**
+ * Token of the line that currently OWNS the shared element. Each prepareLine
+ * bumps it; a superseded line's handlers/playback become no-ops (replaces the
+ * old per-element identity check now that the element is shared).
+ */
+let _lineToken = 0;
+/**
+ * `finishDone` of the line that currently owns the shared element. When a new
+ * line claims it, we call this to resolve the superseded line's `done` at once
+ * (its onended handler is about to be overwritten, so it would otherwise only
+ * settle via the 20s safety timer and stall the queue).
+ */
+let _finishCurrent: (() => void) | null = null;
+
+/** Lazily create the one shared, reusable audio element. */
+function getReplyAudio(): HTMLAudioElement {
+  if (!_audio) {
+    _audio = new Audio();
+    _audio.preload = "auto";
+  }
+  return _audio;
+}
+
+/**
+ * Prime the shared audio element from within a user gesture (e.g. pressing
+ * send) so later programmatic playback is allowed under strict autoplay
+ * policies (iOS Safari especially). No-op once unlocked or if the browser
+ * rejects the silent priming play. Safe to call on every send.
+ */
+let _audioUnlocked = false;
+/** ~0.05s of silence — a valid source so the priming play() resolves cleanly. */
+const SILENT_WAV =
+  "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+export function unlockAudioPlayback(): void {
+  if (_audioUnlocked) return;
+  _audioUnlocked = true; // attempt once; failure doesn't block the reuse fix
+  const audio = getReplyAudio();
+  try {
+    audio.muted = true;
+    audio.src = SILENT_WAV;
+    const p = audio.play();
+    const settle = () => {
+      audio.pause();
+      audio.muted = false;
+    };
+    if (p && typeof p.then === "function") p.then(settle).catch(settle);
+    else settle();
+  } catch {
+    audio.muted = false;
+  }
+}
 
 /**
  * Sequential TTS queue. Within a turn we may speak several lines in order — an
@@ -399,7 +457,11 @@ function prepareLine(text: string, preset?: string): PreparedLine {
     resolveDone = r;
   });
 
-  let theAudio: HTMLAudioElement | null = null;
+  // This line claims the shared element. A later line bumps the token, turning
+  // this line's handlers + playback into no-ops via isCurrent().
+  const token = ++_lineToken;
+  const isCurrent = () => token === _lineToken;
+
   let myUrl: string | null = null;
   let playWanted = false;
   let started = false;
@@ -410,21 +472,28 @@ function prepareLine(text: string, preset?: string): PreparedLine {
   const finishDone = () => {
     if (doneSettled) return;
     doneSettled = true;
+    if (_finishCurrent === finishDone) _finishCurrent = null;
     if (fallbackTimer) clearTimeout(fallbackTimer);
     if (myUrl) {
       if (_currentUrl === myUrl) _currentUrl = null;
       URL.revokeObjectURL(myUrl);
+      myUrl = null;
     }
     resolveDone();
   };
 
+  // Resolve the line we just superseded so the queue never waits on its timer.
+  const prevFinish = _finishCurrent;
+  _finishCurrent = finishDone;
+  if (prevFinish) prevFinish();
+
   const reallyStart = () => {
-    if (started || !theAudio || _audio !== theAudio) return;
+    if (started || !isCurrent() || !_audio) return;
     started = true;
-    void theAudio.play().catch(() => finishDone());
+    void _audio.play().catch(() => finishDone());
   };
   const maybeStart = () => {
-    if (started || !playWanted || !theAudio) return;
+    if (started || !playWanted || !isCurrent() || !_audio) return;
     if (canPlay) reallyStart();
     else if (!fallbackTimer)
       fallbackTimer = setTimeout(() => {
@@ -452,22 +521,29 @@ function prepareLine(text: string, preset?: string): PreparedLine {
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
 
-      // Stop + revoke any previous playback.
-      if (_audio) {
-        _audio.pause();
-        _audio.src = "";
+      // Superseded by a newer line while fetching → drop this one silently.
+      if (!isCurrent()) {
+        URL.revokeObjectURL(url);
+        finishDone();
+        return;
       }
-      if (_currentUrl) URL.revokeObjectURL(_currentUrl);
+
+      // Reuse the ONE shared, already-unlocked element (see _audio docs). Stop +
+      // revoke whatever it was playing before adopting this line's audio.
+      const audio = getReplyAudio();
+      audio.pause();
+      if (_currentUrl && _currentUrl !== url) URL.revokeObjectURL(_currentUrl);
 
       _currentUrl = url;
       myUrl = url;
-      const audio = new Audio();
-      _audio = audio;
-      theAudio = audio;
-      audio.preload = "auto";
-      audio.onended = finishDone;
-      audio.onerror = finishDone;
+      audio.onended = () => {
+        if (isCurrent()) finishDone();
+      };
+      audio.onerror = () => {
+        if (isCurrent()) finishDone();
+      };
       audio.oncanplaythrough = () => {
+        if (!isCurrent()) return;
         canPlay = true;
         maybeStart();
       };
