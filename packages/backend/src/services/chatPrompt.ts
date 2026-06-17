@@ -868,6 +868,12 @@ DATE & TIME RULES (CRITICAL — get the timezone math right):
   forgot to convert — fix it before returning.
 - Anchor: in CURRENT TIME below, the Asia/Bangkok clock is exactly 7 hours ahead
   of the UTC clock. Use that same 7-hour gap for every conversion.
+- WEEKDAY ANCHOR: CURRENT TIME below spells out today's weekday (e.g.
+  "(Wednesday / วันพุธ)"). TRUST it — do NOT recompute the day-of-week from the
+  date yourself. Resolve relative days by counting from that weekday: if today is
+  Wednesday the 17th, then "วันศุกร์นี้/this Friday" is the 19th, "พรุ่งนี้" is
+  Thursday the 18th, "เสาร์นี้" is the 21st. Count carefully and state the
+  resolved date back to the user so a mistake is visible.
 - If a date or time is ambiguous or missing, DO NOT propose the action. Instead
   ask for clarification in your reply or in the "clarification" field.
 - For Google Calendar events (real schedule commitments), prefer

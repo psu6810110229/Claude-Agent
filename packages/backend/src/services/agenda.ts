@@ -15,12 +15,42 @@ function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-/** Bangkok wall-clock string for a given instant, e.g. "2026-06-06 19:30". */
+// Weekday names indexed by JS getUTCDay() (0 = Sunday). Both English and Thai
+// so the model never has to compute the day-of-week itself (a frequent source
+// of wrong "this Friday is the Nth" answers).
+const WEEKDAY_EN = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+const WEEKDAY_TH = [
+  "วันอาทิตย์",
+  "วันจันทร์",
+  "วันอังคาร",
+  "วันพุธ",
+  "วันพฤหัสบดี",
+  "วันศุกร์",
+  "วันเสาร์",
+];
+
+/**
+ * Bangkok wall-clock string for a given instant, with the weekday spelled out,
+ * e.g. "2026-06-17 14:19 (Wednesday / วันพุธ)". The weekday is included so the
+ * model anchors relative days ("วันศุกร์นี้") off a KNOWN day-of-week instead of
+ * deriving it from the date and getting it wrong.
+ */
 export function bangkokWallClock(now: Date): string {
   const b = new Date(now.getTime() + BANGKOK_OFFSET_MS);
+  const dow = b.getUTCDay();
   return `${b.getUTCFullYear()}-${pad(b.getUTCMonth() + 1)}-${pad(
     b.getUTCDate(),
-  )} ${pad(b.getUTCHours())}:${pad(b.getUTCMinutes())}`;
+  )} ${pad(b.getUTCHours())}:${pad(b.getUTCMinutes())} (${WEEKDAY_EN[dow]} / ${
+    WEEKDAY_TH[dow]
+  })`;
 }
 
 export interface AgendaBounds {
