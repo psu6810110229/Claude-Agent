@@ -72,6 +72,7 @@ export interface GoogleEvent {
   end: string | null;
   allDay: boolean;
   location: string | null;
+  description: string | null;
   htmlLink: string | null;
   source: "google";
 }

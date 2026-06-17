@@ -184,6 +184,7 @@ function normalizeEvent(item: {
   id?: string | null;
   summary?: string | null;
   location?: string | null;
+  description?: string | null;
   htmlLink?: string | null;
   start?: { date?: string | null; dateTime?: string | null } | null;
   end?: { date?: string | null; dateTime?: string | null } | null;
@@ -200,6 +201,7 @@ function normalizeEvent(item: {
     end,
     allDay,
     location: item.location ?? null,
+    description: item.description ?? null,
     htmlLink: item.htmlLink ?? null,
     source: "google",
   });

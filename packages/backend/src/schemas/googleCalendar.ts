@@ -21,6 +21,7 @@ export const googleEventSchema = z.object({
   end: z.string().nullable(),
   allDay: z.boolean(),
   location: z.string().nullable(),
+  description: z.string().nullable(),
   htmlLink: z.string().nullable(),
   source: z.literal("google"),
 });

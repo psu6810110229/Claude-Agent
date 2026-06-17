@@ -364,6 +364,10 @@ export async function buildChatContext(
         title: e.title.slice(0, 120),
         allDay: e.allDay,
         bucket,
+        // Where + what: surface so Friday can answer "where is this event" /
+        // detail questions. Notes capped to keep the prompt small.
+        location: e.location ? e.location.slice(0, 200) : null,
+        notes: e.description ? e.description.slice(0, 300) : null,
       }));
   } catch {
     googleEvents = [];
@@ -565,7 +569,13 @@ export async function buildChatContext(
       openTasks: openTasks.map((t) => ({ id: t.id, title: GENERIC_TASK })),
       memorySummaries: [],
       facts: [],
-      googleEvents: googleEvents.map((e) => ({ ...e, title: GENERIC_BUSY })),
+      googleEvents: googleEvents.map((e) => ({
+        ...e,
+        title: GENERIC_BUSY,
+        // Privacy gate: a guest never sees the real place / notes either.
+        location: null,
+        notes: null,
+      })),
       events: events.map((e) => ({ ...e, title: GENERIC_BUSY })),
       reminders: reminders.map((r) => ({ ...r, title: GENERIC_REMINDER })),
       approvalOutcomes: [],

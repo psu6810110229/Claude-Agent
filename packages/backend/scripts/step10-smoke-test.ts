@@ -93,6 +93,7 @@ async function main(): Promise<void> {
       end: "2026-06-06T02:30:00.000Z",
       allDay: false,
       location: "Meet",
+      description: "Bring the deck",
       htmlLink: "https://example.test/g1",
       source: "google" as const,
     },
@@ -103,6 +104,7 @@ async function main(): Promise<void> {
       end: "2026-06-10",
       allDay: true,
       location: null,
+      description: null,
       htmlLink: null,
       source: "google" as const,
     },
@@ -137,6 +139,12 @@ async function main(): Promise<void> {
   assert(
     today.json.events.find((e: any) => e.id === "g2").allDay === true,
     "all-day Google event preserves allDay flag",
+  );
+  // Read route exposes location + description so chat context can surface "where".
+  const g1 = today.json.events.find((e: any) => e.id === "g1");
+  assert(
+    g1.location === "Meet" && g1.description === "Bring the deck",
+    "read route returns event location + description",
   );
 
   const upcoming = await getJson("/api/calendar/upcoming");

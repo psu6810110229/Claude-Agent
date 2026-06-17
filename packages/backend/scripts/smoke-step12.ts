@@ -517,6 +517,52 @@ async function main(): Promise<void> {
     "unconfigured gemini request creates no approvals (no false success)",
   );
 
+  // --- 12. Google event location + notes reach the chat prompt ---
+  // Friday used to say "no location" because buildChatContext dropped the
+  // connector's location/description. Assert both now render so where/detail
+  // questions can be answered. Verified path; built directly (hermetic).
+  const { buildChatContext } = await import("../src/services/chat.js");
+  const { buildChatPrompt } = await import("../src/services/chatPrompt.js");
+  const locFetcher = async () => [
+    {
+      id: "gloc1",
+      title: "พิธีรับปริญญา",
+      start: "2026-06-19T02:00:00.000Z",
+      end: "2026-06-19T05:00:00.000Z",
+      allDay: false,
+      location: "หอประชุม",
+      description: "ซ้อมใหญ่ 8 โมง",
+      htmlLink: null,
+      source: "google" as const,
+    },
+  ];
+  const locCtx = await buildChatContext(
+    "วันที่ 19 มิ.ย. งานจัดที่ไหน",
+    locFetcher,
+    true,
+  );
+  const locPrompt = buildChatPrompt(locCtx);
+  assert(
+    locPrompt.includes("@ หอประชุม"),
+    "chat prompt surfaces the Google event location (where)",
+  );
+  assert(
+    locPrompt.includes("notes: ซ้อมใหญ่ 8 โมง"),
+    "chat prompt surfaces the Google event description/notes",
+  );
+
+  // Unverified guest: location + notes must be redacted (privacy gate).
+  const guestCtx = await buildChatContext(
+    "วันที่ 19 มิ.ย. งานจัดที่ไหน",
+    locFetcher,
+    false,
+  );
+  const guestPrompt = buildChatPrompt(guestCtx);
+  assert(
+    !guestPrompt.includes("หอประชุม") && !guestPrompt.includes("ซ้อมใหญ่"),
+    "unverified guest never sees event location/notes (redacted)",
+  );
+
   // Cleanup
   await app.close();
   closeDb();

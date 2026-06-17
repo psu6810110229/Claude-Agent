@@ -102,6 +102,10 @@ export interface ChatContext {
     title: string;
     allDay: boolean;
     bucket: "today" | "upcoming";
+    /** Event location (e.g. "หอประชุม"). Null when none. Redacted for unverified. */
+    location?: string | null;
+    /** Capped description/notes snippet. Null when none. Redacted for unverified. */
+    notes?: string | null;
   }[];
   /** Local (secondary) events (id + start + short title). */
   events: { id: number; starts_at: string; title: string }[];
@@ -292,10 +296,11 @@ export function buildChatPrompt(ctx: ChatContext): string {
   const googleEvents =
     ctx.googleEvents.length > 0
       ? ctx.googleEvents
-          .map(
-            (e) =>
-              `  - [${e.bucket}] id=${e.id} ${e.start}${e.allDay ? " (all-day)" : ""}: ${e.title}`,
-          )
+          .map((e) => {
+            const loc = e.location ? ` @ ${e.location}` : "";
+            const notes = e.notes ? ` — notes: ${e.notes}` : "";
+            return `  - [${e.bucket}] id=${e.id} ${e.start}${e.allDay ? " (all-day)" : ""}: ${e.title}${loc}${notes}`;
+          })
           .join("\n")
       : "  (none)";
 
@@ -914,7 +919,10 @@ ${verifierSection}
 
 GOOGLE CALENDAR (the user's PRIMARY schedule; today + next 7 days; use the
 shown id= value as the "id" for google_event.update / google_event.delete; do
-not invent ids):
+not invent ids. A line may carry the event's place after "@" and its notes after
+"— notes:" — when the user asks WHERE an event is or for its details, ANSWER from
+that location/notes. If a line has no "@"/notes, then none was set on the event —
+say it has no location/notes; do NOT claim you cannot see it):
 ${googleEvents}
 
 LOCAL EVENTS (secondary/local-only; today + next 7 days; do not invent ids):
@@ -1000,10 +1008,11 @@ export function buildFollowupPrompt(ctx: ChatContext): string {
   const googleEvents =
     ctx.googleEvents.length > 0
       ? ctx.googleEvents
-          .map(
-            (e) =>
-              `  - [${e.bucket}] id=${e.id} ${e.start}${e.allDay ? " (all-day)" : ""}: ${e.title}`,
-          )
+          .map((e) => {
+            const loc = e.location ? ` @ ${e.location}` : "";
+            const notes = e.notes ? ` — notes: ${e.notes}` : "";
+            return `  - [${e.bucket}] id=${e.id} ${e.start}${e.allDay ? " (all-day)" : ""}: ${e.title}${loc}${notes}`;
+          })
           .join("\n")
       : "  (none)";
 
