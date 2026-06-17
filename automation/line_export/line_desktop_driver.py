@@ -446,6 +446,12 @@ class LineDesktopDriver:
         if not self._gate(f"paste {desc} ({len(text)} chars) via clipboard + Ctrl+V"):
             return
         self._preflight(focus=True, action=f"paste {desc}")
+        # Load the clipboard FIRST and confirm it actually took. The Windows
+        # clipboard is shared: another process (or our own previous call) can
+        # hold it open, leaving CF_UNICODETEXT empty/stale. Pasting stale/empty
+        # clipboard is the "blank or wrong name in search" bug. Verify by
+        # read-back and retry before we touch the keyboard.
+        _set_clipboard_text_verified(text)
         # Put the keyboard CARET in the target field before pasting. set_focus()
         # above only focuses the main window's default control, NOT the text input
         # we want — and in supervised mode the confirm prompt also pulls focus to
@@ -454,12 +460,23 @@ class LineDesktopDriver:
         # post-focus rect (self.window was refreshed by the focus=True preflight).
         if caret_click is not None:
             from pywinauto import mouse
-            mouse.click(coords=self._point(caret_click))
+            pt = self._point(caret_click)
+            # Click TWICE: the opaque Qt search box sometimes only takes
+            # hover/activation on the first click and accepts the keyboard caret
+            # on the second. A single click was a source of "typed nothing".
+            mouse.click(coords=pt)
             time.sleep(self.settle)
-        _set_clipboard_text(text)
+            mouse.click(coords=pt)
+            time.sleep(self.settle)
         from pywinauto import keyboard
-        keyboard.send_keys("^a")          # clear any existing query
-        keyboard.send_keys("{BACKSPACE}")
+        # Clear any existing query robustly: select-all then delete the selection.
+        # {DELETE} after ^a removes the whole selection; if ^a somehow lost focus
+        # it deletes at most one char rather than silently doing nothing, and the
+        # settle gives Qt time to repaint the empty box before we paste.
+        keyboard.send_keys("^a")
+        time.sleep(self.settle)
+        keyboard.send_keys("{DELETE}")
+        time.sleep(self.settle)
         keyboard.send_keys("^v")
         time.sleep(self.settle)
 
@@ -583,12 +600,59 @@ class LineDesktopDriver:
 
 
 def _set_clipboard_text(text: str) -> None:
-    """Put `text` on the clipboard as Unicode (preserves Thai)."""
+    """Put `text` on the clipboard as Unicode (preserves Thai).
+
+    OpenClipboard fails (pywin32 raises) when another process holds the
+    clipboard. Retry a few times instead of letting one transient lock abort
+    the whole export.
+    """
     import win32clipboard
     import win32con
-    win32clipboard.OpenClipboard()
+    last_err: Exception | None = None
+    for _ in range(10):
+        try:
+            win32clipboard.OpenClipboard()
+        except Exception as err:  # clipboard busy; back off and retry
+            last_err = err
+            time.sleep(0.05)
+            continue
+        try:
+            win32clipboard.EmptyClipboard()
+            win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
+            return
+        finally:
+            win32clipboard.CloseClipboard()
+    if last_err is not None:
+        raise last_err
+
+
+def _get_clipboard_text() -> str | None:
+    """Read CF_UNICODETEXT, or None if unavailable / clipboard busy."""
+    import win32clipboard
+    import win32con
     try:
-        win32clipboard.EmptyClipboard()
-        win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
+        win32clipboard.OpenClipboard()
+    except Exception:
+        return None
+    try:
+        if not win32clipboard.IsClipboardFormatAvailable(win32con.CF_UNICODETEXT):
+            return None
+        return win32clipboard.GetClipboardData(win32con.CF_UNICODETEXT)
     finally:
         win32clipboard.CloseClipboard()
+
+
+def _set_clipboard_text_verified(text: str, attempts: int = 5) -> None:
+    """Set the clipboard and confirm by read-back so we never paste stale text.
+
+    The classic search bug is a paste that lands blank or with the previous
+    chat's name because the clipboard write silently lost a race. Read it back
+    and retry; raise if it never sticks rather than searching the wrong chat.
+    """
+    for _ in range(attempts):
+        _set_clipboard_text(text)
+        time.sleep(0.05)
+        if _get_clipboard_text() == text:
+            return
+        time.sleep(0.1)
+    raise RuntimeError("clipboard did not accept the search text after retries")

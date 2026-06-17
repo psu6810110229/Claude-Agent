@@ -185,7 +185,10 @@ def main(argv: list[str] | None = None) -> int:
         driver.navigate_to_save_chat(args.chat_name)
 
         # Tail half: delegate the native Save As dialog to the verified helper.
-        saved = save_line_chat_from_native_dialog(export_dir)
+        # Pass the requested chat so it can reject a wrong-chat (stuck-search)
+        # export instead of saving it under the wrong name.
+        saved = save_line_chat_from_native_dialog(
+            export_dir, expected_name=args.chat_name)
 
         # STDOUT: the saved path ONLY (real mode contract).
         print(str(saved))

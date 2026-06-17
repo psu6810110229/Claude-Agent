@@ -6,7 +6,11 @@ Run:  python -m unittest automation.line_export.test_sanitize
 
 import unittest
 
-from save_dialog import sanitize_filename  # noqa: E402  (run from this dir)
+from save_dialog import (  # noqa: E402  (run from this dir)
+    SaveDialogError,
+    _verify_expected_chat,
+    sanitize_filename,
+)
 
 
 class SanitizeFilenameTests(unittest.TestCase):
@@ -69,6 +73,39 @@ class SanitizeFilenameTests(unittest.TestCase):
     def test_tab_stripped_as_control_char(self):
         # Tab (0x09) is a control char, removed before whitespace collapse.
         self.assertEqual(sanitize_filename("a\tb"), "ab.txt")
+
+
+class VerifyExpectedChatTests(unittest.TestCase):
+    def test_match_passes(self):
+        # Auto-filled "[LINE]<title>" contains the requested search term.
+        _verify_expected_chat("[LINE]Thitiwut Vijit", "Thitiwut Vijit")
+        _verify_expected_chat("[LINE]MOM 💙", "MOM")
+        _verify_expected_chat("[LINE]P'SARA", "P'SARA")
+
+    def test_partial_search_substring_matches(self):
+        # search is a substring of the real title (config uses prefixes).
+        _verify_expected_chat("[LINE]สิงหนครอิเล็กทรอนิกส",
+                              "สิงหนครอิเล็กทรอนิ")
+
+    def test_mismatch_raises(self):
+        # The reported bug: requested one chat, a different chat was open.
+        with self.assertRaises(SaveDialogError):
+            _verify_expected_chat(
+                "[LINE]Freshman 2568 x องค์การบริหารองค์การนักศึกษา",
+                "Thitiwut Vijit")
+
+    def test_empty_autofill_raises(self):
+        with self.assertRaises(SaveDialogError):
+            _verify_expected_chat("", "Than")
+
+    def test_no_expected_skips_check(self):
+        # None / empty expected = opt out; must not raise on any auto-fill.
+        _verify_expected_chat("[LINE]anything", None)
+        _verify_expected_chat("", "")
+
+    def test_invalid_chars_normalized_both_sides(self):
+        # A colon in the title that LINE strips for the filename still matches.
+        _verify_expected_chat("[LINE]งาน ครอบครัว", "งาน: ครอบครัว")
 
 
 if __name__ == "__main__":

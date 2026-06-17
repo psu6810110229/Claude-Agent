@@ -147,9 +147,46 @@ class SaveDialogError(RuntimeError):
     """Raised when the Save As dialog cannot be driven to completion."""
 
 
+# Characters LINE may strip from the auto-filled name (it pre-sanitizes the
+# title for a filename) — normalize both sides before comparing so a title with
+# e.g. a colon or slash still matches the requested chat.
+_MATCH_STRIP_RE = re.compile(r"[" + re.escape(_INVALID_CHARS) + r"\s]+")
+
+
+def _normalize_for_match(text: str) -> str:
+    """Casefold + drop whitespace and filename-invalid chars for a tolerant
+    substring compare between the requested chat and LINE's auto-filled name."""
+    return _MATCH_STRIP_RE.sub("", (text or "")).casefold()
+
+
+def _verify_expected_chat(autofilled: str, expected_name: str | None) -> None:
+    """Confirm the open chat matches what we asked to export.
+
+    `autofilled` is LINE's Save As name (the chat that is actually open);
+    `expected_name` is the requested title/search. The search term is, by
+    contract, a substring LINE can find in the title, so we require it to appear
+    in the auto-filled name (both normalized). Raises :class:`SaveDialogError`
+    on a mismatch or an empty auto-filled name; no-op when `expected_name` is
+    falsy (verification opted out).
+    """
+    if not expected_name:
+        return
+    if not autofilled:
+        raise SaveDialogError(
+            "Save As had no auto-filled filename to verify the open chat "
+            f"against {expected_name!r}; refusing to save an unverified export.")
+    if _normalize_for_match(expected_name) not in _normalize_for_match(autofilled):
+        raise SaveDialogError(
+            f"Open chat mismatch: requested {expected_name!r} but Save As "
+            f"auto-filled {autofilled!r}. The search/open step opened the wrong "
+            "chat (likely a stuck search box); refusing to save a mislabeled "
+            "export.")
+
+
 def save_line_chat_from_native_dialog(
     export_dir: Path | str | None = None,
     *,
+    expected_name: str | None = None,
     timeout: float = 30.0,
 ) -> Path:
     """Drive the native Windows "Save As" dialog to save the LINE export.
@@ -157,9 +194,17 @@ def save_line_chat_from_native_dialog(
     Call this immediately after the existing automation clicks "Save chat".
 
     Steps: wait for the dialog -> dismiss any pre-existing invalid-filename
-    popup -> read LINE's auto-filled name -> sanitize it -> write the full
-    target path into the file-name field -> click Save -> on a single invalid-
-    filename popup, dismiss, re-apply, click Save once more (no retry loop).
+    popup -> read LINE's auto-filled name -> VERIFY it matches `expected_name`
+    -> sanitize it -> write the full target path into the file-name field ->
+    click Save -> on a single invalid-filename popup, dismiss, re-apply, click
+    Save once more (no retry loop).
+
+    `expected_name` is the chat title/search the caller asked to export. LINE
+    auto-fills the Save As name from the chat that is ACTUALLY open (e.g.
+    ``[LINE]<title>``), so it is the ground truth of which chat we are about to
+    save. If a stuck search left the wrong chat open, the auto-filled name will
+    not contain `expected_name`; we then raise instead of writing a wrong chat's
+    history under the requested label. Pass None to skip the check.
 
     Returns the final saved :class:`Path`. Raises :class:`SaveDialogError` on
     failure.
@@ -189,6 +234,10 @@ def save_line_chat_from_native_dialog(
     # Steps 4-5: read what LINE inserted, sanitize the basename only.
     current = _read_filename(dialog)
     logger.info("LINE auto-filled filename: %r", current)
+    # Ground-truth guard: the auto-filled name reflects the chat that is really
+    # open. If it does not match what we asked for, the search/open step opened
+    # the wrong chat — refuse rather than save a mislabeled export.
+    _verify_expected_chat(current, expected_name)
     safe_name = sanitize_filename(Path(current).name if current else "")
     target = out_dir / safe_name
     logger.info("Sanitized target path: %s", target)
