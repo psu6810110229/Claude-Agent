@@ -3,14 +3,13 @@ import os from "node:os";
 import path from "node:path";
 
 /**
- * Step 22 — Active Intelligence Layer (Phase A-D).
+ * Step 22 — Active Intelligence Layer (Phase A-E).
  *
  * Hermetic: temp DB + temp LINE export dir; env neutralized BEFORE any config
  * import; no real LINE/Claude/Gemini/Google calls; stub notifier.
  *
- * Cases covered (roadmap §13): 1-13, 18, 20.
- * Cases 14-17 (Phase E scheduler triage) and 19 are deferred / covered by
- * smoke:step21 respectively.
+ * Cases covered (roadmap §13): 1-18, 20 (incl. Phase E triage 14-17 + re-fire).
+ * Case 19 (Step 21 one-shot) is covered by smoke:step21.
  */
 
 const TEST_TMP = fs.mkdtempSync(path.join(os.tmpdir(), "claude-agent-step22-"));
@@ -76,7 +75,12 @@ async function main(): Promise<void> {
     listActiveTopics,
     pauseActiveTopic,
     resolveActiveTopic,
+    updateActiveTopicCheck,
   } = await import("../src/db/repositories/activeTopicRepo.js");
+  const { runActiveTopicChecks } = await import("../src/services/scheduler.js");
+  const { listNotifications } = await import(
+    "../src/db/repositories/notificationRepo.js"
+  );
   const { dispatchProposedAction } = await import(
     "../src/services/actionDispatcher.js"
   );
@@ -609,6 +613,131 @@ async function main(): Promise<void> {
         focusedPrompt.includes("21:16") &&
         focusedPrompt.includes("เย็นนี้ว่างมั้ย"),
       "buildChatPrompt: focused chat section renders the chat's recent messages",
+    );
+
+    // ── Cases 14-17: Phase E — deterministic scheduler triage ───────────────
+    // Read-only export search, NO model call. Triage flag ON; LINE already on.
+
+    setConfigBool("active_topic_triage_enabled", true);
+
+    const notifyCalls: { title: string; body?: string }[] = [];
+    const stubNotifier = {
+      notify(title: string, body?: string): void {
+        notifyCalls.push({ title, body });
+      },
+    };
+
+    const atCount = (): number =>
+      listNotifications(200).filter((n) => n.kind === "line.active_topic").length;
+
+    // Clean slate: resolve any topic left active by earlier cases so triage only
+    // considers the topic under test (listDueActiveTopicsForLineCheck is global).
+    for (const t of listActiveTopics({ status: "active" })) resolveActiveTopic(t.id);
+
+    // baseline 06-09 < the 06-10 sample messages; cooldown 1 min.
+    const triageTopic = createActiveTopic({
+      title: "กยศ triage",
+      source: "line",
+      keywords: ["กยศ"],
+      chat_filter: null,
+      priority: 60,
+      cooldown_minutes: 1,
+      baseline_at: "2026-06-09T00:00:00.000Z",
+      created_from: "chat",
+    });
+
+    // Case 14: fires once for a new evidence instant.
+    const T0 = "2026-06-10T09:00:00.000Z";
+    runActiveTopicChecks(T0, stubNotifier);
+    assert(notifyCalls.length === 1, "triage fires exactly one notification on new evidence");
+    assert(
+      notifyCalls[0].title === "LINE: กยศ triage",
+      "triage notification title is 'LINE: <topic>'",
+    );
+    assert(
+      (notifyCalls[0].body ?? "").includes("export ล่าสุด"),
+      "triage body mentions exported snapshot ('export ล่าสุด'), not live LINE",
+    );
+    assert(atCount() === 1, "exactly one line.active_topic notification row written");
+    const firstNotif = listNotifications(200).find((n) => n.kind === "line.active_topic")!;
+    assert(
+      typeof firstNotif.dedup_key === "string" &&
+        firstNotif.dedup_key.startsWith(`active_topic:${triageTopic.id}:`),
+      "notification carries dedup_key active_topic:<id>:<newestAtUtc>",
+    );
+
+    // Case 15a: COOLDOWN blocks a too-soon repeat (within cooldown_minutes).
+    runActiveTopicChecks("2026-06-10T09:00:30.000Z", stubNotifier); // +30s < 1min
+    assert(
+      notifyCalls.length === 1,
+      "cooldown: no second notification within cooldown window",
+    );
+
+    // Case 15b: DEDUP blocks a repeat for the SAME evidence instant even when
+    // due again (reset last_checked → due; same newestAtUtc → same dedup_key).
+    updateActiveTopicCheck(triageTopic.id, { last_checked_at: null });
+    runActiveTopicChecks("2026-06-10T09:05:00.000Z", stubNotifier);
+    assert(
+      notifyCalls.length === 1,
+      "dedup: same evidence instant does not re-notify",
+    );
+    assert(atCount() === 1, "dedup: no duplicate line.active_topic row");
+
+    // Re-fire allowed: NEW, newer evidence appears (separate export file to dodge
+    // the mtime parse cache) → new newestAtUtc → new dedup_key → fires again.
+    fs.writeFileSync(
+      path.join(TEST_LINE_DIR, "[LINE]Test22Chat2.txt"),
+      ["2026.06.12 Friday", "10:00 Carol กยศ เอกสารเพิ่มเติมส่งแล้ว", ""].join("\n"),
+      "utf8",
+    );
+    updateActiveTopicCheck(triageTopic.id, { last_checked_at: null });
+    runActiveTopicChecks("2026-06-12T05:00:00.000Z", stubNotifier);
+    assert(
+      notifyCalls.length === 2,
+      "re-fire: later new evidence produces a second notification",
+    );
+    assert(atCount() === 2, "re-fire: a distinct line.active_topic row is written");
+    const rows = listNotifications(200).filter((n) => n.kind === "line.active_topic");
+    assert(
+      new Set(rows.map((n) => n.dedup_key)).size === 2,
+      "re-fire: the two notifications have distinct dedup_keys",
+    );
+
+    // Case 16: LINE disabled → fail-soft, no throw, no notification.
+    setConfigBool("line_enabled", false);
+    updateActiveTopicCheck(triageTopic.id, { last_checked_at: null });
+    const beforeDisabled = notifyCalls.length;
+    runActiveTopicChecks("2026-06-12T06:00:00.000Z", stubNotifier); // must not throw
+    assert(
+      notifyCalls.length === beforeDisabled,
+      "LINE disabled: triage is silent (no notification)",
+    );
+    setConfigBool("line_enabled", true); // restore
+
+    // Case 17: activity logs carry NO message body / snippet / topic title.
+    const logRows = getDb()
+      .prepare("SELECT event_type, detail FROM activity_log")
+      .all() as { event_type: string; detail: string | null }[];
+    const logBlob = logRows.map((r) => `${r.event_type} ${r.detail ?? ""}`).join("\n");
+    assert(
+      !logBlob.includes(QUESTION_TEXT) && !logBlob.includes(ANSWER_TEXT),
+      "activity logs contain NO LINE message body",
+    );
+    assert(
+      !logBlob.includes("อนุมัติ") && !logBlob.includes("เอกสารเพิ่มเติม"),
+      "activity logs contain NO message snippet text",
+    );
+    assert(
+      !logBlob.includes("กยศ triage"),
+      "activity logs contain NO active-topic title text",
+    );
+    assert(
+      logRows.some(
+        (r) =>
+          r.event_type === "active_topic.checked" &&
+          /id=\d+ matches=\d+ fired=[01]/.test(r.detail ?? ""),
+      ),
+      "triage check logged with id + counts + fired flag only",
     );
 
     console.log("\nAll Step 22 smoke assertions passed.");

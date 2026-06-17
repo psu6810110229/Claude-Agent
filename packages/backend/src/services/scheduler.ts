@@ -11,16 +11,26 @@ import {
   LINE_FOLLOWUP_SNIPPET_CAP,
   LINE_FOLLOWUP_SNIPPET_CHARS,
   LINE_FOLLOWUP_SEARCH_CAP,
+  ACTIVE_TOPIC_TRIAGE_ENABLED,
 } from "../config.js";
 import { getConfigBool } from "../db/repositories/configRepo.js";
 import { listReminders } from "../db/repositories/reminderRepo.js";
 import { listEvents } from "../db/repositories/eventRepo.js";
 import { listPendingApprovals } from "../db/repositories/approvalRepo.js";
-import { insertNotificationIfNew } from "../db/repositories/notificationRepo.js";
+import {
+  insertNotificationIfNew,
+  insertNotificationWithDedupKey,
+} from "../db/repositories/notificationRepo.js";
 import {
   listDueLineFollowups,
   markLineFollowupFired,
 } from "../db/repositories/lineFollowupRepo.js";
+import {
+  listDueActiveTopicsForLineCheck,
+  updateActiveTopicCheck,
+} from "../db/repositories/activeTopicRepo.js";
+import { buildLineEvidenceForTopic } from "./lineEvidence.js";
+import { verifyLineEvidenceAnswerIntent } from "./evidenceVerifier.js";
 import { searchLineMessages, isLineEnabled } from "./lineChat.js";
 import { logActivity } from "../db/repositories/activityRepo.js";
 import { bucketReminders } from "./agenda.js";
@@ -82,6 +92,17 @@ export function isSchedulerEnabled(): boolean {
   const dbValue = getConfigBool("scheduler_enabled");
   if (dbValue !== null) return dbValue;
   return SCHEDULER_ENABLED;
+}
+
+/**
+ * Step 22 — runtime gate for proactive active-topic triage. DB config override
+ * (`active_topic_triage_enabled`) wins; falls back to the env seed default
+ * (OFF). Mirrors isSchedulerEnabled so Settings can toggle it within one tick.
+ */
+export function isActiveTopicTriageEnabled(): boolean {
+  const dbValue = getConfigBool("active_topic_triage_enabled");
+  if (dbValue !== null) return dbValue;
+  return ACTIVE_TOPIC_TRIAGE_ENABLED;
 }
 
 /**
@@ -171,6 +192,126 @@ export function runLineFollowupChecks(
 }
 
 /**
+ * Step 22 — deterministic proactive active-topic triage. For each DUE active
+ * topic (status=active, source line/mixed, cooldown elapsed) build a LINE
+ * evidence bundle from the EXPORTED files only (read-only, NO Claude/Gemini,
+ * no live LINE), then fire ONE dedup'd `line.active_topic` notification when NEW
+ * evidence appears.
+ *
+ * Secretary behaviour (vs. raw Step 21):
+ * - Silent on no relevant evidence — active topics do NOT notify every tick.
+ * - Relevance is the evidence builder's keyword + chat_filter + recent-after-
+ *   baseline filtering (weak one-word substring matches that fall outside the
+ *   baseline/chat window are dropped). Verifier confidence must not be "low".
+ * - Re-fire only on NEW evidence: dedup_key = `active_topic:<id>:<newestAtUtc>`
+ *   so the SAME evidence instant never re-notifies; a later, newer instant can.
+ * - Cooldown via listDueActiveTopicsForLineCheck (last_checked_at +
+ *   cooldown_minutes) prevents spammy repeat checks.
+ *
+ * Safety:
+ * - Gated OFF by default (isActiveTopicTriageEnabled). LINE disabled → silent.
+ * - Activity log carries id + counts + fired flag ONLY — never title, keywords,
+ *   snippets, or message text. Snippets live only in the notification body.
+ */
+/**
+ * Deterministic FNV-1a hash of a dedup key → positive 31-bit integer, used as
+ * the notification `source_id` for active-topic rows so the legacy
+ * UNIQUE(kind, source_id) index does not false-block a re-fire (see callsite).
+ */
+function dedupKeyToSourceId(key: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 2147483647) + 1; // 1 .. 2^31-1 (positive int)
+}
+
+export function runActiveTopicChecks(
+  nowUtc: string,
+  notifier: DesktopNotifier,
+): void {
+  if (!isActiveTopicTriageEnabled()) return;
+  if (!isLineEnabled()) return; // no spam / no false claims while LINE is off
+
+  const due = listDueActiveTopicsForLineCheck(nowUtc);
+  if (due.length === 0) return;
+
+  for (const topic of due) {
+    // Only evidence newer than both the baseline and the last check counts.
+    const sinceUtc =
+      topic.last_checked_at && topic.last_checked_at > topic.baseline_at
+        ? topic.last_checked_at
+        : topic.baseline_at;
+
+    const evidence = buildLineEvidenceForTopic(topic, { sinceUtc });
+
+    // Always record the check so cooldown advances even on a no-match tick.
+    updateActiveTopicCheck(topic.id, { last_checked_at: nowUtc });
+
+    const verdict = verifyLineEvidenceAnswerIntent({ userMessage: "", evidence });
+
+    let fired = 0;
+    const matchCount = evidence.messages.length;
+
+    if (
+      evidence.available &&
+      matchCount > 0 &&
+      evidence.newestAtUtc &&
+      verdict.confidence !== "low"
+    ) {
+      const newestAt = evidence.newestAtUtc;
+      const dedupKey = `active_topic:${topic.id}:${newestAt}`;
+      // The legacy UNIQUE(kind, source_id) index still applies to every row. If
+      // source_id were the bare topic id, the SAME topic could only ever fire
+      // once, defeating re-fire on new evidence. Derive source_id from dedupKey
+      // so it varies per (topic, evidence instant); the dedup_key partial index
+      // is the precise guard (same instant → same key → no duplicate). The topic
+      // id stays recoverable from dedup_key.
+      const sourceId = dedupKeyToSourceId(dedupKey);
+      const title = `LINE: ${topic.title}`;
+
+      const snippets = evidence.messages
+        .slice(0, LINE_FOLLOWUP_SNIPPET_CAP)
+        .map((m) => {
+          const who = m.sender ?? "(system)";
+          const text = m.text.slice(0, LINE_FOLLOWUP_SNIPPET_CHARS);
+          return `${who}: ${text}`;
+        })
+        .join("\n");
+      const body =
+        `จากเรื่องที่ให้ตามไว้ ตอนนี้ใน LINE export ล่าสุดมี ${matchCount} ` +
+        `ข้อความใหม่เกี่ยวกับ "${topic.title}"\n${snippets}`;
+
+      const inserted = insertNotificationWithDedupKey(
+        "line.active_topic",
+        sourceId,
+        title,
+        body,
+        nowUtc,
+        dedupKey,
+      );
+
+      if (inserted) {
+        fired = 1;
+        notifier.notify(title, body);
+        // last_summary stays count-based (no raw body): ≤200 chars, user-safe.
+        updateActiveTopicCheck(topic.id, {
+          last_evidence_at: newestAt,
+          last_summary: `${matchCount} new (export ${newestAt})`,
+        });
+      }
+    }
+
+    // id + counts + fired flag ONLY — never title/keywords/snippets/text.
+    logActivity(
+      "active_topic.checked",
+      `id=${topic.id} matches=${matchCount} fired=${fired}`,
+    );
+  }
+}
+
+/**
  * One scheduler tick. Pure side-effects (DB reads + writes + log + toast + voice).
  * Safe to call at any time; wrapped in try/catch by `startScheduler`.
  *
@@ -253,6 +394,16 @@ export function runSchedulerTick(
   } catch (err: unknown) {
     const detail = err instanceof Error ? err.message : String(err);
     logActivity("line_followup.error", detail);
+  }
+
+  // --- Active-topic proactive triage (Step 22, Phase E) ---
+  // Deterministic, read-only export search, NO model call. Isolated try/catch so
+  // a triage error never blocks reminder/event firing, the Step 21 path, or nag.
+  try {
+    runActiveTopicChecks(nowUtc, notifier);
+  } catch (err: unknown) {
+    const detail = err instanceof Error ? err.message : String(err);
+    logActivity("active_topic.error", detail);
   }
 
   // --- Approval nag (Phase 13.3) ---

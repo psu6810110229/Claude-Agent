@@ -71,6 +71,14 @@ CREATE TABLE IF NOT EXISTS reminder (
 -- Step 11 — scheduler-fired notifications. Each (kind, source_id) pair fires
 -- at most once (UNIQUE index → INSERT OR IGNORE dedup). status: 'unread'→'read'.
 -- updated_at maintained in app code (per project convention).
+--
+-- Step 22 — `dedup_key` (nullable) is an ADDITIVE column for active-topic triage
+-- ('line.active_topic'). Existing kinds (reminder.due/event.soon/line.followup)
+-- leave it NULL and keep the (kind, source_id) "fire once ever" behavior. Active
+-- topics must RE-fire when NEW evidence appears, so they dedup on a STRING key
+-- `active_topic:<id>:<newestEvidenceAtUtc>` via the partial unique index below.
+-- For an existing DB the column is added by ensureNotificationDedupColumn() in
+-- init.ts (PRAGMA + ALTER ADD COLUMN); the partial index excludes legacy NULL rows.
 CREATE TABLE IF NOT EXISTS notification (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   kind       TEXT NOT NULL,
@@ -79,10 +87,15 @@ CREATE TABLE IF NOT EXISTS notification (
   body       TEXT,
   fire_at    TEXT NOT NULL,
   status     TEXT NOT NULL DEFAULT 'unread',
+  dedup_key  TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_source ON notification (kind, source_id);
+-- idx_notification_dedup is created by ensureNotificationDedupColumn() in init.ts,
+-- AFTER the additive ALTER that adds dedup_key to a pre-existing notification
+-- table. Creating it here would fail on an existing DB whose table lacks the
+-- column (CREATE TABLE IF NOT EXISTS is a no-op there).
 
 -- Runtime feature flags. key is a short slug (e.g. 'google_calendar_enabled').
 -- value is '1' (true) or '0' (false). When a key is absent the env-var default

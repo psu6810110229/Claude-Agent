@@ -553,6 +553,17 @@ export const LINE_FOLLOWUP_SEARCH_CAP = Number(
 );
 
 /**
+ * Step 22 — proactive active-topic triage. The scheduler reads EXPORTED LINE
+ * only (read-only, NO model call) for due active topics and fires a dedup'd
+ * 'line.active_topic' notification when NEW evidence appears. OFF by default;
+ * DB config `active_topic_triage_enabled` overrides this seed at runtime
+ * (mirrors isSchedulerEnabled). Snippet caps reuse the line.followup caps.
+ */
+export const ACTIVE_TOPIC_TRIAGE_ENABLED = /^(1|true)$/i.test(
+  process.env.CLAUDE_AGENT_ACTIVE_TOPIC_TRIAGE_ENABLED ?? "",
+);
+
+/**
  * Step 16 — real memory (fact store). Facts are durable, recallable statements
  * about the user. Local-only like the memory files, so no enable flag: auto-
  * capture is governed by the existing auto-execute flag; recall is always on.

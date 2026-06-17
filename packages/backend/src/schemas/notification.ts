@@ -12,6 +12,7 @@ export const notificationKindSchema = z.enum([
   "reminder.due",
   "event.soon",
   "line.followup",
+  "line.active_topic",
 ]);
 export type NotificationKind = z.infer<typeof notificationKindSchema>;
 
@@ -26,6 +27,7 @@ export const notificationSchema = z.object({
   body: z.string().nullable(),
   fire_at: z.string(),
   status: notificationStatusSchema,
+  dedup_key: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
 });

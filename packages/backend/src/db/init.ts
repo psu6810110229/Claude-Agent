@@ -16,7 +16,33 @@ export function initDb(): void {
   const schema = fs.readFileSync(schemaPath, "utf8");
   db.exec(schema);
   ensureApprovalExecutionColumns();
+  ensureNotificationDedupColumn();
   ensureMemoryFiles();
+}
+
+/**
+ * Step 22 — additive migration for the active-topic triage dedup key. On a fresh
+ * DB the column is created by schema.sql; on a pre-existing DB CREATE TABLE IF NOT
+ * EXISTS is a no-op, so add the nullable `dedup_key` column here (mirrors
+ * ensureApprovalExecutionColumns). Existing rows keep dedup_key = NULL and their
+ * (kind, source_id) dedup; the partial unique index (schema.sql) excludes NULLs.
+ */
+function ensureNotificationDedupColumn(): void {
+  const db = getDb();
+  const columns = new Set(
+    (
+      db
+        .prepare("PRAGMA table_info(notification)")
+        .all() as { name: string }[]
+    ).map((col) => col.name),
+  );
+  if (!columns.has("dedup_key")) {
+    db.exec("ALTER TABLE notification ADD COLUMN dedup_key TEXT");
+  }
+  // Idempotent; partial index so legacy NULL dedup_key rows never collide.
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_dedup ON notification (dedup_key) WHERE dedup_key IS NOT NULL",
+  );
 }
 
 function ensureApprovalExecutionColumns(): void {
