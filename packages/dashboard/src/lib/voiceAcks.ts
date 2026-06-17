@@ -28,6 +28,14 @@
 export const FIRST_ACK_DELAY_MS = 2000;
 /** Delay before the second (long-wait) acknowledgement. At most one of these per send. */
 export const LONG_ACK_DELAY_MS = 7500;
+/**
+ * Minimum SILENT gap after the first ack's audio actually ENDS before the
+ * long-wait ack may start. LONG_ACK_DELAY_MS is measured from send start, so
+ * when the first ack finishes near that mark the long one would otherwise queue
+ * up and play back-to-back. This guarantees a breath between them regardless of
+ * how long the first ack ran or how slow its fetch was.
+ */
+export const LONG_ACK_MIN_GAP_MS = 2500;
 
 export type AckContext =
   | "line"
@@ -233,6 +241,9 @@ let longTimer: ReturnType<typeof setTimeout> | null = null;
 
 let requestCounter = 0;
 
+const sleep = (ms: number): Promise<void> =>
+  new Promise((r) => setTimeout(r, ms));
+
 /** Allocate a fresh per-send request id. Tie acks/cancellation to this value. */
 export function nextAckRequestId(): number {
   return ++requestCounter;
@@ -300,7 +311,11 @@ export async function preloadAckAudio(): Promise<void> {
  * already playing (so the long phrase never overlaps the first) and re-checks
  * staleness after every await, so a settled/cancelled send never speaks.
  */
-async function playPhrase(requestId: number, phrase: string): Promise<void> {
+async function playPhrase(
+  requestId: number,
+  phrase: string,
+  minGapAfterPrevMs = 0,
+): Promise<void> {
   // Queue behind a still-playing ack, then re-validate.
   const prev = currentPlaying;
   if (prev) {
@@ -311,6 +326,13 @@ async function playPhrase(requestId: number, phrase: string): Promise<void> {
     }
   }
   if (requestId !== activeRequestId || !acksAllowed) return;
+
+  // Enforce a silent gap after the previous ack ENDED (long-wait phase only),
+  // so the two acks never run back-to-back. Re-validate after the wait.
+  if (minGapAfterPrevMs > 0) {
+    await sleep(minGapAfterPrevMs);
+    if (requestId !== activeRequestId || !acksAllowed) return;
+  }
 
   const url = await getAudioUrl(phrase);
   if (!url) return; // TTS disabled/failed → silent
@@ -375,7 +397,7 @@ export function startAck(
   longTimer = setTimeout(() => {
     if (requestId !== activeRequestId || !acksAllowed) return;
     const phrase = chooseAckPhrase(context, "long", firstPhrase ?? undefined);
-    void playPhrase(requestId, phrase);
+    void playPhrase(requestId, phrase, LONG_ACK_MIN_GAP_MS);
   }, LONG_ACK_DELAY_MS);
 }
 
