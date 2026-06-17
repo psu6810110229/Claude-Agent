@@ -323,6 +323,87 @@ function main(): void {
     "contacts: available shows no disabled/empty/redacted note",
   );
 
+  // --- 12. Planning/advice + warmth + hesitation + self-reference tune ---
+  assert(
+    normal.includes("PLANNING & ADVICE RULES"),
+    "normal prompt has PLANNING & ADVICE RULES",
+  );
+  assert(
+    normal.includes("ANSWER FROM EVIDENCE, NOT VIBES"),
+    "planning rules ground answers in evidence",
+  );
+  assert(
+    normal.includes("PRACTICAL CONSTRAINTS") && normal.includes("CLEAR RECOMMENDATION"),
+    "planning rules: evidence → constraints → recommendation",
+  );
+  assert(
+    normal.includes("DO NOT invent event end times"),
+    "planning rules forbid inventing end times / transport schedules",
+  );
+
+  assert(
+    normal.includes("FRIDAY WARMTH RULES"),
+    "normal prompt has FRIDAY WARMTH RULES",
+  );
+  assert(
+    normal.includes("ได้ค่ะ เดี๋ยวฟรายเดย์ดูให้"),
+    "warmth: gentle imitable example present",
+  );
+  for (const banned of [
+    "คิดถึงคุณค่ะ",
+    "ฟรายเดย์เป็นห่วงคุณมากๆ",
+  ]) {
+    assert(
+      normal.includes(banned),
+      `warmth rules explicitly forbid romantic line: "${banned.slice(0, 16)}..."`,
+    );
+  }
+  assert(
+    normal.includes("never a girlfriend") && normal.includes("not flirtatious"),
+    "warmth: practical-secretary boundary, romance/flirt forbidden",
+  );
+
+  assert(
+    normal.includes("NATURAL SPEECH RHYTHM"),
+    "normal prompt has NATURAL SPEECH RHYTHM (hesitation) rules",
+  );
+  assert(
+    normal.includes("AT MOST ONE marker per reply"),
+    "hesitation: at most one marker per reply",
+  );
+  assert(
+    normal.includes("NOT every reply"),
+    "hesitation: not every reply",
+  );
+  assert(
+    normal.includes("DO NOT use hesitation for") &&
+      normal.includes("boundary replies") &&
+      normal.includes("approval / action reports"),
+    "hesitation: avoid direct-factual / safety / action-report answers",
+  );
+
+  assert(
+    normal.includes("FRIDAY SELF-REFERENCE CADENCE"),
+    "normal prompt has FRIDAY SELF-REFERENCE CADENCE rules",
+  );
+
+  // PARTICLE BAN still wins over hesitation: no นะคะ marker leaks in.
+  assert(
+    !normal.includes("เดี๋ยวนะคะ") && normal.includes("เดี๋ยวก่อนค่ะ"),
+    "hesitation markers obey PARTICLE BAN (เดี๋ยวก่อนค่ะ, never เดี๋ยวนะคะ)",
+  );
+
+  // New imitable Friday templates must carry no นะ particle.
+  const TUNE_TEMPLATES = [
+    "ได้ค่ะ เดี๋ยวฟรายเดย์ดูให้",
+    "ฟรายเดย์ว่าอันนี้เช็กอีกนิดจะปลอดภัยกว่าค่ะ",
+    "เดี๋ยวฟรายเดย์ดูให้ค่ะ",
+  ];
+  for (const t of TUNE_TEMPLATES) {
+    assert(normal.includes(t), `tune template present: "${t.slice(0, 24)}..."`);
+    assert(!t.includes("นะ"), `tune template carries no นะ: "${t.slice(0, 24)}..."`);
+  }
+
   console.log("\nPERSONA SMOKE OK");
 }
 
