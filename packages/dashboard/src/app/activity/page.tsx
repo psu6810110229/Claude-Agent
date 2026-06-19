@@ -65,7 +65,12 @@ export default function ActivityPage() {
       <div className="stack">
         {loading && <ActivitySkeleton />}
         {error && <ErrorBanner message={error} onRetry={reload} />}
-        {activity && activity.length === 0 && <Empty label="No activity yet." />}
+        {activity && activity.length === 0 && (
+          <Empty
+            label="ยังไม่มีบันทึกกิจกรรม"
+            hint="เมื่อ Friday ดำเนินการหรือคุณอนุมัติคำสั่ง รายการจะปรากฏที่นี่"
+          />
+        )}
 
         {groups.length > 0 && (
           <div className="activity-timeline">

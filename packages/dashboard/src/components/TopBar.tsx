@@ -13,6 +13,7 @@ import { useShell } from "@/components/Shell";
 export function TopBar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const chipRef = useRef<HTMLButtonElement>(null);
   const { setDrawerOpen } = useShell();
 
   useEffect(() => {
@@ -22,8 +23,19 @@ export function TopBar() {
         setMenuOpen(false);
       }
     }
+    // Escape closes the menu and returns focus to the chip that opened it.
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setMenuOpen(false);
+        chipRef.current?.focus();
+      }
+    }
     window.addEventListener("pointerdown", onPointerDown);
-    return () => window.removeEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
   }, [menuOpen]);
 
   return (
@@ -46,6 +58,7 @@ export function TopBar() {
       </Link>
 
       <button
+        ref={chipRef}
         type="button"
         className="profile-chip"
         onClick={() => setMenuOpen((v) => !v)}

@@ -121,7 +121,12 @@ export default function TasksPage() {
       <div className="stack">
         {loading && <TasksSkeleton />}
         {error && <ErrorBanner message={error} onRetry={reload} />}
-        {tasks && tasks.length === 0 && <Empty label="No tasks yet." />}
+        {tasks && tasks.length === 0 && (
+          <Empty
+            label="ยังไม่มีงาน"
+            hint="เพิ่มงานด้านบน หรือบอก Friday ให้สร้างงานให้ได้เลย"
+          />
+        )}
 
         {tasks && tasks.length > 0 && (
           <>

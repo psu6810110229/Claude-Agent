@@ -39,10 +39,7 @@ const POLL_INTERVAL_MS = 30_000;
 
 function BellIcon({ hasBadge }: { hasBadge: boolean }) {
   return (
-    <span
-      style={{ position: "relative", display: "inline-flex", alignItems: "center" }}
-      aria-hidden="true"
-    >
+    <span className="notif-bell" aria-hidden="true">
       {/* Simple bell SVG */}
       <svg
         width="18"
@@ -57,20 +54,7 @@ function BellIcon({ hasBadge }: { hasBadge: boolean }) {
         <path d="M10 2a6 6 0 0 1 6 6c0 3.5 1.5 5 2 6H2c.5-1 2-2.5 2-6a6 6 0 0 1 6-6Z" />
         <path d="M8.5 18a1.5 1.5 0 0 0 3 0" />
       </svg>
-      {hasBadge && (
-        <span
-          style={{
-            position: "absolute",
-            top: -3,
-            right: -4,
-            width: 8,
-            height: 8,
-            borderRadius: "50%",
-            background: "var(--rose)",
-            border: "1.5px solid var(--surface)",
-          }}
-        />
-      )}
+      {hasBadge && <span className="notif-bell-dot" />}
     </span>
   );
 }
@@ -214,7 +198,7 @@ export function NotificationCenter() {
   const unreadCount = notifications.length;
 
   return (
-    <div style={{ position: "relative" }}>
+    <div className="notif-anchor">
       <button
         ref={btnRef}
         onClick={() => {
@@ -238,131 +222,39 @@ export function NotificationCenter() {
           ref={dropRef}
           role="dialog"
           aria-label="การแจ้งเตือน"
+          className="notif-pop"
           style={{
-            position: "fixed",
             top: dropPos?.top ?? 0,
             left: Math.max(8, dropPos?.left ?? 0),
-            width: DROPDOWN_WIDTH,
-            background: "rgba(26, 27, 32, 0.92)",
-            backdropFilter: "blur(30px) saturate(150%)",
-            WebkitBackdropFilter: "blur(30px) saturate(150%)",
-            borderRadius: 16,
-            boxShadow: "var(--shadow), var(--inner-light)",
-            zIndex: 100,
-            overflow: "hidden",
           }}
         >
-          <div
-            style={{
-              padding: "10px 14px",
-              borderBottom: "1px solid var(--border)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <strong style={{ fontSize: 13 }}>การแจ้งเตือน</strong>
+          <div className="notif-head">
+            <strong>การแจ้งเตือน</strong>
             {unreadCount > 0 && (
-              <span
-                style={{
-                  fontSize: 11,
-                  color: "var(--muted-strong)",
-                }}
-              >
-                ยังไม่อ่าน {unreadCount}
-              </span>
+              <span className="notif-head-count">ยังไม่อ่าน {unreadCount}</span>
             )}
           </div>
 
           {notifications.length === 0 ? (
-            <p
-              style={{
-                padding: "16px 14px",
-                margin: 0,
-                color: "var(--muted-strong)",
-                fontSize: 13,
-              }}
-            >
-              ไม่มีการแจ้งเตือนใหม่
-            </p>
+            <p className="notif-empty">ไม่มีการแจ้งเตือนใหม่</p>
           ) : (
-            <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            <ul className="notif-list">
               {notifications.map((n) => (
-                <li
-                  key={n.id}
-                  style={{
-                    padding: "10px 14px",
-                    borderBottom: "1px solid var(--border)",
-                    display: "flex",
-                    gap: 8,
-                    alignItems: "flex-start",
-                  }}
-                >
+                <li key={n.id} className="notif-item">
                   <span
-                    style={{
-                      fontSize: 11,
-                      padding: "2px 6px",
-                      borderRadius: 4,
-                      background:
-                        n.kind === "reminder.due"
-                          ? "var(--rose-soft)"
-                          : "var(--amber-soft)",
-                      color:
-                        n.kind === "reminder.due"
-                          ? "var(--rose)"
-                          : "var(--amber)",
-                      fontWeight: 600,
-                      whiteSpace: "nowrap",
-                      marginTop: 1,
-                    }}
+                    className={`notif-tag${n.kind === "reminder.due" ? " due" : ""}`}
                   >
                     {n.kind === "reminder.due" ? "ถึงกำหนด" : "ใกล้ถึง"}
                   </span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontWeight: 600,
-                        fontSize: 13,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {n.title}
-                    </div>
-                    {n.body && (
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: "var(--muted)",
-                          marginTop: 2,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {n.body}
-                      </div>
-                    )}
+                  <div className="notif-item-body">
+                    <div className="notif-title">{n.title}</div>
+                    {n.body && <div className="notif-sub">{n.body}</div>}
                   </div>
                   <button
+                    type="button"
+                    className="notif-markread"
                     onClick={() => handleMarkRead(n)}
                     title="ทำเครื่องหมายว่าอ่านแล้ว"
-                    style={{
-                      display: "grid",
-                      placeItems: "center",
-                      width: 44,
-                      height: 44,
-                      margin: "-12px -10px -12px 0",
-                      background: "none",
-                      border: "none",
-                      borderRadius: 10,
-                      cursor: "pointer",
-                      color: "var(--muted-strong)",
-                      fontSize: 18,
-                      lineHeight: 1,
-                      flexShrink: 0,
-                    }}
                     aria-label={`ทำเครื่องหมายว่าอ่านแล้ว: ${n.title}`}
                   >
                     ×

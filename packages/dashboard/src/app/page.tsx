@@ -8,8 +8,6 @@ import {
   Clock3,
   Database,
   MessageCircle,
-  Volume2,
-  VolumeX,
 } from "lucide-react";
 import {
   ApiError,
@@ -76,6 +74,29 @@ function greetingNow(): string {
   return "สวัสดีตอนเย็น";
 }
 
+// Resolve the element that actually scrolls above `node`. The chat list itself
+// has `max-height: none`, so on this layout the window scrolls; this still
+// returns an inner scroller if a future layout introduces one.
+function getScrollParent(node: HTMLElement | null): HTMLElement | Window {
+  let el: HTMLElement | null = node?.parentElement ?? null;
+  while (el) {
+    const oy = getComputedStyle(el).overflowY;
+    if ((oy === "auto" || oy === "scroll" || oy === "overlay") && el.scrollHeight > el.clientHeight) {
+      return el;
+    }
+    el = el.parentElement;
+  }
+  return window;
+}
+
+function distanceFromBottom(scroller: HTMLElement | Window): number {
+  const el =
+    scroller === window
+      ? (document.scrollingElement ?? document.documentElement)
+      : (scroller as HTMLElement);
+  return el.scrollHeight - el.scrollTop - el.clientHeight;
+}
+
 type ApprovalMap = Record<number, Approval>;
 interface ClarificationPrompt {
   messageId: number;
@@ -118,6 +139,9 @@ export default function HomePage() {
   const [thinkingStatus, setThinkingStatus] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // True while the user is at/near the bottom (or just sent a message). When
+  // they scroll up to read history this flips false and auto-scroll is paused.
+  const stickToBottomRef = useRef(true);
   const followupTimerRef = useRef<number | null>(null);
   // Live mirror of `muted` so the idle-follow-up timer reads the current value
   // (its closure is captured when scheduled, before any later mute toggle).
@@ -198,9 +222,25 @@ export default function HomePage() {
       });
   }, [notify]);
 
+  // Track proximity to the bottom so reading history isn't interrupted.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, sending, briefBusy]);
+    if (!hasConversation) return;
+    const scroller = getScrollParent(bottomRef.current);
+    const NEAR_BOTTOM_PX = 120;
+    const onScroll = () => {
+      stickToBottomRef.current = distanceFromBottom(scroller) < NEAR_BOTTOM_PX;
+    };
+    const target: Window | HTMLElement = scroller;
+    target.addEventListener("scroll", onScroll, { passive: true });
+    return () => target.removeEventListener("scroll", onScroll);
+  }, [hasConversation]);
+
+  // Auto-scroll only when the user is already near the bottom or just sent a
+  // message (doSend sets stickToBottomRef). Suppressed while reading history.
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
+    bottomRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth" });
+  }, [messages, sending, briefBusy, reduceMotion]);
 
   function clearFollowup() {
     if (followupTimerRef.current !== null) {
@@ -251,6 +291,8 @@ export default function HomePage() {
     // Unlock TTS playback while still inside the user's send gesture, so the
     // reply audio is allowed to play later under strict autoplay policies.
     unlockAudioPlayback();
+    // A user-initiated send always pulls the view to the latest message.
+    stickToBottomRef.current = true;
     clearFollowup();
     const previousIds = new Set(messages.map((message) => message.id));
     setOrbState("thinking");
@@ -725,27 +767,15 @@ export default function HomePage() {
               s === "thinking" ? s : focused ? "listening" : "idle",
             )
           }
-        />
-        <button
-          type="button"
-          className="jarvis-mute-btn"
-          onClick={() =>
+          muted={muted}
+          onToggleMute={() =>
             setMuted((prev) => {
               const next = !prev;
               localStorage.setItem("jarvis.muted", String(next));
               return next;
             })
           }
-          title={muted ? "เปิดเสียง" : "ปิดเสียง"}
-          aria-label={muted ? "เปิดเสียง" : "ปิดเสียง"}
-          aria-pressed={muted}
-        >
-          {muted ? (
-            <VolumeX strokeWidth={1.8} aria-hidden="true" />
-          ) : (
-            <Volume2 strokeWidth={1.8} aria-hidden="true" />
-          )}
-        </button>
+        />
       </motion.div>
 
       {confirmingReset && (
@@ -1246,17 +1276,21 @@ function RichText({
     const MAX_DURATION_MS = 3200;
     const frames = Math.max(1, Math.round(MAX_DURATION_MS / FRAME_MS));
     const step = Math.max(1, Math.ceil(text.length / frames));
+    let doneTimer = 0;
     const timer = window.setInterval(() => {
       setVisibleCount((current) => {
         const next = Math.min(text.length, current + step);
         if (next >= text.length) {
           window.clearInterval(timer);
-          window.setTimeout(() => onRevealDone?.(), 140);
+          doneTimer = window.setTimeout(() => onRevealDone?.(), 140);
         }
         return next;
       });
     }, FRAME_MS);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      window.clearTimeout(doneTimer);
+    };
   }, [onRevealDone, reveal, text]);
 
   const blocks = parseMarkdownBlocks(displayText);

@@ -140,7 +140,10 @@ export default function ApprovalsPage() {
         {loading && <ApprovalsSkeleton />}
         {error && <ErrorBanner message={error} onRetry={reload} />}
         {approvals && approvals.length === 0 && (
-          <Empty label="No approvals in the queue." />
+          <Empty
+            label="ไม่มีรายการรออนุมัติ"
+            hint="เมื่อ Friday เสนอการกระทำที่ต้องอนุมัติ รายการจะปรากฏที่นี่ให้คุณตรวจก่อนดำเนินการ"
+          />
         )}
 
         {approvals && approvals.length > 0 && (

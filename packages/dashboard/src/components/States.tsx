@@ -1,7 +1,11 @@
 /** Tiny shared loading / error / empty presentational helpers. */
 
-export function Loading({ label = "Loading..." }: { label?: string }) {
-  return <div className="state loading">{label}</div>;
+export function Loading({ label = "กำลังโหลด..." }: { label?: string }) {
+  return (
+    <div className="state loading" role="status">
+      {label}
+    </div>
+  );
 }
 
 export function ErrorBanner({
@@ -12,17 +16,26 @@ export function ErrorBanner({
   onRetry?: () => void;
 }) {
   return (
-    <div className="error">
+    <div className="error" role="alert">
       <span>{message}</span>
       {onRetry && (
         <button type="button" onClick={onRetry}>
-          Retry
+          ลองใหม่
         </button>
       )}
     </div>
   );
 }
 
-export function Empty({ label }: { label: string }) {
-  return <div className="state">{label}</div>;
+/**
+ * Empty state. `label` says what's missing; the optional `hint` teaches the
+ * next move so an empty surface is never a dead end.
+ */
+export function Empty({ label, hint }: { label: string; hint?: string }) {
+  return (
+    <div className="state empty">
+      <p className="state-title">{label}</p>
+      {hint && <p className="state-hint">{hint}</p>}
+    </div>
+  );
 }
