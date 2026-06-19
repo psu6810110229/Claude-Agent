@@ -10,6 +10,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import { GEMINI_MODEL_OPTIONS, type ProviderChoice, type BriefType } from "@/lib/types";
+import { motion, AnimatePresence } from "framer-motion";
 
 const PROVIDER_OPTIONS: { id: ProviderChoice; label: string; title: string }[] = [
   { id: "auto", label: "อัตโนมัติ", title: "ให้ระบบเลือกผู้ให้บริการที่เหมาะกับงาน" },
@@ -49,7 +50,11 @@ export function JarvisInput({
 }) {
   const [text, setText] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [unifiedMenuOpen, setUnifiedMenuOpen] = useState(false);
+  
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const menuWrapRef = useRef<HTMLDivElement>(null);
+  const unifiedMenuWrapRef = useRef<HTMLDivElement>(null);
 
   // Auto-resize: grow with content up to ~40vh, then scroll inside.
   useEffect(() => {
@@ -59,6 +64,20 @@ export function JarvisInput({
     const max = Math.round(window.innerHeight * 0.4);
     el.style.height = `${Math.min(el.scrollHeight, max)}px`;
   }, [text]);
+
+  // Click outside to close menus
+  useEffect(() => {
+    function handleOuterClick(e: MouseEvent) {
+      if (menuOpen && menuWrapRef.current && !menuWrapRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+      if (unifiedMenuOpen && unifiedMenuWrapRef.current && !unifiedMenuWrapRef.current.contains(e.target as Node)) {
+        setUnifiedMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleOuterClick);
+    return () => document.removeEventListener("mousedown", handleOuterClick);
+  }, [menuOpen, unifiedMenuOpen]);
 
   function submit() {
     const trimmed = text.trim();
@@ -106,82 +125,94 @@ export function JarvisInput({
       <div className="ji-toolbar">
         <div className="ji-tools">
           {onProviderChange && (
-            <div
-              className="ji-provider"
-              role="group"
-              aria-label="ผู้ให้บริการ AI"
-              title="เลือกผู้ให้บริการ AI ที่จะตอบ"
-            >
-              {PROVIDER_OPTIONS.map((opt) => (
-                <button
-                  type="button"
-                  key={opt.id}
-                  className={provider === opt.id ? "active" : ""}
-                  aria-pressed={provider === opt.id}
-                  title={opt.title}
-                  disabled={disabled}
-                  onClick={() => onProviderChange(opt.id)}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {provider === "gemini" && onGeminiModelChange && (
-            <label className="ji-model" title="เลือกโมเดล Gemini ที่จะตอบ">
-              <span className="sr-only">โมเดล Gemini</span>
-              <select
-                value={geminiModel ?? GEMINI_MODEL_OPTIONS[0].id}
-                disabled={disabled}
-                onChange={(e) => onGeminiModelChange(e.target.value)}
-                aria-label="โมเดล Gemini"
-              >
-                {GEMINI_MODEL_OPTIONS.map((opt) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-
-          {onBrief && (
-            <div className="ji-menu-wrap">
+            <div className="ji-unified-wrap" ref={unifiedMenuWrapRef}>
               <button
                 type="button"
-                className="ji-tool ji-menu-toggle"
-                disabled={disabled || briefBusy !== null}
-                title="เมนูสรุป"
-                aria-label="เมนูสรุป"
-                aria-expanded={menuOpen}
-                onClick={() => setMenuOpen((open) => !open)}
+                className="ji-unified-btn"
+                disabled={disabled}
+                onClick={() => setUnifiedMenuOpen((o) => !o)}
+                aria-expanded={unifiedMenuOpen}
               >
-                <ChevronDown strokeWidth={1.8} />
+                <span className="ji-unified-label">
+                  {provider === "gemini" && geminiModel
+                    ? `Gemini (${GEMINI_MODEL_OPTIONS.find((m) => m.id === geminiModel)?.label ?? "Flash"})`
+                    : PROVIDER_OPTIONS.find((p) => p.id === provider)?.label ?? "AI"}
+                </span>
+                <ChevronDown strokeWidth={2} className={`ji-unified-chevron ${unifiedMenuOpen ? "open" : ""}`} />
               </button>
 
-              {menuOpen && (
-                <div className="ji-menu" role="menu">
-                  <button
-                    type="button"
-                    role="menuitem"
-                    disabled={disabled || briefBusy !== null}
-                    onClick={() => runBrief("daily")}
+              <AnimatePresence>
+                {unifiedMenuOpen && (
+                  <motion.div
+                    className="ji-custom-menu unified-menu"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.15 }}
+                    role="menu"
                   >
-                    <Sun strokeWidth={1.7} />
-                    สรุปเช้า
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    disabled={disabled || briefBusy !== null}
-                    onClick={() => runBrief("evening")}
-                  >
-                    <Moon strokeWidth={1.7} />
-                    สรุปเย็น
-                  </button>
-                </div>
-              )}
+                    <div className="ji-menu-section-title">AI Provider</div>
+                    <div
+                      className="ji-provider in-menu"
+                      role="group"
+                      aria-label="ผู้ให้บริการ AI"
+                    >
+                      {PROVIDER_OPTIONS.map((opt) => {
+                        const isActive = provider === opt.id;
+                        return (
+                          <button
+                            type="button"
+                            key={opt.id}
+                            className={isActive ? "active" : ""}
+                            aria-pressed={isActive}
+                            title={opt.title}
+                            onClick={() => onProviderChange(opt.id)}
+                          >
+                            {isActive && (
+                              <motion.div
+                                layoutId="provider-highlight"
+                                className="provider-highlight"
+                                initial={false}
+                                transition={{ type: "spring", bounce: 0.2, duration: 0.4 }}
+                              />
+                            )}
+                            <span className="provider-label">{opt.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <AnimatePresence mode="popLayout">
+                      {provider === "gemini" && onGeminiModelChange && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }}
+                          transition={{ duration: 0.2 }}
+                          style={{ overflow: "hidden" }}
+                        >
+                          <div className="ji-menu-divider" />
+                          <div className="ji-menu-section-title">Gemini Model</div>
+                          {GEMINI_MODEL_OPTIONS.map((opt) => (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              role="menuitem"
+                              className={geminiModel === opt.id ? "active" : ""}
+                              onClick={() => {
+                                onGeminiModelChange(opt.id);
+                                setUnifiedMenuOpen(false);
+                              }}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           )}
 
@@ -203,15 +234,19 @@ export function JarvisInput({
           )}
         </div>
 
-        <button
+        <motion.button
           type="submit"
           className="ji-send"
           disabled={disabled || text.trim() === ""}
           aria-label="ส่ง"
+          whileHover={disabled || text.trim() === "" ? {} : { scale: 1.05 }}
+          whileTap={disabled || text.trim() === "" ? {} : { scale: 0.94 }}
+          transition={{ type: "spring", bounce: 0.4, duration: 0.4 }}
         >
           <ArrowUp strokeWidth={2} />
-        </button>
+        </motion.button>
       </div>
     </form>
   );
 }
+

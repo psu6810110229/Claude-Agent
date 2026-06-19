@@ -69,6 +69,9 @@
 
 * {
   box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 
 html {
@@ -2918,11 +2921,10 @@ pre.payload {
   outline: none;
 }
 
-/* Bottom toolbar: tools cling to the left, send to the right, both pinned to
-   the lower edge no matter how tall the textarea grows. */
+/* Bottom toolbar: tools align left, send aligns right, wraps if too narrow. */
 .ji-toolbar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 8px;
   margin-top: 6px;
@@ -2932,15 +2934,10 @@ pre.payload {
 .ji-tools {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   min-width: 0;
   flex: 1;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.ji-tools::-webkit-scrollbar {
-  display: none;
 }
 
 /* Round icon buttons inside the toolbar (menu toggle, mute). */
@@ -2979,31 +2976,93 @@ pre.payload {
   flex-shrink: 0;
 }
 
-/* Manual AI provider selector (Roadmap 11 Phase 2). */
+/* Unified AI Picker Button */
+.ji-unified-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.ji-unified-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.2), var(--inner-light);
+  border-radius: 999px;
+  padding: 0 14px 0 16px;
+  height: 32px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  border: none;
+  transition: all 150ms ease;
+}
+
+.ji-unified-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.ji-unified-icon {
+  width: 14px;
+  height: 14px;
+  color: #0a84ff; /* Apple-ish blue */
+}
+
+.ji-unified-chevron {
+  width: 14px;
+  height: 14px;
+  color: var(--muted-strong);
+  transition: transform 250ms cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.ji-unified-chevron.open {
+  transform: rotate(-180deg);
+}
+
+/* Manual AI provider selector */
 .ji-provider {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   flex-shrink: 0;
-  padding: 2px;
+  padding: 3px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.05);
-  box-shadow: var(--inner-light);
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.2), var(--inner-light);
+  height: 30px;
+}
+
+.ji-provider.in-menu {
+  width: 100%;
+  height: 34px;
+  margin-bottom: 4px;
+}
+
+.ji-provider.in-menu button {
+  flex: 1; /* evenly distribute */
+  padding: 0;
 }
 
 .ji-provider button {
+  position: relative;
   background: none;
   box-shadow: none;
   border-radius: 999px;
-  padding: 4px 11px;
+  padding: 0 12px;
+  height: 100%;
   font-size: 12px;
+  font-weight: 600;
   line-height: 1;
   color: var(--muted);
   cursor: pointer;
+  transition: color 250ms ease;
+  border: none;
 }
 
 .ji-provider button.active {
-  background: var(--accent);
   color: #fff;
 }
 
@@ -3012,36 +3071,18 @@ pre.payload {
   cursor: default;
 }
 
-/* Gemini model picker — appears only when Gemini is the chosen provider. */
-.ji-model {
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.ji-model select {
-  appearance: none;
-  -webkit-appearance: none;
-  min-width: auto;
-  min-height: 0;
-  border: none;
+.provider-highlight {
+  position: absolute;
+  inset: 0;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-  box-shadow: var(--inner-light);
-  color: var(--muted-strong);
-  padding: 5px 12px;
-  font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
+  background: var(--accent);
+  box-shadow: 0 4px 12px rgba(10, 132, 255, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  z-index: 0;
 }
 
-.ji-model select:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.ji-model option {
-  color: #111;
+.provider-label {
+  position: relative;
+  z-index: 10;
 }
 
 /* Provider that produced a reply, shown in the chat group header. */
@@ -3058,41 +3099,76 @@ pre.payload {
   line-height: 1;
 }
 
-.ji-menu {
+.ji-custom-menu {
   position: absolute;
   left: 0;
   right: auto;
-  bottom: 48px;
+  bottom: calc(100% + 8px);
   z-index: var(--z-dropdown);
-  min-width: 190px;
-  border-radius: 16px;
-  background: rgba(26, 27, 32, 0.96);
-  backdrop-filter: blur(30px) saturate(150%);
-  -webkit-backdrop-filter: blur(30px) saturate(150%);
-  box-shadow: var(--shadow), var(--inner-light);
-  padding: 6px;
+  min-width: 220px;
+  border-radius: 18px;
+  background: rgba(30, 30, 35, 0.4); /* Dark transparent */
+  backdrop-filter: blur(28px) saturate(150%);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transform-origin: bottom left;
 }
 
-.ji-menu button {
+.unified-menu {
+  min-width: 260px; /* Wider for the unified picker */
+}
+
+.ji-menu-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  padding: 6px 8px 4px 8px;
+}
+
+.ji-menu-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 6px 0;
+}
+
+.ji-custom-menu button {
   width: 100%;
   height: auto;
-  min-height: 44px;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
   justify-content: flex-start;
   gap: 10px;
-  border-radius: 11px;
+  border-radius: 12px;
   background: none;
   box-shadow: none;
   color: var(--muted-strong);
-  padding: 8px 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 150ms ease;
+  border: none;
 }
 
-.ji-menu button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.07);
+.ji-custom-menu button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
   color: var(--text);
-  transform: none;
 }
 
-.ji-menu button svg {
+.ji-custom-menu button.active {
+  background: rgba(10, 132, 255, 0.15);
+  color: #0a84ff;
+}
+
+.ji-custom-menu button svg {
   width: 17px;
   height: 17px;
   flex-shrink: 0;
@@ -3229,22 +3305,15 @@ pre.payload {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  /* --- Composer: bigger touch targets from tablet down. The model controls
-     stay inline; the toolbar's left group scrolls horizontally (hidden
-     scrollbar) when it runs out of room. --- */
   .jarvis-input .ji-tool,
   .jarvis-input .ji-send {
     width: 44px;
     height: 44px;
   }
 
-  .ji-provider button {
-    min-height: 40px;
-    padding: 8px 13px;
-  }
-
-  .ji-model select {
-    min-height: 40px;
+  .ji-unified-btn {
+    height: 40px;
+    padding: 0 16px 0 18px;
   }
 }
 
