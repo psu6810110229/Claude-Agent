@@ -2,12 +2,22 @@
 
 /**
  * NotificationCenter (Step 11). Mounted globally in layout.tsx so it's active
- * on every page. Polls /api/notifications/unread every 30 s, raises browser
- * toasts for newly-seen ids, and lets the user mark items as read.
+ * on every page. Polls /api/notifications/unread every 30 s, surfaces newly-seen
+ * ids, and lets the user mark items as read.
+ *
+ * CROSS-DEVICE: scheduler voice + the native Windows toast are server-side and
+ * only ever fire on the HOST machine. The DB-backed unread feed is the ONLY
+ * channel that reaches other devices (Android / a second laptop) over Tailscale.
+ * So a new notification here is surfaced THREE ways, most-portable first:
+ *   1. in-app toast (ToastProvider) — pure DOM, works on every device/tab even
+ *      over plain-HTTP Tailscale where the OS Notification API is blocked;
+ *   2. in-browser voice via speak() — same path as chat replies, so remote
+ *      devices hear the alert too (host speaker stays for the host);
+ *   3. OS Notification — best-effort enhancement, only when secure + granted.
  *
  * Design:
- * - First poll on mount; clears interval on unmount.
- * - Seen ids tracked in a ref so we only toast genuinely new notifications.
+ * - First poll on mount SEEDS seenIds silently (no toast/voice storm for the
+ *   backlog of unread on every page load); only genuinely new ids alert after.
  * - Requests browser Notification permission once on first new notification.
  * - Degrades silently on backend errors (no crash, no noisy console).
  * - Direct write (markNotificationRead) is NOT approval-gated (benign UI state).
@@ -17,7 +27,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   listUnreadNotifications,
   markNotificationRead,
+  speak,
 } from "@/lib/api";
+import { useToast } from "@/components/ToastProvider";
 import type { Notification } from "@/lib/types";
 
 const POLL_INTERVAL_MS = 30_000;
@@ -67,6 +79,8 @@ export function NotificationCenter() {
   const btnRef = useRef<HTMLButtonElement>(null);
   const seenIds = useRef<Set<number>>(new Set());
   const permissionAsked = useRef(false);
+  const seeded = useRef(false);
+  const { notify: toast } = useToast();
 
   const raiseBrowserToast = useCallback(
     (title: string, body?: string) => {
@@ -93,21 +107,43 @@ export function NotificationCenter() {
     [],
   );
 
+  const alertNew = useCallback(
+    (n: Notification) => {
+      // 1. in-app toast — most portable (works without a secure context).
+      toast({
+        title: n.title,
+        description: n.body ?? undefined,
+        kind: n.kind === "reminder.due" ? "warning" : "info",
+      });
+      // 2. in-browser voice so remote devices hear it too. Fire-and-forget;
+      //    speak() is a no-op when TTS is disabled and never throws.
+      const spoken = n.body ? `${n.title}. ${n.body}` : n.title;
+      void speak(spoken);
+      // 3. OS notification — best-effort enhancement (secure context + granted).
+      raiseBrowserToast(n.title, n.body ?? undefined);
+    },
+    [toast, raiseBrowserToast],
+  );
+
   const poll = useCallback(async () => {
     try {
       const fresh = await listUnreadNotifications();
-      // Toast for any ids we haven't seen yet.
+      // First poll only SEEDS the seen set: the backlog of already-unread items
+      // must not trigger a toast/voice storm on every page load. Genuinely new
+      // ids that arrive on later polls alert through all three channels.
+      const firstRun = !seeded.current;
       for (const n of fresh) {
         if (!seenIds.current.has(n.id)) {
           seenIds.current.add(n.id);
-          raiseBrowserToast(n.title, n.body ?? undefined);
+          if (!firstRun) alertNew(n);
         }
       }
+      seeded.current = true;
       setNotifications(fresh);
     } catch {
       // Backend unreachable — keep current state, don't crash.
     }
-  }, [raiseBrowserToast]);
+  }, [alertNew]);
 
   useEffect(() => {
     poll();
