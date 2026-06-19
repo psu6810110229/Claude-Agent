@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import {
   CalendarDays,
   CheckSquare,
@@ -70,10 +70,10 @@ function greetingNow(): string {
       timeZone: "Asia/Bangkok",
     }).format(new Date()),
   );
-  if (hour < 5) return "Good evening";
-  if (hour < 12) return "Good morning";
-  if (hour < 18) return "Good afternoon";
-  return "Good evening";
+  if (hour < 5) return "สวัสดีตอนเย็น";
+  if (hour < 12) return "อรุณสวัสดิ์";
+  if (hour < 18) return "สวัสดีตอนบ่าย";
+  return "สวัสดีตอนเย็น";
 }
 
 type ApprovalMap = Record<number, Approval>;
@@ -86,6 +86,7 @@ interface ClarificationPrompt {
 export default function HomePage() {
   const { notify } = useToast();
   const [greeting, setGreeting] = useState<string | null>(null);
+  const reduceMotion = useReducedMotion();
   const [orbState, setOrbState] = useState<OrbState>("idle");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [provider, setProvider] = useState<ProviderChoice>("gemini");
@@ -517,7 +518,7 @@ export default function HomePage() {
       mergeApprovals([updated]);
       notify({
         kind: decision === "approve" ? "success" : "info",
-        title: decision === "approve" ? "Approved" : "Rejected",
+        title: decision === "approve" ? "อนุมัติแล้ว" : "ปฏิเสธแล้ว",
         description:
           decision === "approve"
             ? "ดำเนินการที่อนุมัติแล้ว"
@@ -565,7 +566,7 @@ export default function HomePage() {
       setPendingVerificationPrompt(null);
       notify({
         kind: "success",
-        title: "New session",
+        title: "เริ่มบทสนทนาใหม่",
         description: "เริ่มบทสนทนาใหม่แล้ว",
       });
     } catch (err) {
@@ -587,9 +588,9 @@ export default function HomePage() {
           className="secondary"
           onClick={requestNewSession}
           disabled={sending || briefBusy !== null || resetting}
-          title="Archive this session - old messages stay in DB but won't be sent to Claude"
+          title="เก็บบทสนทนานี้เข้าคลัง — ข้อความเก่ายังอยู่ในฐานข้อมูล แต่จะไม่ถูกส่งให้ Claude"
         >
-          {resetting ? "Resetting..." : "New session"}
+          {resetting ? "กำลังรีเซ็ต..." : "เริ่มใหม่"}
         </button>
       </div>
 
@@ -600,19 +601,23 @@ export default function HomePage() {
 
             <motion.div
               className="jarvis-greeting"
-              initial={{ opacity: 0, y: 18 }}
+              initial={reduceMotion ? false : { opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ type: "spring", stiffness: 70, damping: 18, delay: 0.15 }}
+              transition={
+                reduceMotion
+                  ? { duration: 0 }
+                  : { type: "spring", stiffness: 70, damping: 18, delay: 0.15 }
+              }
             >
               <h1 className={greeting ? "" : "pending"}>
-                {greeting ?? "Hello"}, Fran.
+                {greeting ?? "สวัสดี"} คุณ Fran
               </h1>
-              <p>How can I help you today?</p>
-              <div className="chat-empty-actions" aria-label="Suggested prompts">
+              <p>วันนี้ให้ Friday ช่วยอะไรดีคะ</p>
+              <div className="chat-empty-actions" aria-label="ตัวอย่างคำถาม">
                 {[
-                  "What is on my schedule today?",
-                  "Show open tasks",
-                  "Draft a quick reminder",
+                  "วันนี้มีนัดอะไรบ้าง",
+                  "ขอดูงานที่ค้างอยู่",
+                  "ช่วยตั้งเตือนความจำหน่อย",
                 ].map((prompt) => (
                   <button
                     type="button"
@@ -661,7 +666,7 @@ export default function HomePage() {
             {sending && (
               <div className="chat-bubble-wrapper assistant">
                 <div className="chat-avatar assistant-avatar" aria-hidden="true">
-                  <span className="avatar-text">J</span>
+                  <span className="avatar-text">F</span>
                 </div>
                 <div className="chat-bubble assistant typing">
                   <span className="chat-role-label">Friday</span>
@@ -673,12 +678,12 @@ export default function HomePage() {
             {briefBusy && (
               <div className="chat-bubble-wrapper assistant">
                 <div className="chat-avatar assistant-avatar" aria-hidden="true">
-                  <span className="avatar-text">J</span>
+                  <span className="avatar-text">F</span>
                 </div>
                 <div className="chat-bubble assistant typing">
                   <span className="chat-role-label">Friday</span>
                   <ThinkingContent
-                    status={`กำลังสร้าง ${briefBusy === "daily" ? "Daily Brief" : "Evening Brief"}`}
+                    status={`กำลังสร้าง${briefBusy === "daily" ? "สรุปเช้า" : "สรุปเย็น"}`}
                   />
                 </div>
               </div>
@@ -695,9 +700,13 @@ export default function HomePage() {
 
       <motion.div
         className="jarvis-input-dock"
-        initial={{ opacity: 0, y: 24 }}
+        initial={reduceMotion ? false : { opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ type: "spring", stiffness: 70, damping: 18, delay: 0.3 }}
+        transition={
+          reduceMotion
+            ? { duration: 0 }
+            : { type: "spring", stiffness: 70, damping: 18, delay: 0.3 }
+        }
       >
         <JarvisInput
           onSubmit={doSend}
@@ -727,8 +736,8 @@ export default function HomePage() {
               return next;
             })
           }
-          title={muted ? "Unmute voice" : "Mute voice"}
-          aria-label={muted ? "Unmute voice" : "Mute voice"}
+          title={muted ? "เปิดเสียง" : "ปิดเสียง"}
+          aria-label={muted ? "เปิดเสียง" : "ปิดเสียง"}
           aria-pressed={muted}
         >
           {muted ? (
@@ -813,16 +822,16 @@ function SessionConfirmDialog({
       >
         <div className="jarvis-dialog-orb" aria-hidden="true" />
         <div className="jarvis-dialog-copy">
-          <p className="page-kicker">Session</p>
-          <h3 id="session-dialog-title">Start a new session?</h3>
+          <p className="page-kicker">บทสนทนา</p>
+          <h3 id="session-dialog-title">เริ่มบทสนทนาใหม่?</h3>
           <p id="session-dialog-desc">
-            Current messages will be archived. They stay in the database, but
-            they will not appear in this chat or be sent to Claude.
+            บทสนทนาปัจจุบันจะถูกเก็บเข้าคลัง ข้อความยังอยู่ในฐานข้อมูล
+            แต่จะไม่แสดงในแชตนี้และจะไม่ถูกส่งให้ Claude
           </p>
         </div>
         <div className="jarvis-dialog-actions">
           <button type="button" onClick={onCancel} disabled={busy} autoFocus>
-            Cancel
+            ยกเลิก
           </button>
           <button
             type="button"
@@ -830,7 +839,7 @@ function SessionConfirmDialog({
             onClick={onConfirm}
             disabled={busy}
           >
-            {busy ? "Starting..." : "New session"}
+            {busy ? "กำลังเริ่ม..." : "เริ่มใหม่"}
           </button>
         </div>
       </section>
@@ -839,9 +848,9 @@ function SessionConfirmDialog({
 }
 
 function briefToMessage(result: BriefResult): ChatMessage {
-  const label = result.type === "daily" ? "Daily Brief" : "Evening Brief";
+  const label = result.type === "daily" ? "สรุปเช้า" : "สรุปเย็น";
   const now = new Date().toISOString();
-  const notes = result.notes ? `\n\nNotes: ${result.notes}` : "";
+  const notes = result.notes ? `\n\nหมายเหตุ: ${result.notes}` : "";
 
   return {
     id: -Date.now(),
@@ -989,10 +998,10 @@ function ChatMessageGroup({
   return (
     <section className={`chat-group ${isUser ? "user" : "assistant"}`}>
       <div className="chat-group-header">
-        <span className="chat-role">{isUser ? "You" : "Friday"}</span>
+        <span className="chat-role">{isUser ? "คุณ" : "Friday"}</span>
         <span className="ts">{formatTs(first.created_at)}</span>
         {groupProvider && (
-          <span className="provider-badge" title="AI provider">
+          <span className="provider-badge" title="ผู้ให้บริการ AI">
             {PROVIDER_LABELS[groupProvider]}
           </span>
         )}
@@ -1060,7 +1069,7 @@ function ChatBubble({
     <div className={`chat-bubble-wrapper ${isUser ? "user" : "assistant"}`}>
       {!isUser && groupedIndex === 0 && (
         <div className="chat-avatar assistant-avatar" aria-hidden="true">
-          <span className="avatar-text">J</span>
+          <span className="avatar-text">F</span>
         </div>
       )}
       {!isUser && groupedIndex > 0 && (
@@ -1128,12 +1137,20 @@ function ClarificationPanel({
           </button>
         ))}
         <button type="button" onClick={onSkip}>
-          Skip
+          ข้าม
         </button>
       </div>
     </div>
   );
 }
+
+const APPROVAL_STATUS_LABELS: Record<string, string> = {
+  pending: "รอดำเนินการ",
+  approved: "อนุมัติแล้ว",
+  rejected: "ปฏิเสธแล้ว",
+  succeeded: "เสร็จแล้ว",
+  failed: "ไม่สำเร็จ",
+};
 
 function InlineApproval({
   action,
@@ -1165,7 +1182,7 @@ function InlineApproval({
       </span>
       {status === "pending" ? (
         <div className="chat-approval-actions">
-          {failed && <span className="badge failed">failed</span>}
+          {failed && <span className="badge failed">ไม่สำเร็จ</span>}
           <button
             type="button"
             className="primary"
@@ -1184,7 +1201,7 @@ function InlineApproval({
         </div>
       ) : (
         <span className={`badge ${executionStatus === "succeeded" ? "succeeded" : status}`}>
-          {executionStatus === "succeeded" ? "done" : status}
+          {executionStatus === "succeeded" ? "เสร็จแล้ว" : APPROVAL_STATUS_LABELS[status] ?? status}
         </span>
       )}
     </div>
@@ -1194,11 +1211,11 @@ function InlineApproval({
 function approvalExecutionMessage(approval: Approval): string | null {
   if (approval.execution_status === "failed") {
     return approval.execution_error
-      ? `Execution failed: ${approval.execution_error}`
-      : "Execution failed. You can retry or reject it.";
+      ? `ดำเนินการไม่สำเร็จ: ${approval.execution_error}`
+      : "ดำเนินการไม่สำเร็จ ลองใหม่หรือปฏิเสธได้ค่ะ";
   }
   if (approval.execution_status === "succeeded") {
-    return approval.result_summary ?? "Executed successfully.";
+    return approval.result_summary ?? "ดำเนินการสำเร็จแล้วค่ะ";
   }
   return null;
 }
@@ -1406,11 +1423,11 @@ function sanitizeHref(href: string): string | null {
 type SourceHint = "calendar" | "tasks" | "reminders" | "memory" | "chat";
 
 const SOURCE_LABELS: Record<SourceHint, string> = {
-  calendar: "Calendar",
-  tasks: "Tasks",
-  reminders: "Reminders",
-  memory: "Memory",
-  chat: "Chat",
+  calendar: "ปฏิทิน",
+  tasks: "งาน",
+  reminders: "เตือนความจำ",
+  memory: "ความจำ",
+  chat: "แชต",
 };
 
 const SOURCE_ICONS: Record<SourceHint, typeof CalendarDays> = {
@@ -1424,7 +1441,7 @@ const SOURCE_ICONS: Record<SourceHint, typeof CalendarDays> = {
 function SourceHintList({ hints }: { hints: SourceHint[] }) {
   if (hints.length === 0) return null;
   return (
-    <span className="source-hints" aria-label="Message context">
+    <span className="source-hints" aria-label="แหล่งข้อมูล">
       {hints.map((hint) => {
         const Icon = SOURCE_ICONS[hint];
         return (

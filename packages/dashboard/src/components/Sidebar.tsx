@@ -51,20 +51,20 @@ const PRELOADERS: Record<string, () => void> = {
 };
 
 const LINKS = [
-  { href: "/",          label: "Home",          icon: Home          },
-  { href: "/approvals", label: "Approvals",     icon: CheckCircle2  },
+  { href: "/",          label: "หน้าหลัก",      icon: Home          },
+  { href: "/approvals", label: "การอนุมัติ",    icon: CheckCircle2  },
 ];
 
 const MORE_LINKS = [
-  { href: "/tasks",     label: "Tasks",         icon: ListTodo      },
-  { href: "/activity",  label: "Activity",      icon: Activity      },
-  { href: "/upcoming",  label: "Upcoming",      icon: CalendarDays  },
+  { href: "/tasks",     label: "งาน",           icon: ListTodo      },
+  { href: "/activity",  label: "กิจกรรม",       icon: Activity      },
+  { href: "/upcoming",  label: "กำหนดการ",      icon: CalendarDays  },
   { href: "/gmail",     label: "Gmail",         icon: Mail          },
   { href: "/drive",     label: "Drive",         icon: HardDrive     },
-  { href: "/memory",    label: "Memory",        icon: Brain         },
-  { href: "/files",     label: "File Explorer", icon: Files         },
-  { href: "/notepad",   label: "Notepad",       icon: NotebookPen   },
-  { href: "/projects",  label: "Projects",      icon: FolderKanban  },
+  { href: "/memory",    label: "ความจำ",        icon: Brain         },
+  { href: "/files",     label: "ไฟล์",          icon: Files         },
+  { href: "/notepad",   label: "โน้ต",          icon: NotebookPen   },
+  { href: "/projects",  label: "โปรเจกต์",      icon: FolderKanban  },
 ];
 
 export function Sidebar({
@@ -84,10 +84,10 @@ export function Sidebar({
       <div className="brand">
         <div className="brand-orb" aria-hidden="true" />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <h1>J.A.R.V.I.S</h1>
+          <h1>Friday</h1>
           <div className="status-line">
             <span className="status-dot" aria-hidden="true" />
-            Online
+            ออนไลน์
           </div>
         </div>
       </div>
@@ -118,7 +118,7 @@ export function Sidebar({
           onClick={() => setExpanded((value) => !value)}
         >
           <ChevronDown aria-hidden="true" strokeWidth={1.8} />
-          More
+          เพิ่มเติม
         </button>
 
         <div
@@ -151,7 +151,7 @@ export function Sidebar({
       {schedule && (
         <>
           <hr className="side-divider" />
-          <p className="side-label">Today&apos;s Schedule</p>
+          <p className="side-label">ตารางวันนี้</p>
           {schedule}
         </>
       )}
@@ -159,7 +159,7 @@ export function Sidebar({
       {system && (
         <>
           <hr className="side-divider" />
-          <p className="side-label">System Overview</p>
+          <p className="side-label">ภาพรวมระบบ</p>
           {system}
         </>
       )}

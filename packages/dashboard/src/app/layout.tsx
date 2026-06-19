@@ -9,16 +9,21 @@ import { Shell } from "@/components/Shell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "J.A.R.V.I.S",
-  description: "Personal AI operating system",
+  title: "Friday",
+  description: "ระบบผู้ช่วยส่วนตัว",
 };
 
 export const viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
+  // User zoom must never be disabled (WCAG 1.4.4). No maximumScale / userScalable:false.
+  userScalable: true,
   viewportFit: 'cover',
-};
+  // Resize the layout viewport when the on-screen keyboard opens so the
+  // sticky bottom dock stays above it (Chromium). iOS Safari is handled by
+  // the visualViewport listener in Shell.
+  interactiveWidget: 'resizes-content',
+} as const;
 
 export default function RootLayout({
   children,
@@ -26,7 +31,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="th" suppressHydrationWarning>
       {/* suppressHydrationWarning: browser extensions (e.g. Grammarly) inject
           attributes onto <html>/<body> before React hydrates, which otherwise
           trips a hydration mismatch. This suppresses only these elements'

@@ -164,3 +164,13 @@ The next intelligence jump should be system-driven, not prompt-only:
 - No AI call in scheduler for Step 22.
 - No vector DB in Step 22.
 - No LINE write or live LINE access.
+
+## Design Context
+
+- Strategy lives in `PRODUCT.md`; visual system in `DESIGN.md` (+ `.impeccable/design.json`). Read those before dashboard UI work.
+- Register: product. Personality: warm, conversational, human — secretary with a voice, not console, not toy.
+- North Star: "Liquid Glass Atelier" — dark-only, frosted glass over near-black void; depth from tonal layering + blur, not borders.
+- Signature: Arc Blue `#0a84ff` (action) → Halo Violet `#8b5cf6` (identity/glow only). Status hues amber/rose/green are semantic only. One IBM Plex family.
+- Anti-refs: generic SaaS dashboard · toy chatbot · cluttered enterprise admin · over-the-top sci-fi HUD. Orb is the only spectacle.
+- A11y target WCAG 2.1 AA (single-operator): verify contrast on glass not void, ≥44px touch, reduced-motion must cover framer-motion/JS, never disable zoom.
+- Tokens in `globals.css` `:root`. Use `/impeccable` commands for UI changes.

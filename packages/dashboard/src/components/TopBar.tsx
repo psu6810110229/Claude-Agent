@@ -32,7 +32,7 @@ export function TopBar() {
         type="button" 
         className="icon-btn mobile-menu-btn" 
         onClick={() => setDrawerOpen(true)}
-        aria-label="Open menu"
+        aria-label="เปิดเมนู"
       >
         <Menu aria-hidden="true" strokeWidth={1.8} />
       </button>
@@ -41,7 +41,7 @@ export function TopBar() {
 
       <NotificationCenter />
 
-      <Link href="/settings" className="icon-btn" aria-label="Settings">
+      <Link href="/settings" className="icon-btn" aria-label="ตั้งค่า">
         <Settings aria-hidden="true" strokeWidth={1.8} />
       </Link>
 
@@ -62,15 +62,15 @@ export function TopBar() {
         <div className="menu-pop" role="menu">
           <Link href="/memory" role="menuitem" onClick={() => setMenuOpen(false)}>
             <Brain size={15} strokeWidth={1.8} aria-hidden="true" />
-            Memory
+            ความจำ
           </Link>
           <Link href="/settings" role="menuitem" onClick={() => setMenuOpen(false)}>
             <Settings size={15} strokeWidth={1.8} aria-hidden="true" />
-            Settings
+            ตั้งค่า
           </Link>
           <Link href="/activity" role="menuitem" onClick={() => setMenuOpen(false)}>
             <User size={15} strokeWidth={1.8} aria-hidden="true" />
-            Activity log
+            บันทึกกิจกรรม
           </Link>
         </div>
       )}

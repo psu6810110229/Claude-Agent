@@ -5,9 +5,9 @@ import { ArrowUp, ChevronDown, Moon, Sparkles, Sun } from "lucide-react";
 import { GEMINI_MODEL_OPTIONS, type ProviderChoice, type BriefType } from "@/lib/types";
 
 const PROVIDER_OPTIONS: { id: ProviderChoice; label: string; title: string }[] = [
-  { id: "auto", label: "Auto", title: "Backend picks the best provider per task" },
-  { id: "claude", label: "Claude", title: "Always use Claude" },
-  { id: "gemini", label: "Gemini", title: "Always use Gemini" },
+  { id: "auto", label: "อัตโนมัติ", title: "ให้ระบบเลือกผู้ให้บริการที่เหมาะกับงาน" },
+  { id: "claude", label: "Claude", title: "ใช้ Claude เสมอ" },
+  { id: "gemini", label: "Gemini", title: "ใช้ Gemini เสมอ" },
 ];
 
 /**
@@ -61,8 +61,8 @@ export function JarvisInput({
         onChange={(e) => setText(e.target.value)}
         onFocus={() => onFocusChange?.(true)}
         onBlur={() => onFocusChange?.(false)}
-        placeholder="Ask J.A.R.V.I.S anything..."
-        aria-label="Ask J.A.R.V.I.S anything"
+        placeholder="ถาม Friday ได้ทุกเรื่อง..."
+        aria-label="ถาม Friday"
         disabled={disabled}
         autoFocus
       />
@@ -70,8 +70,8 @@ export function JarvisInput({
         <div
           className="ji-provider"
           role="group"
-          aria-label="AI provider"
-          title="Choose which AI provider answers"
+          aria-label="ผู้ให้บริการ AI"
+          title="เลือกผู้ให้บริการ AI ที่จะตอบ"
         >
           {PROVIDER_OPTIONS.map((opt) => (
             <button
@@ -89,13 +89,13 @@ export function JarvisInput({
         </div>
       )}
       {provider === "gemini" && onGeminiModelChange && (
-        <label className="ji-model" title="Choose which Gemini model answers">
-          <span className="sr-only">Gemini model</span>
+        <label className="ji-model" title="เลือกโมเดล Gemini ที่จะตอบ">
+          <span className="sr-only">โมเดล Gemini</span>
           <select
             value={geminiModel ?? GEMINI_MODEL_OPTIONS[0].id}
             disabled={disabled}
             onChange={(e) => onGeminiModelChange(e.target.value)}
-            aria-label="Gemini model"
+            aria-label="โมเดล Gemini"
           >
             {GEMINI_MODEL_OPTIONS.map((opt) => (
               <option key={opt.id} value={opt.id}>
@@ -111,8 +111,8 @@ export function JarvisInput({
             type="button"
             className="ji-menu-toggle"
             disabled={disabled || briefBusy !== null}
-            title="Brief actions"
-            aria-label="Brief actions"
+            title="เมนูสรุป"
+            aria-label="เมนูสรุป"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((open) => !open)}
           >
@@ -144,7 +144,7 @@ export function JarvisInput({
                 onClick={() => runBrief("daily")}
               >
                 <Sun strokeWidth={1.7} />
-                Daily Brief
+                สรุปเช้า
               </button>
               <button
                 type="button"
@@ -153,7 +153,7 @@ export function JarvisInput({
                 onClick={() => runBrief("evening")}
               >
                 <Moon strokeWidth={1.7} />
-                Evening Brief
+                สรุปเย็น
               </button>
             </div>
           )}
@@ -163,7 +163,7 @@ export function JarvisInput({
         type="submit"
         className="ji-send"
         disabled={disabled || text.trim() === ""}
-        aria-label="Send"
+        aria-label="ส่ง"
       >
         <ArrowUp strokeWidth={2} />
       </button>

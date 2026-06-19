@@ -24,6 +24,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import {
   listUnreadNotifications,
   markNotificationRead,
@@ -31,6 +32,8 @@ import {
 } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
 import type { Notification } from "@/lib/types";
+
+const DROPDOWN_WIDTH = 300;
 
 const POLL_INTERVAL_MS = 30_000;
 
@@ -77,11 +80,19 @@ export function NotificationCenter() {
   const [open, setOpen] = useState(false);
   const [dropPos, setDropPos] = useState<{ top: number; left: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const dropRef = useRef<HTMLDivElement>(null);
   const seenIds = useRef<Set<number>>(new Set());
   const permissionAsked = useRef(false);
   const seeded = useRef(false);
   const { notify: toast } = useToast();
+  const pathname = usePathname();
 
+  // Anchor the fixed-position dropdown under the bell button.
+  const reposition = useCallback(() => {
+    if (!btnRef.current) return;
+    const r = btnRef.current.getBoundingClientRect();
+    setDropPos({ top: r.bottom + 8, left: r.right - DROPDOWN_WIDTH });
+  }, []);
   const raiseBrowserToast = useCallback(
     (title: string, body?: string) => {
       if (typeof window === "undefined" || !("Notification" in window)) return;
@@ -151,6 +162,43 @@ export function NotificationCenter() {
     return () => clearInterval(id);
   }, [poll]);
 
+  // Close on route change so a stale dropdown never lingers across navigation.
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
+  // While open: outside-click + Escape dismissal, and keep the fixed dropdown
+  // anchored to the bell as the page scrolls or the viewport resizes.
+  useEffect(() => {
+    if (!open) return;
+
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (dropRef.current?.contains(target) || btnRef.current?.contains(target)) {
+        return;
+      }
+      setOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        btnRef.current?.focus();
+      }
+    };
+
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+    };
+  }, [open, reposition]);
+
   const handleMarkRead = useCallback(
     async (n: Notification) => {
       try {
@@ -170,16 +218,15 @@ export function NotificationCenter() {
       <button
         ref={btnRef}
         onClick={() => {
-          if (!open && btnRef.current) {
-            const r = btnRef.current.getBoundingClientRect();
-            setDropPos({ top: r.bottom + 8, left: r.right - 300 });
-          }
+          if (!open) reposition();
           setOpen((v) => !v);
         }}
+        aria-haspopup="dialog"
+        aria-expanded={open}
         aria-label={
           unreadCount > 0
-            ? `${unreadCount} unread notification${unreadCount !== 1 ? "s" : ""}`
-            : "Notifications"
+            ? `การแจ้งเตือน ยังไม่อ่าน ${unreadCount} รายการ`
+            : "การแจ้งเตือน"
         }
         className="icon-btn"
       >
@@ -188,11 +235,14 @@ export function NotificationCenter() {
 
       {open && (
         <div
+          ref={dropRef}
+          role="dialog"
+          aria-label="การแจ้งเตือน"
           style={{
             position: "fixed",
             top: dropPos?.top ?? 0,
             left: Math.max(8, dropPos?.left ?? 0),
-            width: 300,
+            width: DROPDOWN_WIDTH,
             background: "rgba(26, 27, 32, 0.92)",
             backdropFilter: "blur(30px) saturate(150%)",
             WebkitBackdropFilter: "blur(30px) saturate(150%)",
@@ -211,15 +261,15 @@ export function NotificationCenter() {
               justifyContent: "space-between",
             }}
           >
-            <strong style={{ fontSize: 13 }}>Notifications</strong>
+            <strong style={{ fontSize: 13 }}>การแจ้งเตือน</strong>
             {unreadCount > 0 && (
               <span
                 style={{
                   fontSize: 11,
-                  color: "var(--muted)",
+                  color: "var(--muted-strong)",
                 }}
               >
-                {unreadCount} unread
+                ยังไม่อ่าน {unreadCount}
               </span>
             )}
           </div>
@@ -229,11 +279,11 @@ export function NotificationCenter() {
               style={{
                 padding: "16px 14px",
                 margin: 0,
-                color: "var(--muted)",
+                color: "var(--muted-strong)",
                 fontSize: 13,
               }}
             >
-              No new notifications
+              ไม่มีการแจ้งเตือนใหม่
             </p>
           ) : (
             <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
@@ -266,7 +316,7 @@ export function NotificationCenter() {
                       marginTop: 1,
                     }}
                   >
-                    {n.kind === "reminder.due" ? "Due" : "Soon"}
+                    {n.kind === "reminder.due" ? "ถึงกำหนด" : "ใกล้ถึง"}
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div
@@ -297,18 +347,23 @@ export function NotificationCenter() {
                   </div>
                   <button
                     onClick={() => handleMarkRead(n)}
-                    title="Mark as read"
+                    title="ทำเครื่องหมายว่าอ่านแล้ว"
                     style={{
+                      display: "grid",
+                      placeItems: "center",
+                      width: 44,
+                      height: 44,
+                      margin: "-12px -10px -12px 0",
                       background: "none",
                       border: "none",
+                      borderRadius: 10,
                       cursor: "pointer",
-                      color: "var(--muted)",
-                      fontSize: 16,
-                      padding: "0 2px",
+                      color: "var(--muted-strong)",
+                      fontSize: 18,
                       lineHeight: 1,
                       flexShrink: 0,
                     }}
-                    aria-label={`Mark "${n.title}" as read`}
+                    aria-label={`ทำเครื่องหมายว่าอ่านแล้ว: ${n.title}`}
                   >
                     ×
                   </button>

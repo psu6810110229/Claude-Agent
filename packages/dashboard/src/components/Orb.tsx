@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 
 export type OrbState = "idle" | "listening" | "thinking";
 
@@ -10,13 +10,18 @@ export type OrbState = "idle" | "listening" | "thinking";
  * `state` prop nudges pace and brightness so it reads as alive, never blinking.
  */
 export function Orb({ state = "idle" }: { state?: OrbState }) {
+  const reduceMotion = useReducedMotion();
   return (
     <motion.div
       className="orb-wrap"
       data-state={state}
-      initial={{ opacity: 0, scale: 0.92, y: 14 }}
+      initial={reduceMotion ? false : { opacity: 0, scale: 0.92, y: 14 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
-      transition={{ type: "spring", stiffness: 60, damping: 16, mass: 1.1 }}
+      transition={
+        reduceMotion
+          ? { duration: 0 }
+          : { type: "spring", stiffness: 60, damping: 16, mass: 1.1 }
+      }
       aria-hidden="true"
     >
       <div className="orb-halo" />
