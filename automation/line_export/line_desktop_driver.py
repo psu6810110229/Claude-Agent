@@ -446,38 +446,29 @@ class LineDesktopDriver:
         if not self._gate(f"paste {desc} ({len(text)} chars) via clipboard + Ctrl+V"):
             return
         self._preflight(focus=True, action=f"paste {desc}")
-        # Load the clipboard FIRST and confirm it actually took. The Windows
-        # clipboard is shared: another process (or our own previous call) can
-        # hold it open, leaving CF_UNICODETEXT empty/stale. Pasting stale/empty
-        # clipboard is the "blank or wrong name in search" bug. Verify by
-        # read-back and retry before we touch the keyboard.
-        _set_clipboard_text_verified(text)
         # Put the keyboard CARET in the target field before pasting. set_focus()
         # above only focuses the main window's default control, NOT the text input
         # we want — and in supervised mode the confirm prompt also pulls focus to
         # the console. Without this click the keys land nowhere: the classic
         # "clicked search but typed nothing" bug. Recompute the pixel from the
         # post-focus rect (self.window was refreshed by the focus=True preflight).
+        #
+        # SINGLE click only. A second click at the same point can land on the
+        # recent-search popup Qt raises after the first click, stealing focus
+        # from the input — that double-click was the "name not typed in search
+        # box" regression.
         if caret_click is not None:
             from pywinauto import mouse
-            pt = self._point(caret_click)
-            # Click TWICE: the opaque Qt search box sometimes only takes
-            # hover/activation on the first click and accepts the keyboard caret
-            # on the second. A single click was a source of "typed nothing".
-            mouse.click(coords=pt)
+            mouse.click(coords=self._point(caret_click))
             time.sleep(self.settle)
-            mouse.click(coords=pt)
-            time.sleep(self.settle)
+        # Load the clipboard with busy-retry + read-back verify so we never paste
+        # stale/empty text. Clipboard content is independent of focus, so setting
+        # it here (after the caret click, right before paste) is correct.
+        _set_clipboard_text_verified(text)
         from pywinauto import keyboard
-        # Clear any existing query robustly: select-all then delete the selection.
-        # {DELETE} after ^a removes the whole selection; if ^a somehow lost focus
-        # it deletes at most one char rather than silently doing nothing, and the
-        # settle gives Qt time to repaint the empty box before we paste.
-        keyboard.send_keys("^a")
-        time.sleep(self.settle)
-        keyboard.send_keys("{DELETE}")
-        time.sleep(self.settle)
-        keyboard.send_keys("^v")
+        keyboard.send_keys("^a")          # select any existing query
+        keyboard.send_keys("{BACKSPACE}") # clear it
+        keyboard.send_keys("^v")          # paste the search term
         time.sleep(self.settle)
 
     def _key(self, keys: str, desc: str) -> None:
