@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { preload } from "swr";
 import {
   Activity,
@@ -76,8 +76,19 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const [expanded, setExpanded] = useState(false);
+  // On mobile the "เพิ่มเติม" collapse is dropped — every link shows in one
+  // vertical column. Track the breakpoint so the toggle is hidden and the
+  // secondary links stay expanded (and keyboard-reachable).
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 980px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
   const secondaryActive = MORE_LINKS.some((l) => pathname === l.href);
-  const showMore = expanded || secondaryActive;
+  const showMore = isMobile || expanded || secondaryActive;
 
   return (
     <aside className="sidebar">
@@ -110,16 +121,18 @@ export function Sidebar({
           );
         })}
 
-        <button
-          type="button"
-          className="nav-toggle"
-          aria-expanded={showMore}
-          aria-controls="sidebar-more-nav"
-          onClick={() => setExpanded((value) => !value)}
-        >
-          <ChevronDown aria-hidden="true" strokeWidth={1.8} />
-          เพิ่มเติม
-        </button>
+        {!isMobile && (
+          <button
+            type="button"
+            className="nav-toggle"
+            aria-expanded={showMore}
+            aria-controls="sidebar-more-nav"
+            onClick={() => setExpanded((value) => !value)}
+          >
+            <ChevronDown aria-hidden="true" strokeWidth={1.8} />
+            เพิ่มเติม
+          </button>
+        )}
 
         <div
           id="sidebar-more-nav"

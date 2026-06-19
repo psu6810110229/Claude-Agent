@@ -3,9 +3,23 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 
-const ShellContext = createContext({
+/** Lets the chat page surface its "เริ่มใหม่" control in the global TopBar. */
+export interface NewSessionControl {
+  onClick: () => void;
+  disabled: boolean;
+  busy: boolean;
+}
+
+const ShellContext = createContext<{
+  drawerOpen: boolean;
+  setDrawerOpen: (v: boolean) => void;
+  newSession: NewSessionControl | null;
+  setNewSession: (c: NewSessionControl | null) => void;
+}>({
   drawerOpen: false,
-  setDrawerOpen: (v: boolean) => {}
+  setDrawerOpen: () => {},
+  newSession: null,
+  setNewSession: () => {},
 });
 
 export function useShell() {
@@ -14,6 +28,7 @@ export function useShell() {
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [newSession, setNewSession] = useState<NewSessionControl | null>(null);
   const pathname = usePathname();
 
   // close drawer on navigation
@@ -44,7 +59,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <ShellContext.Provider value={{ drawerOpen, setDrawerOpen }}>
+    <ShellContext.Provider value={{ drawerOpen, setDrawerOpen, newSession, setNewSession }}>
       <div className={`shell ${drawerOpen ? 'drawer-open' : ''}`}>
         {children}
         {drawerOpen && (

@@ -13,7 +13,7 @@
  */
 import {
   OWNER_PIN,
-  OWNER_SECRET_PHRASE,
+  OWNER_SECRET_PHRASES,
   PRIVACY_GUARD_ENABLED,
   PRIVACY_GUARD_CONFIGURED,
   PRIVACY_VERIFY_MAX_ATTEMPTS,
@@ -130,8 +130,8 @@ export function verify(sessionId: string, input: string): VerifyOutcome {
   const pinOk = safeEqual(cleanInput, OWNER_PIN.trim().toLowerCase());
   
   let phraseOk = false;
-  if (OWNER_SECRET_PHRASE) {
-    const phrase = OWNER_SECRET_PHRASE.trim().toLowerCase();
+  for (const phrase of OWNER_SECRET_PHRASES) {
+    if (!phrase) continue;
     if (
       cleanInput === phrase ||
       cleanInput.startsWith(phrase) ||
@@ -139,6 +139,7 @@ export function verify(sessionId: string, input: string): VerifyOutcome {
       cleanInput.startsWith("จาวิส" + phrase)
     ) {
       phraseOk = true;
+      break;
     }
   }
 

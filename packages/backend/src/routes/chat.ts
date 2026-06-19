@@ -27,7 +27,7 @@ import {
   isGuardEnabled,
   clearVerified,
 } from "../services/identityVerifier.js";
-import { OWNER_SECRET_PHRASE, OWNER_PIN } from "../config.js";
+import { OWNER_SECRET_PHRASES, OWNER_PIN } from "../config.js";
 
 /** Plugin options. Both injectables let tests stub Claude / Google Calendar. */
 export interface ChatRouteOptions {
@@ -191,21 +191,27 @@ async function handleChat(
       unlockSecret = OWNER_PIN;
       removeLength = cleanMsg.length;
     }
-    // 2. Check Secret Phrase
-    else if (OWNER_SECRET_PHRASE) {
-      const phrase = OWNER_SECRET_PHRASE.trim().toLowerCase();
-      if (cleanMsg.startsWith(phrase)) {
-        matchedInline = true;
-        unlockSecret = OWNER_SECRET_PHRASE;
-        removeLength = OWNER_SECRET_PHRASE.length;
-      } else if (cleanMsg.startsWith("จาวิส " + phrase)) {
-        matchedInline = true;
-        unlockSecret = OWNER_SECRET_PHRASE;
-        removeLength = "จาวิส ".length + OWNER_SECRET_PHRASE.length;
-      } else if (cleanMsg.startsWith("จาวิส" + phrase)) {
-        matchedInline = true;
-        unlockSecret = OWNER_SECRET_PHRASE;
-        removeLength = "จาวิส".length + OWNER_SECRET_PHRASE.length;
+    // 2. Check Secret Phrase / owner openers (any phrase unlocks; strip it,
+    //    forward the remainder). First match in the list wins.
+    else {
+      for (const phrase of OWNER_SECRET_PHRASES) {
+        if (!phrase) continue;
+        if (cleanMsg.startsWith(phrase)) {
+          matchedInline = true;
+          unlockSecret = phrase;
+          removeLength = phrase.length;
+          break;
+        } else if (cleanMsg.startsWith("จาวิส " + phrase)) {
+          matchedInline = true;
+          unlockSecret = phrase;
+          removeLength = "จาวิส ".length + phrase.length;
+          break;
+        } else if (cleanMsg.startsWith("จาวิส" + phrase)) {
+          matchedInline = true;
+          unlockSecret = phrase;
+          removeLength = "จาวิส".length + phrase.length;
+          break;
+        }
       }
     }
 

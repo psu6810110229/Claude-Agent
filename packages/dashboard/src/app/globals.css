@@ -914,6 +914,45 @@ h3 {
   font-size: 11px;
 }
 
+/* "เริ่มใหม่" — moved into the topbar, sits just before the bell. */
+.topbar-session-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 999px;
+  background: var(--glass);
+  box-shadow: var(--inner-light);
+  color: var(--muted-strong);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 560;
+  transition:
+    background-color 220ms var(--spring),
+    color 220ms var(--spring),
+    transform 220ms var(--spring);
+}
+
+.topbar-session-btn:hover:not(:disabled) {
+  background: var(--glass-strong);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.topbar-session-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.topbar-session-btn svg {
+  width: 16px;
+  height: 16px;
+  color: var(--accent);
+}
+
 .menu-pop {
   position: absolute;
   top: 64px;
@@ -2855,6 +2894,409 @@ pre.payload {
   transform: translateY(-1px);
 }
 
+/* --- Welcome agenda (new-session "today at a glance") ------------------------ */
+
+.welcome-agenda {
+  width: min(100%, 460px);
+  max-width: calc(100vw - 28px);
+  margin: 24px auto 0;
+  padding: 16px 18px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--glass);
+  box-shadow: var(--shadow-soft), var(--inner-light);
+  border: 1px solid var(--border);
+  text-align: left;
+  overflow: hidden;
+}
+
+.welcome-agenda-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.welcome-agenda-head > svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.welcome-agenda-head > div {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.welcome-agenda-date {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.welcome-agenda-meta {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.wa-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--glass);
+  color: var(--muted-strong);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 560;
+  cursor: pointer;
+  transition: background-color 220ms var(--spring), color 220ms var(--spring),
+    transform 220ms var(--spring);
+}
+
+.wa-cta svg {
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+}
+
+.wa-cta:hover {
+  background: var(--glass-strong);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.welcome-agenda-list {
+  display: grid;
+  gap: 2px;
+}
+
+.wa-empty {
+  margin: 8px 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.welcome-agenda-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 9px 8px;
+  border-radius: var(--radius);
+  transition: background-color 220ms var(--spring);
+}
+
+.welcome-agenda-row .wa-time {
+  flex-shrink: 0;
+  width: 46px;
+  font-size: 12.5px;
+  font-weight: 560;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-strong);
+}
+
+.welcome-agenda-row .wa-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.welcome-agenda-row .wa-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.welcome-agenda-row .wa-title {
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 520;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.welcome-agenda-row .wa-sub {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+/* Urgency states ---------------------------------------------------------- */
+/* overdue — bright rose, highest contrast against the void. */
+.welcome-agenda-row.u-overdue {
+  background: var(--rose-soft);
+}
+.welcome-agenda-row.u-overdue .wa-dot {
+  background: var(--rose);
+  box-shadow: 0 0 0 4px var(--rose-soft);
+}
+.welcome-agenda-row.u-overdue .wa-time {
+  color: var(--rose);
+}
+
+/* next ≤3h — green. */
+.welcome-agenda-row.u-next {
+  background: var(--ok-soft);
+}
+.welcome-agenda-row.u-next .wa-dot {
+  background: var(--ok);
+  box-shadow: 0 0 0 4px var(--ok-soft);
+}
+.welcome-agenda-row.u-next .wa-time {
+  color: var(--ok);
+}
+
+/* pending — amber with a blinking dot. */
+.welcome-agenda-row.u-pending .wa-dot {
+  background: var(--amber);
+}
+.welcome-agenda-row.u-pending .wa-time {
+  color: var(--amber);
+}
+.wa-dot.is-blink {
+  animation: wa-blink 1.3s ease-in-out infinite;
+}
+
+/* past / done — muted gray. */
+.welcome-agenda-row.u-past,
+.welcome-agenda-row.u-done {
+  opacity: 0.5;
+}
+.welcome-agenda-row.u-done .wa-title {
+  text-decoration: line-through;
+}
+
+@keyframes wa-blink {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+}
+
+/* Quick-finish check (open tasks) ----------------------------------------- */
+.wa-check {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background-color 220ms var(--spring), color 220ms var(--spring),
+    border-color 220ms var(--spring);
+}
+.wa-check svg {
+  width: 14px;
+  height: 14px;
+}
+.wa-check:hover:not(:disabled) {
+  background: var(--ok-soft);
+  border-color: var(--ok);
+  color: var(--ok);
+}
+.wa-check:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.wa-check.is-done {
+  background: var(--ok-soft);
+  border-color: transparent;
+  color: var(--ok);
+}
+
+.welcome-agenda-more {
+  width: 100%;
+  margin-top: 8px;
+  min-height: 36px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--accent-hover);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 560;
+  cursor: pointer;
+  transition: background-color 220ms var(--spring), color 220ms var(--spring);
+}
+
+.welcome-agenda-more:hover:not(:disabled) {
+  background: var(--glass);
+  color: var(--text);
+}
+
+/* Agenda modals (date picker + view-all) ---------------------------------- */
+.wa-modal {
+  position: relative;
+  width: min(360px, calc(100vw - 28px));
+  max-width: 100%;
+  border-radius: var(--radius-lg);
+  background: rgba(26, 27, 32, 0.92);
+  backdrop-filter: blur(34px) saturate(150%);
+  -webkit-backdrop-filter: blur(34px) saturate(150%);
+  box-shadow: 0 34px 120px rgba(0, 0, 0, 0.62), var(--inner-light);
+  padding: 18px;
+  animation: dialog-enter 260ms var(--ease-out-expo) both;
+}
+
+.wa-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.wa-modal-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+.wa-modal-close {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--glass);
+  color: var(--muted-strong);
+  cursor: pointer;
+  transition: background-color 220ms var(--spring), color 220ms var(--spring);
+}
+.wa-modal-close:hover {
+  background: var(--glass-strong);
+  color: var(--text);
+}
+.wa-modal-close svg {
+  width: 16px;
+  height: 16px;
+}
+.wa-modal-list {
+  display: grid;
+  gap: 2px;
+  max-height: min(60vh, 460px);
+  overflow-y: auto;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+
+/* Month calendar (tour-booking style) ------------------------------------- */
+.wa-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.wa-cal-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.wa-cal-nav {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: var(--glass);
+  color: var(--muted-strong);
+  cursor: pointer;
+  transition: background-color 220ms var(--spring), color 220ms var(--spring);
+}
+.wa-cal-nav:hover {
+  background: var(--glass-strong);
+  color: var(--text);
+}
+.wa-cal-nav svg {
+  width: 16px;
+  height: 16px;
+}
+.wa-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  width: 100%;
+}
+.wa-cal-wd-row {
+  margin-bottom: 4px;
+}
+.wa-cal-wd {
+  display: grid;
+  place-items: center;
+  height: 24px;
+  font-size: 11px;
+  font-weight: 560;
+  color: var(--muted);
+}
+.wa-cal-day {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  height: 42px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted-strong);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 520;
+  cursor: pointer;
+  transition: background-color 220ms var(--spring), color 220ms var(--spring);
+}
+.wa-cal-day.is-blank {
+  pointer-events: none;
+}
+.wa-cal-day:hover:not(.is-blank):not(.is-selected) {
+  background: var(--glass);
+  color: var(--text);
+}
+.wa-cal-day.is-today {
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: var(--accent-hover);
+}
+.wa-cal-day.is-selected {
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 640;
+}
+.wa-cal-day.has-dot::after {
+  content: "";
+  position: absolute;
+  bottom: 5px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.wa-cal-day.is-selected.has-dot::after {
+  background: #ffffff;
+}
+
 /* --- Capsule input ----------------------------------------------------------- */
 
 .jarvis-input-dock {
@@ -2890,11 +3332,13 @@ pre.payload {
 }
 
 .jarvis-input:focus-within {
-  border-color: rgba(10, 132, 255, 0.4);
-  background: rgba(255, 255, 255, 0.075);
+  border-color: rgba(10, 132, 255, 0.55);
+  background: rgba(255, 255, 255, 0.08);
+  /* Focus = Arc Blue ring glow (per DESIGN input spec), not a hard border. */
   box-shadow:
     0 20px 56px rgba(0, 0, 0, 0.5),
-    0 6px 22px rgba(10, 132, 255, 0.14),
+    0 0 0 3px rgba(10, 132, 255, 0.22),
+    0 6px 22px rgba(10, 132, 255, 0.16),
     var(--inner-light);
 }
 
@@ -2921,10 +3365,15 @@ pre.payload {
   outline: none;
 }
 
+/* Softer placeholder — blends into the input rather than competing with it. */
+.jarvis-input .ji-textarea::placeholder {
+  color: var(--muted);
+}
+
 /* Bottom toolbar: tools align left, send aligns right, wraps if too narrow. */
 .ji-toolbar {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
   margin-top: 6px;
@@ -2970,10 +3419,11 @@ pre.payload {
   height: 19px;
 }
 
-.ji-menu-wrap {
-  position: relative;
-  display: flex;
-  flex-shrink: 0;
+/* Keyboard focus rings (mouse focus stays clean via :focus-visible). */
+.jarvis-input .ji-tool:focus-visible,
+.ji-unified-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.4), var(--inner-light);
 }
 
 /* Unified AI Picker Button */
@@ -3005,17 +3455,11 @@ pre.payload {
   background: rgba(255, 255, 255, 0.09);
 }
 
-.ji-unified-icon {
-  width: 14px;
-  height: 14px;
-  color: #0a84ff; /* Apple-ish blue */
-}
-
 .ji-unified-chevron {
   width: 14px;
   height: 14px;
   color: var(--muted-strong);
-  transition: transform 250ms cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: transform 250ms var(--ease-out-quart);
 }
 
 .ji-unified-chevron.open {
@@ -3164,8 +3608,8 @@ pre.payload {
 }
 
 .ji-custom-menu button.active {
-  background: rgba(10, 132, 255, 0.15);
-  color: #0a84ff;
+  background: var(--accent-soft);
+  color: var(--accent-hover);
 }
 
 .ji-custom-menu button svg {
@@ -3183,9 +3627,15 @@ pre.payload {
   flex-shrink: 0;
   border-radius: 50%;
   padding: 0;
-  background: linear-gradient(135deg, #0a84ff, #8b5cf6);
+  background: linear-gradient(135deg, var(--accent), #8b5cf6);
   box-shadow: 0 8px 24px rgba(10, 132, 255, 0.35), var(--inner-light);
   color: #ffffff;
+  /* Scale/lift is owned by framer-motion whileHover/whileTap; CSS only
+     animates the glow + the ready/disabled fill so the two don't fight. */
+  transition:
+    box-shadow 220ms var(--spring),
+    background 220ms var(--spring),
+    opacity 220ms var(--spring);
 }
 
 .jarvis-input .ji-send svg {
@@ -3194,8 +3644,24 @@ pre.payload {
 }
 
 .jarvis-input .ji-send:hover:not(:disabled) {
-  box-shadow: 0 10px 30px rgba(10, 132, 255, 0.45), var(--inner-light);
-  transform: translateY(-1px) scale(1.04);
+  box-shadow: 0 10px 30px rgba(10, 132, 255, 0.5), var(--inner-light);
+}
+
+.jarvis-input .ji-send:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px rgba(10, 132, 255, 0.4),
+    0 8px 24px rgba(10, 132, 255, 0.35),
+    var(--inner-light);
+}
+
+/* Empty/disabled: drop the gradient to flat glass so "type to send" reads
+   clearly, rather than a half-dimmed live-looking button. */
+.jarvis-input .ji-send:disabled {
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: var(--inner-light);
+  color: var(--muted);
+  opacity: 1;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -3240,26 +3706,20 @@ pre.payload {
     animation: dialog-backdrop-enter 200ms ease both;
   }
 
+  /* Mobile drawer: every link in one vertical column (no "เพิ่มเติม" toggle). */
   .nav {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
+    display: grid;
+    gap: 4px;
   }
 
-  .nav a,
-  .nav-toggle {
-    flex: 0 0 auto;
-    width: auto;
-  }
-
-  .nav-more {
-    flex: 1 0 100%;
+  .nav a {
+    width: 100%;
+    min-height: 44px;
   }
 
   .nav-more-inner {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
+    display: grid;
+    gap: 4px;
   }
 
   .side-schedule,
@@ -3314,6 +3774,11 @@ pre.payload {
   .ji-unified-btn {
     height: 40px;
     padding: 0 16px 0 18px;
+  }
+
+  /* Touch ≥44px for the provider/model menu rows. */
+  .ji-custom-menu button {
+    min-height: 44px;
   }
 }
 

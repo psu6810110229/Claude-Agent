@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Brain, Settings, User, Menu } from "lucide-react";
+import { Brain, Settings, User, Menu, RotateCcw } from "lucide-react";
 import { NotificationCenter } from "@/components/NotificationCenter";
 import { useShell } from "@/components/Shell";
 
@@ -14,7 +14,7 @@ export function TopBar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const chipRef = useRef<HTMLButtonElement>(null);
-  const { setDrawerOpen } = useShell();
+  const { setDrawerOpen, newSession } = useShell();
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -50,6 +50,19 @@ export function TopBar() {
       </button>
 
       <div style={{ flex: 1 }} />
+
+      {newSession && (
+        <button
+          type="button"
+          className="topbar-session-btn"
+          onClick={newSession.onClick}
+          disabled={newSession.disabled}
+          title="เก็บบทสนทนานี้เข้าคลัง — ข้อความเก่ายังอยู่ในฐานข้อมูล แต่จะไม่ถูกส่งให้ Claude"
+        >
+          <RotateCcw aria-hidden="true" strokeWidth={1.8} />
+          <span>{newSession.busy ? "กำลังรีเซ็ต..." : "เริ่มใหม่"}</span>
+        </button>
+      )}
 
       <NotificationCenter />
 

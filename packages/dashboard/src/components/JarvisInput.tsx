@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowUp,
   ChevronDown,
@@ -52,9 +53,33 @@ export function JarvisInput({
   const [menuOpen, setMenuOpen] = useState(false);
   const [unifiedMenuOpen, setUnifiedMenuOpen] = useState(false);
   
+  const [unifiedPos, setUnifiedPos] = useState<{ left: number; bottom: number } | null>(null);
+
   const taRef = useRef<HTMLTextAreaElement>(null);
   const menuWrapRef = useRef<HTMLDivElement>(null);
   const unifiedMenuWrapRef = useRef<HTMLDivElement>(null);
+  const unifiedMenuRef = useRef<HTMLDivElement>(null);
+
+  // The menu is portaled to <body> so its backdrop-filter can sample the page
+  // behind it; nested inside the composer's own backdrop-filter it renders flat.
+  // Anchor its bottom-left to the trigger's top-left, and keep it pinned on
+  // scroll/resize.
+  useLayoutEffect(() => {
+    if (!unifiedMenuOpen) return;
+    function place() {
+      const el = unifiedMenuWrapRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setUnifiedPos({ left: r.left, bottom: window.innerHeight - r.top + 8 });
+    }
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [unifiedMenuOpen]);
 
   // Auto-resize: grow with content up to ~40vh, then scroll inside.
   useEffect(() => {
@@ -71,7 +96,13 @@ export function JarvisInput({
       if (menuOpen && menuWrapRef.current && !menuWrapRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
       }
-      if (unifiedMenuOpen && unifiedMenuWrapRef.current && !unifiedMenuWrapRef.current.contains(e.target as Node)) {
+      if (
+        unifiedMenuOpen &&
+        unifiedMenuWrapRef.current &&
+        !unifiedMenuWrapRef.current.contains(e.target as Node) &&
+        unifiedMenuRef.current &&
+        !unifiedMenuRef.current.contains(e.target as Node)
+      ) {
         setUnifiedMenuOpen(false);
       }
     }
@@ -115,7 +146,7 @@ export function JarvisInput({
         onKeyDown={handleKeyDown}
         onFocus={() => onFocusChange?.(true)}
         onBlur={() => onFocusChange?.(false)}
-        placeholder="ถาม Friday ได้ทุกเรื่อง..."
+        placeholder="ถาม Friday"
         aria-label="ถาม Friday"
         disabled={disabled}
         rows={1}
@@ -141,10 +172,17 @@ export function JarvisInput({
                 <ChevronDown strokeWidth={2} className={`ji-unified-chevron ${unifiedMenuOpen ? "open" : ""}`} />
               </button>
 
-              <AnimatePresence>
-                {unifiedMenuOpen && (
+              {typeof document !== "undefined" && createPortal(
+                <AnimatePresence>
+                  {unifiedMenuOpen && (
                   <motion.div
+                    ref={unifiedMenuRef}
                     className="ji-custom-menu unified-menu"
+                    style={{
+                      position: "fixed",
+                      left: unifiedPos?.left ?? 0,
+                      bottom: unifiedPos?.bottom ?? 0,
+                    }}
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
@@ -168,14 +206,7 @@ export function JarvisInput({
                             title={opt.title}
                             onClick={() => onProviderChange(opt.id)}
                           >
-                            {isActive && (
-                              <motion.div
-                                layoutId="provider-highlight"
-                                className="provider-highlight"
-                                initial={false}
-                                transition={{ type: "spring", bounce: 0.2, duration: 0.4 }}
-                              />
-                            )}
+                            {isActive && <span className="provider-highlight" aria-hidden="true" />}
                             <span className="provider-label">{opt.label}</span>
                           </button>
                         );
@@ -211,8 +242,10 @@ export function JarvisInput({
                       )}
                     </AnimatePresence>
                   </motion.div>
-                )}
-              </AnimatePresence>
+                  )}
+                </AnimatePresence>,
+                document.body
+              )}
             </div>
           )}
 

@@ -38,6 +38,8 @@ import { actionQuestion, isActionType } from "@/lib/actionDisplay";
 import { ErrorBanner } from "@/components/States";
 import { Orb, type OrbState } from "@/components/Orb";
 import { JarvisInput } from "@/components/JarvisInput";
+import { WelcomeAgenda } from "@/components/WelcomeAgenda";
+import { useShell } from "@/components/Shell";
 import { useToast } from "@/components/ToastProvider";
 import {
   DEFAULT_GEMINI_MODEL,
@@ -106,6 +108,7 @@ interface ClarificationPrompt {
 
 export default function HomePage() {
   const { notify } = useToast();
+  const { setNewSession } = useShell();
   const [greeting, setGreeting] = useState<string | null>(null);
   const reduceMotion = useReducedMotion();
   const [orbState, setOrbState] = useState<OrbState>("idle");
@@ -194,6 +197,17 @@ export default function HomePage() {
     },
     [],
   );
+
+  // Surface the "เริ่มใหม่" control in the global TopBar (next to the bell).
+  // Re-registers when busy state changes so the button disables correctly.
+  useEffect(() => {
+    setNewSession({
+      onClick: requestNewSession,
+      disabled: sending || briefBusy !== null || resetting,
+      busy: resetting,
+    });
+    return () => setNewSession(null);
+  }, [sending, briefBusy, resetting, setNewSession]);
 
   const hasConversation = messages.length > 0 || sending || briefBusy !== null;
 
@@ -625,17 +639,6 @@ export default function HomePage() {
 
   return (
     <div className={`jarvis-home ${hasConversation ? "has-conversation" : ""}`}>
-      <div className="jarvis-session-bar">
-        <button
-          className="secondary"
-          onClick={requestNewSession}
-          disabled={sending || briefBusy !== null || resetting}
-          title="เก็บบทสนทนานี้เข้าคลัง — ข้อความเก่ายังอยู่ในฐานข้อมูล แต่จะไม่ถูกส่งให้ Claude"
-        >
-          {resetting ? "กำลังรีเซ็ต..." : "เริ่มใหม่"}
-        </button>
-      </div>
-
       <div className="jarvis-stage">
         {!hasConversation && !loading && (
           <div className="jarvis-welcome">
@@ -655,22 +658,10 @@ export default function HomePage() {
                 {greeting ?? "สวัสดี"} คุณ Fran
               </h1>
               <p>วันนี้ให้ Friday ช่วยอะไรดีคะ</p>
-              <div className="chat-empty-actions" aria-label="ตัวอย่างคำถาม">
-                {[
-                  "วันนี้มีนัดอะไรบ้าง",
-                  "ขอดูงานที่ค้างอยู่",
-                  "ช่วยตั้งเตือนความจำหน่อย",
-                ].map((prompt) => (
-                  <button
-                    type="button"
-                    key={prompt}
-                    onClick={() => doSend(prompt)}
-                    disabled={sending || briefBusy !== null}
-                  >
-                    {prompt}
-                  </button>
-                ))}
-              </div>
+              <WelcomeAgenda
+                onPrompt={doSend}
+                disabled={sending || briefBusy !== null}
+              />
             </motion.div>
           </div>
         )}

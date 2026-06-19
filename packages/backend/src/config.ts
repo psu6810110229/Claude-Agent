@@ -369,6 +369,30 @@ export const OWNER_PIN = process.env.CLAUDE_AGENT_OWNER_PIN ?? "";
 export const OWNER_SECRET_PHRASE =
   process.env.CLAUDE_AGENT_OWNER_SECRET_PHRASE ?? "โอเค";
 
+/**
+ * Owner unlock openers — every phrase here ALSO unlocks the privacy guard, not
+ * just the single `OWNER_SECRET_PHRASE`. These are natural conversational
+ * openers the owner uses to start talking. Comma-separated, case-insensitive,
+ * space-trimmed. The configured `OWNER_SECRET_PHRASE` is always merged in.
+ *
+ * SECURITY NOTE: these are deliberately low-entropy, common openers (owner
+ * convenience on a single-user local box). They weaken the soft lock to near-
+ * open; the HARD boundary remains context redaction in chat.ts. Do not rely on
+ * this list as a secret.
+ */
+const DEFAULT_OWNER_SECRET_PHRASES =
+  "โอเค,ok,ทีนี้,แล้ว,แล้วถ้า,สมมติว่า,ถ้าอย่างนั้น,ถ้าอย่างงั้น,ถ้างั้น,คือแบบนี้,แบบนี้,ฟังนะ,คือฟังนะ,เอาล่ะ";
+export const OWNER_SECRET_PHRASES = Array.from(
+  new Set(
+    [
+      OWNER_SECRET_PHRASE,
+      ...(process.env.CLAUDE_AGENT_OWNER_SECRET_PHRASES ?? DEFAULT_OWNER_SECRET_PHRASES).split(","),
+    ]
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  ),
+);
+
 /** Max failed verify attempts per session before a temporary lockout. */
 export const PRIVACY_VERIFY_MAX_ATTEMPTS = Number(
   process.env.CLAUDE_AGENT_PRIVACY_VERIFY_MAX_ATTEMPTS ?? 5,
