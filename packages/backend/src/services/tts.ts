@@ -55,21 +55,22 @@ const PRESETS: Record<TtsPreset, PresetConfig> = {
     fx: [HP, lowBoost5, body, tameHigh2, COMP_TIGHT, "aecho=0.9:0.75:25:0.06", NORM],
   },
   // Tuned voice (host A/B session): younger, graceful Thai secretary ~23-24,
-  // not matronly. Pitch +9% lifts age out of "mature/old"; warmth (230/450 Hz)
-  // + a dark top (high-shelf -3.5 @6.5k, lowpass 8k) keep it soft like a real
-  // throat/mouth rather than a crisp mic; the surgical high-Q notch @850 Hz
-  // removes the nasal "duck" honk without dulling warmth. Calm pace via rate -9%.
+  // not matronly. Pitch +9% lifts age out of "mature/old". Warmth dialled DOWN
+  // (low-mid 230/450 Hz boosts halved, top roll-off eased -3.5→-2.5) for a more
+  // neutral, less plush tone while staying soft, not a crisp mic; lowpass 8k
+  // still caps harsh top. The surgical high-Q notch @850 Hz removes the nasal
+  // "duck" honk. Calm pace via rate -9%.
   calm_female: {
     voice: "th-TH-PremwadeeNeural",
     prosody: { pitch: "+9%", rate: "-9%", volume: "+0%" },
     fx: [
       "highpass=f=80",
-      "equalizer=f=230:width_type=o:width=1:g=3", // warmth/body
-      "equalizer=f=450:width_type=o:width=1:g=2", // lower-mid fill
+      "equalizer=f=230:width_type=o:width=1:g=1.5", // warmth/body (reduced)
+      "equalizer=f=450:width_type=o:width=1:g=1", // lower-mid fill (reduced)
       "equalizer=f=850:width_type=q:width=5:g=-5", // surgical de-nasal (kill duck honk)
       "equalizer=f=2500:width_type=o:width=1.4:g=0.5", // slight presence
       "equalizer=f=6500:width_type=o:width=1.5:g=-2.5", // tame sibilance
-      "highshelf=f=6500:g=-3.5", // roll off crisp top
+      "highshelf=f=6500:g=-2.5", // ease crisp top (less dark = less warm)
       "lowpass=f=8000", // soft, mouth-like ceiling
       COMP,
       "aecho=0.9:0.85:22:0.06", // tiny room polish
@@ -149,17 +150,25 @@ function ttsOnce(
 
 async function ttsToBuffer(text: string, config: PresetConfig): Promise<Buffer> {
   let last: Error = new Error("no attempt");
-  // The free Edge endpoint intermittently returns an EMPTY stream when hit
-  // again too quickly (the "first works, second silent" symptom). Backing off
-  // between attempts lets it recover instead of firing 4 instant, equally-empty
-  // retries. Delays apply BEFORE attempts 2..5.
+  // The free Edge endpoint intermittently returns an EMPTY or TRUNCATED stream
+  // when hit again too quickly (the "first works, second silent" symptom).
+  // Backing off between attempts lets it recover instead of firing instant,
+  // equally-empty retries. Delays apply BEFORE attempts 2..5.
+  //
+  // Quality gate: a flat `> 1000 bytes` check accepts a few hundred ms of near-
+  // silence as success and serves a dropped clip. Require bytes roughly
+  // proportional to the text so a clipped stream is RETRIED, not played. 96kbit
+  // mp3 ≈ 12KB/s of speech; this floor stays well UNDER real audio length, so it
+  // only catches genuine drop-outs (chars capped so long text can't over-reject).
+  const charsCapped = Math.min(text.length, 200);
+  const minBytes = Math.max(2400, charsCapped * 60);
   const backoffMs = [0, 250, 600, 1200, 2000];
   for (let i = 0; i < backoffMs.length; i++) {
     if (backoffMs[i] > 0) await sleep(backoffMs[i]);
     try {
       const b = await ttsOnce(text, config.voice, config.prosody);
-      if (b.length > 1000) return b;
-      last = new Error(`empty stream (${b.length} bytes)`);
+      if (b.length >= minBytes) return b;
+      last = new Error(`short stream (${b.length}<${minBytes} bytes)`);
     } catch (e) {
       last = e instanceof Error ? e : new Error(String(e));
     }
