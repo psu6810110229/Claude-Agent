@@ -13,6 +13,7 @@ import { calendarRoutes } from "./routes/calendar.js";
 import { notificationRoutes } from "./routes/notifications.js";
 import { chatRoutes } from "./routes/chat.js";
 import { settingsRoutes } from "./routes/settings.js";
+import { schedulePrefsRoutes } from "./routes/schedulePrefs.js";
 import { ttsRoutes } from "./routes/tts.js";
 import { gmailRoutes } from "./routes/gmail.js";
 import { contactsRoutes } from "./routes/contacts.js";
@@ -57,6 +58,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     calendarFetcher: options.calendarFetcher,
   });
   app.register(settingsRoutes);
+  app.register(schedulePrefsRoutes);
   app.register(ttsRoutes, { synthesizer: options.ttsSynthesizer });
   app.register(gmailRoutes);
   app.register(contactsRoutes);

@@ -4248,3 +4248,89 @@ pre.payload {
   margin-top: 0;
   background: var(--ok);
 }
+
+/* --- Schedule preferences editor (Tier 1 "C") ---------------------------- */
+.sched-prefs {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sched-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sched-field-label {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.sched-field-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sched-field-input input {
+  width: 84px;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: inherit;
+  font: inherit;
+  text-align: right;
+}
+
+.sched-field-input input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.sched-field-suffix {
+  font-size: 0.8rem;
+  color: var(--text-soft, rgba(255, 255, 255, 0.55));
+  min-width: 56px;
+}
+
+.sched-days {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sched-day-row {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.sched-day {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-soft, rgba(255, 255, 255, 0.65));
+  font: inherit;
+  cursor: pointer;
+  transition: background 160ms, border-color 160ms, color 160ms;
+}
+
+.sched-day.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.sched-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}

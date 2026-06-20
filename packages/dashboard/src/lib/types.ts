@@ -91,7 +91,8 @@ export type ScheduleFindingKind =
   | "long_streak"
   | "overloaded_day"
   | "after_hours"
-  | "weekend";
+  | "weekend"
+  | "protected_day";
 
 export type ScheduleSeverity = "high" | "medium" | "low";
 
@@ -109,6 +110,18 @@ export interface ScheduleFinding {
 export interface ScheduleHealthResponse {
   findings: ScheduleFinding[];
   available: boolean;
+}
+
+/** Deterministic schedule-health thresholds (GET/PUT /api/settings/schedule). */
+export interface SchedulePrefs {
+  workStartHour: number;
+  workEndHour: number;
+  minBufferMin: number;
+  travelBufferMin: number;
+  streakHours: number;
+  overloadDayMin: number;
+  /** Bangkok weekdays (0=Sun..6=Sat) kept clear. */
+  protectedDays: number[];
 }
 
 // --- Gmail (Step 17) -------------------------------------------------------

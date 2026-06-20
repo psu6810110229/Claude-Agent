@@ -9,6 +9,7 @@ import {
   type GoogleEventsFetcher,
 } from "../services/googleCalendar.js";
 import { analyzeSchedule } from "../services/scheduleHealth.js";
+import { getSchedulePrefs } from "../services/schedulePrefs.js";
 
 /** Plugin options. `calendarFetcher` is injectable so tests can stub Google. */
 export interface CalendarRouteOptions {
@@ -47,7 +48,7 @@ export async function calendarRoutes(
     const { todayStartUtc, upcomingEndUtc } = agendaBounds();
     try {
       const events = await fetchEvents(todayStartUtc, upcomingEndUtc);
-      const { findings } = analyzeSchedule(events);
+      const { findings } = analyzeSchedule(events, getSchedulePrefs());
       return scheduleHealthResponseSchema.parse({ findings, available: true });
     } catch {
       return scheduleHealthResponseSchema.parse({

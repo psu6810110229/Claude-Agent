@@ -53,6 +53,7 @@ export const scheduleFindingSchema = z.object({
     "overloaded_day",
     "after_hours",
     "weekend",
+    "protected_day",
   ]),
   severity: z.enum(["high", "medium", "low"]),
   startUtc: z.string(),

@@ -26,7 +26,8 @@ export type FindingKind =
   | "long_streak"
   | "overloaded_day"
   | "after_hours"
-  | "weekend";
+  | "weekend"
+  | "protected_day";
 
 export type Severity = "high" | "medium" | "low";
 
@@ -61,6 +62,9 @@ export interface ScheduleHealthOptions {
   /** Bangkok work-day window; outside it timed events are `after_hours`. */
   workStartHour: number;
   workEndHour: number;
+  /** Bangkok weekdays (0=Sun..6=Sat) the user wants kept clear; timed events on
+   * these days are flagged `protected_day`. Empty = feature off. */
+  protectedDays: number[];
 }
 
 export const DEFAULT_SCHEDULE_HEALTH_OPTIONS: ScheduleHealthOptions = {
@@ -70,6 +74,7 @@ export const DEFAULT_SCHEDULE_HEALTH_OPTIONS: ScheduleHealthOptions = {
   overloadDayMin: 8 * 60,
   workStartHour: 8,
   workEndHour: 19,
+  protectedDays: [],
 };
 
 const SEVERITY_RANK: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
@@ -277,6 +282,17 @@ export function analyzeSchedule(
         eventIds: [it.id],
         titles: [it.title],
         detail: "weekend",
+      });
+    }
+    if (options.protectedDays.includes(start.dow)) {
+      findings.push({
+        kind: "protected_day",
+        severity: "medium",
+        startUtc: iso(it.startMs),
+        endUtc: iso(it.endMs),
+        eventIds: [it.id],
+        titles: [it.title],
+        detail: "on a day you keep clear",
       });
     }
     const startsEarly = start.hour < options.workStartHour;

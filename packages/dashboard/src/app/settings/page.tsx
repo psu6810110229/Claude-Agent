@@ -5,6 +5,7 @@ import { ApiError, getSettings, updateSetting } from "@/lib/api";
 import { useData } from "@/lib/useData";
 import { ErrorBanner } from "@/components/States";
 import { useToast } from "@/components/ToastProvider";
+import { SchedulePrefsPanel } from "@/components/SchedulePrefsPanel";
 import type { Setting } from "@/lib/types";
 
 function SettingsSkeleton() {
@@ -51,6 +52,14 @@ export default function SettingsPage() {
           ))}
         </div>
       )}
+
+      <section className="section" style={{ marginTop: "1.5rem" }}>
+        <h3>ตั้งค่าตาราง</h3>
+        <p className="lede" style={{ marginBottom: "0.75rem" }}>
+          ปรับเกณฑ์ตรวจสุขภาพตาราง — เวลางาน เวลาพัก และวันที่กันไว้
+        </p>
+        <SchedulePrefsPanel />
+      </section>
     </>
   );
 }

@@ -22,6 +22,7 @@ import type {
   GmailListResponse,
   GoogleEventListResponse,
   ScheduleHealthResponse,
+  SchedulePrefs,
   MemoryContent,
   MemoryEntry,
   MemoryFact,
@@ -210,6 +211,21 @@ export function getCalendarUpcoming(): Promise<GoogleEventListResponse> {
 /** Schedule-health findings over today+upcoming (read-only analysis). */
 export function getCalendarHealth(): Promise<ScheduleHealthResponse> {
   return request<ScheduleHealthResponse>("/api/calendar/health");
+}
+
+/** Read the deterministic schedule-health thresholds. */
+export function getSchedulePrefs(): Promise<SchedulePrefs> {
+  return request<SchedulePrefs>("/api/settings/schedule");
+}
+
+/** Persist a subset of schedule prefs; echoes the full effective prefs. */
+export function saveSchedulePrefs(
+  body: Partial<SchedulePrefs>,
+): Promise<SchedulePrefs> {
+  return request<SchedulePrefs>("/api/settings/schedule", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
 }
 
 // --- Command bar ---------------------------------------------------------

@@ -23,6 +23,7 @@ const KIND_LABELS: Record<ScheduleFindingKind, string> = {
   overloaded_day: "วันแน่นเกินไป",
   after_hours: "นอกเวลางาน",
   weekend: "วันหยุดสุดสัปดาห์",
+  protected_day: "วันที่กันไว้",
 };
 
 const SEVERITY_LABELS: Record<ScheduleSeverity, string> = {
