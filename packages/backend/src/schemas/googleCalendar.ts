@@ -41,6 +41,35 @@ export type GoogleEventListResponse = z.infer<
 >;
 
 /**
+ * Schedule health read response (Tier 1 conflict/gap detection). Pure analysis
+ * over the read events; `available` mirrors the calendar fetch (fail closed).
+ */
+export const scheduleFindingSchema = z.object({
+  kind: z.enum([
+    "overlap",
+    "tight_travel",
+    "no_buffer",
+    "long_streak",
+    "overloaded_day",
+    "after_hours",
+    "weekend",
+  ]),
+  severity: z.enum(["high", "medium", "low"]),
+  startUtc: z.string(),
+  endUtc: z.string(),
+  eventIds: z.array(z.string()),
+  titles: z.array(z.string()),
+  detail: z.string(),
+});
+export const scheduleHealthResponseSchema = z.object({
+  findings: z.array(scheduleFindingSchema),
+  available: z.boolean(),
+});
+export type ScheduleHealthResponse = z.infer<
+  typeof scheduleHealthResponseSchema
+>;
+
+/**
  * `google_event.create` approval payload. Google Calendar is the primary
  * schedule source; creating an event is allowed only through the approval
  * executor, never directly from AI or the command route.

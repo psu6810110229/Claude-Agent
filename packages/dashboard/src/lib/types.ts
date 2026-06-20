@@ -83,6 +83,34 @@ export interface GoogleEventListResponse {
   available: boolean;
 }
 
+/** Schedule-health finding (Tier 1). Mirrors backend scheduleHealth.ts. */
+export type ScheduleFindingKind =
+  | "overlap"
+  | "tight_travel"
+  | "no_buffer"
+  | "long_streak"
+  | "overloaded_day"
+  | "after_hours"
+  | "weekend";
+
+export type ScheduleSeverity = "high" | "medium" | "low";
+
+export interface ScheduleFinding {
+  kind: ScheduleFindingKind;
+  severity: ScheduleSeverity;
+  startUtc: string;
+  endUtc: string;
+  eventIds: string[];
+  titles: string[];
+  detail: string;
+}
+
+/** GET /api/calendar/health — fail-closed (`available:false`) on fetch error. */
+export interface ScheduleHealthResponse {
+  findings: ScheduleFinding[];
+  available: boolean;
+}
+
 // --- Gmail (Step 17) -------------------------------------------------------
 
 export interface GmailMessage {

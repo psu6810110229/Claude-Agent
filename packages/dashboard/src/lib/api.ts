@@ -21,6 +21,7 @@ import type {
   CreateMemoryProposalBody,
   GmailListResponse,
   GoogleEventListResponse,
+  ScheduleHealthResponse,
   MemoryContent,
   MemoryEntry,
   MemoryFact,
@@ -204,6 +205,11 @@ export function getCalendarToday(): Promise<GoogleEventListResponse> {
 /** Upcoming (next 7 days) Google Calendar events. */
 export function getCalendarUpcoming(): Promise<GoogleEventListResponse> {
   return request<GoogleEventListResponse>("/api/calendar/upcoming");
+}
+
+/** Schedule-health findings over today+upcoming (read-only analysis). */
+export function getCalendarHealth(): Promise<ScheduleHealthResponse> {
+  return request<ScheduleHealthResponse>("/api/calendar/health");
 }
 
 // --- Command bar ---------------------------------------------------------

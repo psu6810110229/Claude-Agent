@@ -5,6 +5,7 @@ import { useData } from "@/lib/useData";
 import { bucketEvents, bucketReminders } from "@/lib/agenda";
 import { ErrorBanner } from "@/components/States";
 import { EventList, GoogleEventList, ReminderList } from "@/components/Agenda";
+import { ScheduleHealth } from "@/components/ScheduleHealth";
 import type {
   CalendarEvent,
   GoogleEventListResponse,
@@ -59,6 +60,11 @@ export default function UpcomingPage() {
       <div className="stack">
         {loading && <UpcomingSkeleton />}
         {error && <ErrorBanner message={error} onRetry={reload} />}
+
+        <section className="section">
+          <h3>สุขภาพตาราง</h3>
+          <ScheduleHealth />
+        </section>
 
         {data && (
           <>

@@ -4146,3 +4146,105 @@ pre.payload {
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* --- Schedule health (Tier 1 conflict/gap detection) --------------------- */
+.health-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.health-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 13px;
+  border-radius: var(--radius);
+  background: var(--surface-1, rgba(255, 255, 255, 0.03));
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.health-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-soft, rgba(255, 255, 255, 0.4));
+}
+
+.health-row.sev-high .health-dot {
+  background: var(--rose);
+  box-shadow: 0 0 8px var(--rose-soft);
+}
+.health-row.sev-medium .health-dot {
+  background: var(--amber);
+}
+.health-row.sev-low .health-dot {
+  background: var(--text-soft, rgba(255, 255, 255, 0.4));
+}
+
+.health-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.health-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.health-kind {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.health-when {
+  font-size: 0.78rem;
+  color: var(--text-soft, rgba(255, 255, 255, 0.55));
+}
+
+.health-titles {
+  font-size: 0.84rem;
+  color: var(--text-2, rgba(255, 255, 255, 0.78));
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.health-detail {
+  font-size: 0.78rem;
+  color: var(--text-soft, rgba(255, 255, 255, 0.5));
+}
+
+.badge.sev-high {
+  background: var(--rose-soft);
+  color: var(--rose);
+}
+.badge.sev-medium {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+.badge.sev-low {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-soft, rgba(255, 255, 255, 0.6));
+}
+
+.health-clear {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--ok-soft);
+  color: var(--ok);
+  font-size: 0.88rem;
+}
+.health-clear .health-dot {
+  margin-top: 0;
+  background: var(--ok);
+}

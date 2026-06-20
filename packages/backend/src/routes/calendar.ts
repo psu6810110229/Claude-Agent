@@ -1,10 +1,14 @@
 import type { FastifyInstance } from "fastify";
 import { agendaBounds } from "../services/agenda.js";
-import { googleEventListResponseSchema } from "../schemas/googleCalendar.js";
+import {
+  googleEventListResponseSchema,
+  scheduleHealthResponseSchema,
+} from "../schemas/googleCalendar.js";
 import {
   realGoogleEventsFetcher,
   type GoogleEventsFetcher,
 } from "../services/googleCalendar.js";
+import { analyzeSchedule } from "../services/scheduleHealth.js";
 
 /** Plugin options. `calendarFetcher` is injectable so tests can stub Google. */
 export interface CalendarRouteOptions {
@@ -35,6 +39,22 @@ export async function calendarRoutes(
   app.get("/api/calendar/upcoming", async () => {
     const { todayEndUtc, upcomingEndUtc } = agendaBounds();
     return fetchWindow(fetchEvents, todayEndUtc, upcomingEndUtc);
+  });
+
+  // Tier 1 schedule health: analyze the full today+upcoming window for
+  // overlaps/gaps/overload. Read-only and fail-closed; proposes nothing.
+  app.get("/api/calendar/health", async () => {
+    const { todayStartUtc, upcomingEndUtc } = agendaBounds();
+    try {
+      const events = await fetchEvents(todayStartUtc, upcomingEndUtc);
+      const { findings } = analyzeSchedule(events);
+      return scheduleHealthResponseSchema.parse({ findings, available: true });
+    } catch {
+      return scheduleHealthResponseSchema.parse({
+        findings: [],
+        available: false,
+      });
+    }
   });
 }
 
