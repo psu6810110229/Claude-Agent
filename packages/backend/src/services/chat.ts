@@ -1,6 +1,13 @@
 import { listTasks } from "../db/repositories/taskRepo.js";
 import { listMemoryEntries } from "../db/repositories/memoryRepo.js";
 import { recallFacts } from "./factRecall.js";
+import {
+  isSchedulingIntent,
+  resolveScheduleConstraints,
+} from "./scheduleConstraints.js";
+import { resolveAvailability } from "./availabilityResolver.js";
+import { getSchedulePrefs } from "./schedulePrefs.js";
+import type { GoogleEvent } from "../schemas/googleCalendar.js";
 import { listEvents } from "../db/repositories/eventRepo.js";
 import { listReminders } from "../db/repositories/reminderRepo.js";
 import {
@@ -369,11 +376,15 @@ export async function buildChatContext(
     CHAT_GOOGLE_WINDOW_DAYS,
   );
   let googleEvents: ChatContext["googleEvents"] = [];
+  // Raw events retain `end` (dropped by the ctx mapping below) so the Sprint-3
+  // availability resolver can measure real durations/overlaps.
+  let rawGoogleEvents: GoogleEvent[] = [];
   try {
     const [gToday, gUpcoming] = await Promise.all([
       fetchGoogle(todayStartUtc, todayEndUtc),
       fetchGoogle(todayEndUtc, wideEndUtc),
     ]);
+    rawGoogleEvents = [...gToday, ...gUpcoming];
     googleEvents = [
       ...gToday.map((e) => ({ e, bucket: "today" as const })),
       ...gUpcoming.map((e) => ({ e, bucket: "upcoming" as const })),
@@ -576,6 +587,43 @@ export async function buildChatContext(
     }
   }
 
+  // Step 27 / Sprint 2 — STICKY schedule constraints (RC3/RC4). Resolved from
+  // facts and injected on every scheduling-intent turn, independent of keyword
+  // recall, so tank windows + class blocks never drop out mid-topic. Redacted to
+  // [] for an unverified requester in the gate below (durable personal data).
+  const schedulingIntent = isSchedulingIntent(message);
+  const constraints = schedulingIntent ? resolveScheduleConstraints() : [];
+
+  // Step 27 / Sprint 3 — ONE deterministic availability pass (RC1/RC5): clashes
+  // across Google + local events + reminders + the constraints above. FAILS SOFT
+  // → null (no false "free/clash"), never throws inside context building.
+  let availability: ChatContext["availability"] = null;
+  if (schedulingIntent) {
+    try {
+      availability = resolveAvailability(
+        {
+          googleEvents: rawGoogleEvents,
+          localEvents: [...eb.today, ...eb.upcoming].map((e) => ({
+            id: e.id,
+            title: e.title,
+            starts_at: e.starts_at,
+            ends_at: e.ends_at,
+          })),
+          reminders: [...rb.overdue, ...rb.today, ...rb.upcoming].map((r) => ({
+            id: r.id,
+            title: r.title,
+            due_at: r.due_at,
+          })),
+          constraints,
+        },
+        now,
+        getSchedulePrefs(),
+      );
+    } catch {
+      availability = null;
+    }
+  }
+
   const GENERIC_BUSY = "ไม่ว่าง (รายละเอียดส่วนตัว)";
   const GENERIC_TASK = "งานส่วนตัว";
   const GENERIC_REMINDER = "เตือนความจำส่วนตัว";
@@ -615,6 +663,9 @@ export async function buildChatContext(
       activeTopicAmbiguity: null,
       lineEvidence: makeEmptyLineEvidence(false, null),
       verifierGuidance: null,
+      // Step 27 — constraints derive from durable facts: withhold for unverified.
+      constraints: [],
+      availability: null,
       autoExecute: isAutoExecuteEnabled(),
       autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
       restricted: true,
@@ -647,6 +698,10 @@ export async function buildChatContext(
     activeTopicAmbiguity,
     lineEvidence: lineEvidenceValue,
     verifierGuidance: verifierGuidanceValue,
+    // Step 27 / Sprint 2 — sticky schedule constraints (verified path only).
+    constraints,
+    // Step 27 / Sprint 3 — unified availability findings (verified path only).
+    availability,
     autoExecute: isAutoExecuteEnabled(),
     autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
     restricted: false,

@@ -53,6 +53,27 @@ export function bangkokWallClock(now: Date): string {
   })`;
 }
 
+/**
+ * Compact Bangkok wall-clock label for a single STORED UTC instant, with the
+ * weekday spelled out — e.g. "2026-06-22 07:00 Monday/วันจันทร์". Used to render
+ * each agenda line (event/reminder/local-event) so the model never converts
+ * UTC→Bangkok (+7h) or derives day-of-week itself — the two arithmetic steps it
+ * repeatedly got wrong (RC2). `dateOnly` drops the time for all-day events.
+ * Fail-safe: an unparseable input is returned unchanged so a bad value never
+ * throws inside prompt building.
+ */
+export function bangkokInstantLabel(utcIso: string, dateOnly = false): string {
+  const d = new Date(utcIso);
+  if (Number.isNaN(d.getTime())) return utcIso;
+  const b = new Date(d.getTime() + BANGKOK_OFFSET_MS);
+  const dow = b.getUTCDay();
+  const date = `${b.getUTCFullYear()}-${pad(b.getUTCMonth() + 1)}-${pad(
+    b.getUTCDate(),
+  )}`;
+  const time = dateOnly ? "" : ` ${pad(b.getUTCHours())}:${pad(b.getUTCMinutes())}`;
+  return `${date}${time} ${WEEKDAY_EN[dow]}/${WEEKDAY_TH[dow]}`;
+}
+
 export interface AgendaBounds {
   /** Current instant (ISO UTC). */
   nowUtc: string;

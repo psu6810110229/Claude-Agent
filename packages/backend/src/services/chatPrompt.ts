@@ -13,6 +13,10 @@
 import { buildAllowedActionsPrompt } from "./actionRegistry.js";
 import { classifySensitivity } from "./privacyClassifier.js";
 import { formatBangkokDateTime } from "./lineChat.js";
+import { bangkokInstantLabel } from "./agenda.js";
+import { describeConstraint } from "./scheduleConstraints.js";
+import type { ScheduleConstraint } from "../schemas/scheduleConstraint.js";
+import type { AvailabilityReport } from "./availabilityResolver.js";
 import type { LineEvidence } from "./lineEvidence.js";
 import type { EvidenceVerdict } from "./evidenceVerifier.js";
 
@@ -226,6 +230,20 @@ export interface ChatContext {
    * Step 22 — verifier verdict for this turn. Null when no evidence was built.
    */
   verifierGuidance?: EvidenceVerdict | null;
+  /**
+   * Step 27 / Sprint 2 — structured schedule constraints (tank protected windows
+   * + weekly class blocks), parsed from facts and held STICKY for any
+   * scheduling-intent turn (not keyword-gated). Empty on non-scheduling turns or
+   * for an unverified requester. Optional so non-chat callers can omit it.
+   */
+  constraints?: ScheduleConstraint[];
+  /**
+   * Step 27 / Sprint 3 — deterministic availability/conflict findings computed
+   * across ALL sources (Google + local events + reminders + constraints) for a
+   * scheduling-intent turn. Null on non-scheduling turns or for an unverified
+   * requester. Optional so non-chat callers can omit it.
+   */
+  availability?: AvailabilityReport | null;
   /** Live runtime: reversible actions execute immediately (no approval queue). */
   autoExecute: boolean;
   /** Live runtime: recoverable destructive Google delete also auto-executes. */
@@ -299,7 +317,11 @@ export function buildChatPrompt(ctx: ChatContext): string {
           .map((e) => {
             const loc = e.location ? ` @ ${e.location}` : "";
             const notes = e.notes ? ` — notes: ${e.notes}` : "";
-            return `  - [${e.bucket}] id=${e.id} ${e.start}${e.allDay ? " (all-day)" : ""}: ${e.title}${loc}${notes}`;
+            // Pre-computed Bangkok wall-clock + weekday (RC2); raw UTC kept as
+            // `utc=` anchor for action targeting. All-day events drop the time.
+            const when = bangkokInstantLabel(e.start, e.allDay);
+            const anchor = e.allDay ? "" : ` utc=${e.start}`;
+            return `  - [${e.bucket}] id=${e.id} ${when}${e.allDay ? " (all-day)" : ""}${anchor}: ${e.title}${loc}${notes}`;
           })
           .join("\n")
       : "  (none)";
@@ -307,14 +329,20 @@ export function buildChatPrompt(ctx: ChatContext): string {
   const events =
     ctx.events.length > 0
       ? ctx.events
-          .map((e) => `  - #${e.id} ${e.starts_at}: ${e.title}`)
+          .map(
+            (e) =>
+              `  - #${e.id} ${bangkokInstantLabel(e.starts_at)} utc=${e.starts_at}: ${e.title}`,
+          )
           .join("\n")
       : "  (none)";
 
   const reminders =
     ctx.reminders.length > 0
       ? ctx.reminders
-          .map((r) => `  - #${r.id} [${r.bucket}] due ${r.due_at}: ${r.title}`)
+          .map(
+            (r) =>
+              `  - #${r.id} [${r.bucket}] due ${bangkokInstantLabel(r.due_at)} utc=${r.due_at}: ${r.title}`,
+          )
           .join("\n")
       : "  (none)";
 
@@ -995,6 +1023,35 @@ ${events}
 REMINDERS (overdue / today / upcoming; do not invent ids):
 ${reminders}
 
+SCHEDULE CONSTRAINTS (STICKY — pre-computed from the user's durable rules; tank
+protected windows + weekly class blocks. These ALWAYS apply for the whole
+scheduling topic even when the latest message does not name them. NEVER propose
+or confirm a time that falls inside a protected_window or overlaps a
+recurring_block. Times are Asia/Bangkok local):
+${
+  (ctx.constraints?.length ?? 0) > 0
+    ? ctx.constraints!.map((c) => `  - ${describeConstraint(c)}`).join("\n")
+    : "  (none active for this turn)"
+}
+
+AVAILABILITY / CONFLICTS (deterministic backend pass over Google + local events +
+reminders + the constraints above. This is the SOURCE OF TRUTH for clashes — do
+NOT judge clashes by eye from the lists above; if a clash is listed here, it is
+real; if none is listed, the existing items do not clash. A clash tagged
+"constraint" means a real item falls inside a protected window or class block):
+${
+  ctx.availability
+    ? ctx.availability.clashes.length > 0
+      ? ctx.availability.clashes
+          .map(
+            (c) =>
+              `  - [${c.severity}] ${c.kind}${c.involvesConstraint ? " (constraint)" : ""}: ${c.labels.join(" ⨯ ")} — ${c.detail} @ ${bangkokInstantLabel(c.startUtc)}`,
+          )
+          .join("\n")
+      : "  (no clashes found across all sources for this turn)"
+    : "  (not computed — not a scheduling question this turn)"
+}
+
 RECENT APPROVAL / ACTION OUTCOMES (latest first; payloads omitted):
 ${approvalOutcomes}
 
@@ -1075,7 +1132,11 @@ export function buildFollowupPrompt(ctx: ChatContext): string {
           .map((e) => {
             const loc = e.location ? ` @ ${e.location}` : "";
             const notes = e.notes ? ` — notes: ${e.notes}` : "";
-            return `  - [${e.bucket}] id=${e.id} ${e.start}${e.allDay ? " (all-day)" : ""}: ${e.title}${loc}${notes}`;
+            // Pre-computed Bangkok wall-clock + weekday (RC2); raw UTC kept as
+            // `utc=` anchor for action targeting. All-day events drop the time.
+            const when = bangkokInstantLabel(e.start, e.allDay);
+            const anchor = e.allDay ? "" : ` utc=${e.start}`;
+            return `  - [${e.bucket}] id=${e.id} ${when}${e.allDay ? " (all-day)" : ""}${anchor}: ${e.title}${loc}${notes}`;
           })
           .join("\n")
       : "  (none)";
@@ -1083,7 +1144,10 @@ export function buildFollowupPrompt(ctx: ChatContext): string {
   const reminders =
     ctx.reminders.length > 0
       ? ctx.reminders
-          .map((r) => `  - #${r.id} [${r.bucket}] due ${r.due_at}: ${r.title}`)
+          .map(
+            (r) =>
+              `  - #${r.id} [${r.bucket}] due ${bangkokInstantLabel(r.due_at)} utc=${r.due_at}: ${r.title}`,
+          )
           .join("\n")
       : "  (none)";
 
