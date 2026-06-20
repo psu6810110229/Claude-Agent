@@ -2,11 +2,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-// Throwaway memory dir + AI disabled before importing config-dependent modules.
+// Throwaway memory dir + DB + AI disabled BEFORE importing config-dependent
+// modules. The DB path override is critical: this harness seeds facts, toggles
+// auto-execute config, and dispatches actions — without an isolated DB it would
+// pollute the real data/claude_agent.db (test tank/class facts would surface as
+// live constraints). Mirrors smoke-step20/21.
 const TEST_MEMORY_DIR = fs.mkdtempSync(
   path.join(os.tmpdir(), "claude-agent-step27-"),
 );
 process.env.CLAUDE_AGENT_MEMORY_DIR = TEST_MEMORY_DIR;
+process.env.CLAUDE_AGENT_DB_PATH = path.join(TEST_MEMORY_DIR, "test.db");
 process.env.CLAUDE_AGENT_AI_ENABLED = "";
 
 /**

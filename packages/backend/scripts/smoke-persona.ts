@@ -341,6 +341,73 @@ function main(): void {
     "planning rules forbid inventing end times / transport schedules",
   );
 
+  // --- 12b. Step 27 / Sprint 5 — scheduling discipline invariants ---
+  assert(
+    normal.includes("SCHEDULING DISCIPLINE"),
+    "normal prompt has SCHEDULING DISCIPLINE block",
+  );
+  assert(
+    normal.includes("WEEKDAY & TIME ARE PRE-COMPUTED") &&
+      normal.includes("add +7h yourself"),
+    "scheduling discipline forbids hand-computing weekday / +7h",
+  );
+  assert(
+    normal.includes("CLASHES ARE PRE-COMPUTED") &&
+      normal.includes("SOLE source of"),
+    "scheduling discipline makes AVAILABILITY the sole clash source (no eyeballing)",
+  );
+  assert(
+    normal.includes("CONSTRAINTS ARE STICKY & BINDING") &&
+      normal.includes("protected_window"),
+    "scheduling discipline binds protected_window / recurring_block",
+  );
+  assert(
+    normal.includes("NO EXECUTE-THEN-CORRECT"),
+    "scheduling discipline forbids reporting a held write as done",
+  );
+
+  // The SCHEDULE VERIFIER block renders the verdict's BLOCKED/ALLOWED/GUIDANCE
+  // lines for a scheduling turn, mirroring the LINE verifier rendering.
+  const schedCtx = buildChatPrompt(
+    makeCtx({
+      message: "เลื่อนเปลี่ยนน้ำไปจันทร์ 16:30 ได้ไหม",
+      scheduleVerifier: {
+        confidence: "high",
+        guidance: ["__SCHED_GUIDE__"],
+        allowedClaims: ["__SCHED_ALLOW__"],
+        blockedClaims: ["__SCHED_BLOCK__"],
+      },
+    }),
+  );
+  assert(
+    schedCtx.includes("SCHEDULE VERIFIER"),
+    "prompt has a SCHEDULE VERIFIER block",
+  );
+  assert(
+    schedCtx.includes("GUIDANCE: __SCHED_GUIDE__") &&
+      schedCtx.includes("BLOCKED: __SCHED_BLOCK__") &&
+      schedCtx.includes("ALLOWED: __SCHED_ALLOW__"),
+    "schedule verifier renders GUIDANCE/BLOCKED/ALLOWED verdict lines",
+  );
+
+  // Unverified/restricted: the schedule verdict is withheld (no leakage).
+  const schedRestricted = buildChatPrompt(
+    makeCtx({
+      restricted: true,
+      scheduleVerifier: {
+        confidence: "high",
+        guidance: ["__SCHED_GUIDE__"],
+        allowedClaims: ["__SCHED_ALLOW__"],
+        blockedClaims: ["__SCHED_BLOCK__"],
+      },
+    }),
+  );
+  assert(
+    !schedRestricted.includes("__SCHED_GUIDE__") &&
+      !schedRestricted.includes("__SCHED_BLOCK__"),
+    "restricted prompt withholds the schedule verifier verdict",
+  );
+
   assert(
     normal.includes("FRIDAY WARMTH RULES"),
     "normal prompt has FRIDAY WARMTH RULES",
