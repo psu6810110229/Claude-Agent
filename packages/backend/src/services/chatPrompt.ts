@@ -19,6 +19,7 @@ import type { ScheduleConstraint } from "../schemas/scheduleConstraint.js";
 import type { AvailabilityReport } from "./availabilityResolver.js";
 import type { LineEvidence } from "./lineEvidence.js";
 import type { EvidenceVerdict } from "./evidenceVerifier.js";
+import type { ScheduleVerdict } from "./scheduleVerifier.js";
 
 /**
  * Owner-style conversational openers (spec §B grace). Pure + deterministic.
@@ -244,6 +245,12 @@ export interface ChatContext {
    * requester. Optional so non-chat callers can omit it.
    */
   availability?: AvailabilityReport | null;
+  /**
+   * Step 27 / Sprint 4 — deterministic schedule verdict: ALLOWED / BLOCKED claim
+   * guardrails derived from the availability pass + constraints for a
+   * scheduling-intent turn. Null otherwise / for an unverified requester.
+   */
+  scheduleVerifier?: ScheduleVerdict | null;
   /** Live runtime: reversible actions execute immediately (no approval queue). */
   autoExecute: boolean;
   /** Live runtime: recoverable destructive Google delete also auto-executes. */
@@ -498,6 +505,16 @@ export function buildChatPrompt(ctx: ChatContext): string {
     if (ctx.restricted) return "  (withheld)";
     const v = ctx.verifierGuidance;
     if (!v) return "  (none — no evidence verified for this turn)";
+    const g = v.guidance.map((l) => `  GUIDANCE: ${l}`).join("\n");
+    const b = v.blockedClaims.map((l) => `  BLOCKED: ${l}`).join("\n");
+    const a = v.allowedClaims.map((l) => `  ALLOWED: ${l}`).join("\n");
+    return [g, b, a].filter(Boolean).join("\n");
+  })();
+
+  const scheduleVerifierSection = (() => {
+    if (ctx.restricted) return "  (withheld)";
+    const v = ctx.scheduleVerifier;
+    if (!v) return "  (none — not a scheduling question this turn)";
     const g = v.guidance.map((l) => `  GUIDANCE: ${l}`).join("\n");
     const b = v.blockedClaims.map((l) => `  BLOCKED: ${l}`).join("\n");
     const a = v.allowedClaims.map((l) => `  ALLOWED: ${l}`).join("\n");
@@ -1051,6 +1068,14 @@ ${
       : "  (no clashes found across all sources for this turn)"
     : "  (not computed — not a scheduling question this turn)"
 }
+
+SCHEDULE VERIFIER (Step 27 — deterministic claim guardrails for THIS scheduling
+turn, derived from AVAILABILITY + CONSTRAINTS above. Treat exactly like the LINE
+VERIFIER GUIDANCE: BLOCKED claims must NOT appear in your reply; do NOT compute
+weekday or Bangkok time yourself — use the pre-computed labels; never say a time is
+free unless AVAILABILITY shows no clash for it; never report a constraint-violating
+write as done — the backend holds it for confirm):
+${scheduleVerifierSection}
 
 RECENT APPROVAL / ACTION OUTCOMES (latest first; payloads omitted):
 ${approvalOutcomes}

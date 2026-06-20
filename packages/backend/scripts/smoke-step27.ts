@@ -346,6 +346,161 @@ async function main(): Promise<void> {
     );
   }
 
+  // === Block G — RC6 FIXED (Sprint 4): deterministic schedule verifier ========
+  // The verifier turns the availability pass into ALLOWED/BLOCKED claim guardrails
+  // BEFORE the model speaks, so "free/clash" is computed, not eyeballed.
+  {
+    const { verifyScheduleAnswerIntent } = await import(
+      "../src/services/scheduleVerifier.js"
+    );
+    const { resolveScheduleConstraints } = await import(
+      "../src/services/scheduleConstraints.js"
+    );
+    const { resolveAvailability } = await import(
+      "../src/services/availabilityResolver.js"
+    );
+    const constraints = resolveScheduleConstraints(); // class + tank from Block E
+    const now = new Date("2026-06-20T06:00:00.000Z");
+
+    // Monday 16:30 BKK water-change reminder → inside class + tank windows.
+    const clashReport = resolveAvailability(
+      {
+        googleEvents: [],
+        localEvents: [],
+        reminders: [
+          { id: 44, title: "เปลี่ยนน้ำตู้ปลา", due_at: "2026-06-22T09:30:00.000Z" },
+        ],
+        constraints,
+      },
+      now,
+    );
+    const clashVerdict = verifyScheduleAnswerIntent({
+      availability: clashReport,
+      constraints,
+    });
+    assert(
+      clashVerdict.confidence === "high" &&
+        clashVerdict.blockedClaims.some((b) => b.includes("ว่าง")),
+      "F1/RC6: verifier BLOCKS a 'free' claim when a clash exists",
+    );
+    assert(
+      clashVerdict.guidance.some((g) => g.includes("protected_window")),
+      "F3/RC6: verifier flags the protected-window violation in guidance",
+    );
+
+    // A clear time → verifier ALLOWS the scoped 'no clash' claim, blocks absolutes.
+    const clearReport = resolveAvailability(
+      {
+        googleEvents: [],
+        localEvents: [],
+        reminders: [
+          { id: 45, title: "ตื่นนอน", due_at: "2026-06-22T01:00:00.000Z" },
+        ],
+        constraints,
+      },
+      now,
+    );
+    const clearVerdict = verifyScheduleAnswerIntent({
+      availability: clearReport,
+      constraints,
+    });
+    assert(
+      clearVerdict.allowedClaims.some((a) => a.includes("ไม่ชน")) &&
+        clearVerdict.blockedClaims.some((b) => b.includes("100%")),
+      "RC6: verifier allows scoped 'no clash' but blocks an absolute 'free 100%'",
+    );
+    // Always-on discipline: never compute weekday/time by hand.
+    assert(
+      clearVerdict.guidance.some((g) => g.includes("weekday")),
+      "RC2/RC6: verifier always forbids hand-computing weekday/time",
+    );
+  }
+
+  // === Block H — RC7 FIXED (Sprint 4): constraint-aware action gate ============
+  // A reminder.update onto Monday 16:30 (inside the tank/class window) is HELD for
+  // confirm — never auto-executed and reported done (the F5 execute-then-correct
+  // loop). The gate uses the same hold mechanism as the Google-event clash.
+  {
+    const { findConstraintViolations } = await import(
+      "../src/services/availabilityResolver.js"
+    );
+    const { resolveScheduleConstraints } = await import(
+      "../src/services/scheduleConstraints.js"
+    );
+    const constraints = resolveScheduleConstraints();
+    const now = new Date("2026-06-20T06:00:00.000Z");
+
+    // Point reminder at Monday 16:30 BKK = 09:30 UTC → inside both windows.
+    const bad = findConstraintViolations(
+      { title: "เปลี่ยนน้ำตู้ปลา", startUtc: "2026-06-22T09:30:00.000Z" },
+      constraints,
+      now,
+    );
+    assert(
+      bad.length >= 1 &&
+        bad.some((v) => v.windowLabel.includes("[")),
+      "F5/RC7: a reminder inside a protected window yields a constraint violation",
+    );
+
+    // A clear time → no violation, so the gate does not hold a legitimate write.
+    const ok = findConstraintViolations(
+      { title: "ตื่นนอน", startUtc: "2026-06-22T01:00:00.000Z" },
+      constraints,
+      now,
+    );
+    assert(
+      ok.length === 0,
+      "RC7: a reminder outside every window yields no violation (no false hold)",
+    );
+
+    // End-to-end through the dispatcher with auto-execute ON and an injected
+    // constraint checker: the clashing reminder.update is held PENDING, not run.
+    const { dispatchProposedAction } = await import(
+      "../src/services/actionDispatcher.js"
+    );
+    const { setConfigBool } = await import(
+      "../src/db/repositories/configRepo.js"
+    );
+    setConfigBool("auto_execute_enabled", true);
+
+    const heldResult = await dispatchProposedAction(
+      "reminder.update",
+      { id: 44, due_at: "2026-06-22T09:30:00.000Z" },
+      "smoke",
+      {
+        constraintChecker: () => [
+          {
+            kind: "overlap",
+            severity: "high",
+            windowLabel: "ตู้ปลา: ไฟ [protected_window]",
+            detail: "overlap 0m",
+            startUtc: "2026-06-22T09:30:00.000Z",
+          },
+        ],
+      },
+    );
+    assert(
+      heldResult.mode === "pending" &&
+        heldResult.constraintViolations.length === 1,
+      "F5/RC7: constraint-violating reminder.update is HELD for confirm, not auto-run",
+    );
+
+    // A non-violating update with auto-execute ON is NOT blocked by the gate
+    // (it may still execute/fail on the real reminder; we only assert it is not
+    // held by a constraint).
+    const freeResult = await dispatchProposedAction(
+      "reminder.update",
+      { id: 44, due_at: "2026-06-22T01:00:00.000Z" },
+      "smoke",
+      { constraintChecker: () => [] },
+    );
+    assert(
+      freeResult.constraintViolations.length === 0,
+      "RC7: a non-violating reminder.update is not held by the constraint gate",
+    );
+    setConfigBool("auto_execute_enabled", false);
+  }
+
   // === Block D — bangkokInstantLabel unit checks (Sprint 1 formatter) ========
   {
     const { bangkokInstantLabel } = await import("../src/services/agenda.js");
@@ -395,7 +550,7 @@ async function main(): Promise<void> {
 
   closeDb();
   fs.rmSync(TEST_MEMORY_DIR, { recursive: true, force: true });
-  console.log("\nSTEP 27 SMOKE OK (Sprint 1: temporal render green)");
+  console.log("\nSTEP 27 SMOKE OK (Sprint 4: verifier + constraint gate green)");
 }
 
 main().catch((err: unknown) => {

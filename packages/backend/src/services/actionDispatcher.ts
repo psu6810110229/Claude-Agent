@@ -15,6 +15,13 @@ import {
   type EventConflict,
 } from "./eventConflicts.js";
 import {
+  findConstraintViolations,
+  type ConstraintViolation,
+  type ProposedItem,
+} from "./availabilityResolver.js";
+import { resolveScheduleConstraints } from "./scheduleConstraints.js";
+import { getSchedulePrefs } from "./schedulePrefs.js";
+import {
   AUTO_EXECUTE_ENABLED,
   AUTO_EXECUTE_DESTRUCTIVE_ENABLED,
 } from "../config.js";
@@ -78,7 +85,68 @@ export interface DispatchResult {
    * pending so the user is warned and confirms before it lands on the calendar.
    */
   conflicts: EventConflict[];
+  /**
+   * Step 27 / Sprint 4 (RC7) — protected-window / class-block violations for a
+   * timed reminder/event create or update. A non-empty list forces the action to
+   * stay pending (held for confirm) so a constraint-violating write is never
+   * auto-executed and reported as done. Empty for untimed/non-applicable actions.
+   */
+  constraintViolations: ConstraintViolation[];
 }
+
+/** Action types whose proposed time is gated against sticky constraints. */
+const CONSTRAINT_GATED_TYPES: ReadonlySet<ActionType> = new Set<ActionType>([
+  "reminder.create",
+  "reminder.update",
+  "event.create",
+  "event.update",
+  "google_event.create",
+  "google_event.update",
+]);
+
+/**
+ * Pull the proposed time interval out of a payload for the constraint gate.
+ * Returns null when the action carries no concrete start time (e.g. a
+ * title/notes-only update) — nothing to validate against a window.
+ */
+function extractProposedItem(
+  actionType: ActionType,
+  payload: unknown,
+): ProposedItem | null {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  const title = typeof p.title === "string" ? p.title : "รายการ";
+  if (actionType === "reminder.create" || actionType === "reminder.update") {
+    const due = p.due_at;
+    if (typeof due !== "string") return null;
+    return { title, startUtc: due };
+  }
+  // event / google_event create + update
+  const start = p.starts_at;
+  if (typeof start !== "string") return null;
+  const end = typeof p.ends_at === "string" ? p.ends_at : null;
+  return { title, startUtc: start, endUtc: end };
+}
+
+/** A proposed-time → constraint-violations checker (reads facts; pure thereafter). */
+export type ConstraintChecker = (item: ProposedItem) => ConstraintViolation[];
+
+/**
+ * Default constraint checker: resolves the sticky tank/class constraints from
+ * facts and tests the proposed time against them. FAILS CLOSED to `[]` (no hold,
+ * unchanged behaviour) on any error so a fact/parse problem never blocks a write.
+ */
+const defaultConstraintChecker: ConstraintChecker = (item) => {
+  try {
+    return findConstraintViolations(
+      item,
+      resolveScheduleConstraints(),
+      new Date(),
+      getSchedulePrefs(),
+    );
+  } catch {
+    return [];
+  }
+};
 
 /**
  * Default create-conflict checker (reads the live calendar via the real Google
@@ -147,7 +215,10 @@ export async function dispatchProposedAction(
   actionType: ActionType,
   payload: unknown,
   source: string,
-  opts: { conflictChecker?: CreateConflictChecker } = {},
+  opts: {
+    conflictChecker?: CreateConflictChecker;
+    constraintChecker?: ConstraintChecker;
+  } = {},
 ): Promise<DispatchResult> {
   // Create-time conflict detection: for a NEW Google event, check it against the
   // live calendar. A real clash (overlap / too-tight buffer) forces a confirm so
@@ -164,18 +235,37 @@ export async function dispatchProposedAction(
     }
   }
 
+  // Step 27 / Sprint 4 — constraint gate (RC7): a timed reminder/event create or
+  // update whose time falls inside a protected window (tank) or recurring block
+  // (class) is HELD for confirm — same hold mechanism as the Google-event clash —
+  // so a constraint-violating write is never auto-executed and reported as done.
+  let constraintViolations: ConstraintViolation[] = [];
+  if (CONSTRAINT_GATED_TYPES.has(actionType)) {
+    const item = extractProposedItem(actionType, payload);
+    if (item) {
+      const checker = opts.constraintChecker ?? defaultConstraintChecker;
+      try {
+        constraintViolations = checker(item);
+      } catch {
+        constraintViolations = [];
+      }
+    }
+  }
+
   const approval = createApproval(actionType, payload);
 
   const mustConfirm =
-    requiresConfirmation(actionType, payload) || conflicts.length > 0;
+    requiresConfirmation(actionType, payload) ||
+    conflicts.length > 0 ||
+    constraintViolations.length > 0;
   if (!isAutoExecuteEnabled() || mustConfirm) {
-    if (conflicts.length > 0) {
+    if (conflicts.length > 0 || constraintViolations.length > 0) {
       logActivity(
         "action.conflict_held",
-        `approval #${approval.id} (${actionType}) from ${source}: ${conflicts.length} clash(es) — held for confirm`,
+        `approval #${approval.id} (${actionType}) from ${source}: ${conflicts.length} clash(es), ${constraintViolations.length} constraint-violation(s) — held for confirm`,
       );
     }
-    return { mode: "pending", approval, conflicts };
+    return { mode: "pending", approval, conflicts, constraintViolations };
   }
 
   try {
@@ -190,7 +280,7 @@ export async function dispatchProposedAction(
       "action.auto_executed",
       `approval #${approval.id} (${actionType}) from ${source}: ${result.summary}`,
     );
-    return { mode: "executed", approval: updated, conflicts };
+    return { mode: "executed", approval: updated, conflicts, constraintViolations };
   } catch (err) {
     const message =
       err instanceof ExecutorError || err instanceof Error
@@ -202,6 +292,6 @@ export async function dispatchProposedAction(
       "action.auto_failed",
       `approval #${approval.id} (${actionType}) from ${source}: ${message}`,
     );
-    return { mode: "failed", approval: updated, conflicts };
+    return { mode: "failed", approval: updated, conflicts, constraintViolations };
   }
 }

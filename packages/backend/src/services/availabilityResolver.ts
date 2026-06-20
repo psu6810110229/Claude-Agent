@@ -155,6 +155,75 @@ function isConstraintId(id: string): boolean {
   return id.startsWith(PREFIX.constraint);
 }
 
+/** A constraint violation for a single proposed time (Sprint 4 action gate). */
+export interface ConstraintViolation {
+  kind: "overlap" | "tight_travel" | "no_buffer";
+  severity: Severity;
+  /** The constraint side label, e.g. "ตู้ปลา: ไฟ [protected_window]". */
+  windowLabel: string;
+  /** Compact analyzer note, e.g. "overlap 0m". */
+  detail: string;
+  startUtc: string;
+}
+
+/** The proposed time to validate against constraints. A point reminder has no end. */
+export interface ProposedItem {
+  title: string;
+  startUtc: string;
+  /** Omit / equal startUtc for a point reminder. */
+  endUtc?: string | null;
+}
+
+/**
+ * Step 27 / Sprint 4 (RC7) — does a single PROPOSED time fall inside a protected
+ * window or recurring block? Reuses `resolveAvailability` so the exact same
+ * interval logic that powers the read-path findings also gates writes. Returns
+ * only clashes that involve a constraint (a tank window / class block) — clashes
+ * with other real items are the create-time checker's job. Pure; the caller
+ * supplies `now` and fails closed.
+ */
+export function findConstraintViolations(
+  item: ProposedItem,
+  constraints: ScheduleConstraint[],
+  now: Date,
+  options: ScheduleHealthOptions = DEFAULT_SCHEDULE_HEALTH_OPTIONS,
+): ConstraintViolation[] {
+  if (constraints.length === 0) return [];
+  const isPoint = !item.endUtc || item.endUtc === item.startUtc;
+  const report = resolveAvailability(
+    {
+      googleEvents: [],
+      localEvents: isPoint
+        ? []
+        : [{ id: 0, title: item.title, starts_at: item.startUtc, ends_at: item.endUtc! }],
+      reminders: isPoint
+        ? [{ id: 0, title: item.title, due_at: item.startUtc }]
+        : [],
+      constraints,
+    },
+    now,
+    options,
+  );
+
+  const out: ConstraintViolation[] = [];
+  for (const c of report.clashes) {
+    if (!c.involvesConstraint) continue;
+    // The constraint side carries the "[kind]" tag materialized into its title.
+    const windowLabel =
+      c.labels.find((l) => l.includes("[protected_window]") || l.includes("[recurring_block]")) ??
+      c.labels.find((l) => l !== item.title) ??
+      c.labels.join(" ⨯ ");
+    out.push({
+      kind: c.kind,
+      severity: c.severity,
+      windowLabel,
+      detail: c.detail,
+      startUtc: c.startUtc,
+    });
+  }
+  return out;
+}
+
 /**
  * Resolve the clash landscape across all sources in one pass. Deterministic and
  * order-independent. Constraint-vs-constraint overlaps (the user's own rules

@@ -63,6 +63,7 @@ import {
   makeEmptyLineEvidence,
 } from "./lineEvidence.js";
 import { verifyLineEvidenceAnswerIntent } from "./evidenceVerifier.js";
+import { verifyScheduleAnswerIntent } from "./scheduleVerifier.js";
 import type { Approval } from "../schemas/approval.js";
 import {
   CLAUDE_BRIEF_TIMEOUT_MS,
@@ -151,6 +152,19 @@ export function buildActionReport(
       `⚠️ “${newTitle}” ${clashes} — เตรียมไว้รอคุณยืนยัน ยังไม่ได้ใส่ในปฏิทินค่ะ`,
     );
   }
+  // Step 27 / Sprint 4 — protected-window / class-block holds. A reminder/event
+  // landing inside a tank window or class block is held for confirm, NOT done.
+  for (const d of dispatched) {
+    if (!d.constraintViolations || d.constraintViolations.length === 0) continue;
+    const newTitle =
+      (d.approval.payload as { title?: string })?.title ?? "รายการนี้";
+    const windows = d.constraintViolations
+      .map((v) => `“${v.windowLabel}”`)
+      .join(", ");
+    lines.push(
+      `⚠️ “${newTitle}” ตกอยู่ในช่วงต้องห้าม ${windows} — เตรียมไว้รอคุณยืนยัน ยังไม่ได้บันทึกค่ะ`,
+    );
+  }
   if (executed.length > 0) {
     lines.push(
       executed.length === 1
@@ -181,9 +195,13 @@ export function buildActionReport(
   const executedSpeakable = executed.filter(
     (d) => !SILENT_TYPES.has(d.approval.action_type),
   );
-  const hasClash = dispatched.some((d) => (d.conflicts?.length ?? 0) > 0);
+  const hasClash = dispatched.some(
+    (d) =>
+      (d.conflicts?.length ?? 0) > 0 ||
+      (d.constraintViolations?.length ?? 0) > 0,
+  );
   const spokenParts: string[] = [];
-  if (hasClash) spokenParts.push("เวลานี้ทับกับนัดเดิมอยู่ ฝากเช็กก่อนยืนยันค่ะ");
+  if (hasClash) spokenParts.push("เวลานี้ทับกับนัดเดิมหรือช่วงต้องห้ามอยู่ ฝากเช็กก่อนยืนยันค่ะ");
   if (executedSpeakable.length > 0) spokenParts.push("เรียบร้อยแล้วค่ะ");
   if (failed.length > 0) spokenParts.push("มีบางรายการทำไม่สำเร็จค่ะ");
   if (pending.length > 0) spokenParts.push("อีกบางรายการรอคุณยืนยันค่ะ");
@@ -624,6 +642,19 @@ export async function buildChatContext(
     }
   }
 
+  // Step 27 / Sprint 4 (RC6) — deterministic schedule verdict: ALLOWED/BLOCKED
+  // claim guidance derived from the availability pass + sticky constraints, so the
+  // model narrates the computed clash set instead of eyeballing "free/clash".
+  // Null when not a scheduling turn or availability failed soft.
+  let scheduleVerifier: ChatContext["scheduleVerifier"] = null;
+  if (schedulingIntent && availability) {
+    try {
+      scheduleVerifier = verifyScheduleAnswerIntent({ availability, constraints });
+    } catch {
+      scheduleVerifier = null;
+    }
+  }
+
   const GENERIC_BUSY = "ไม่ว่าง (รายละเอียดส่วนตัว)";
   const GENERIC_TASK = "งานส่วนตัว";
   const GENERIC_REMINDER = "เตือนความจำส่วนตัว";
@@ -666,6 +697,7 @@ export async function buildChatContext(
       // Step 27 — constraints derive from durable facts: withhold for unverified.
       constraints: [],
       availability: null,
+      scheduleVerifier: null,
       autoExecute: isAutoExecuteEnabled(),
       autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
       restricted: true,
@@ -702,6 +734,8 @@ export async function buildChatContext(
     constraints,
     // Step 27 / Sprint 3 — unified availability findings (verified path only).
     availability,
+    // Step 27 / Sprint 4 — schedule verdict / claim guardrails (verified path only).
+    scheduleVerifier,
     autoExecute: isAutoExecuteEnabled(),
     autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
     restricted: false,
