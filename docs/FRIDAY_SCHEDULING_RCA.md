@@ -1,8 +1,10 @@
 # Friday Scheduling Reliability — Root Cause Analysis & Implementation Plan
 
-Status: investigation only. No code changed. This document maps the abnormal
-behavior seen in the 2026-06-20 fish-tank scheduling chat to concrete root
-causes in the backend, then proposes a sprint-by-sprint fix plan.
+Status: IMPLEMENTED (Sprints 0–5). This document maps the abnormal behavior seen
+in the 2026-06-20 fish-tank scheduling chat to concrete root causes in the
+backend, then proposes a sprint-by-sprint fix plan. All sprints are shipped on
+`main` (commits `3d1947c` Sprints 0–3, `badf3e5` Sprint 4, `12bffae` Sprint 5);
+see §6 for the verified Definition of Done.
 
 ---
 
@@ -248,11 +250,28 @@ Sprint 1 is independent and the cheapest large win (kills the weekday/TZ class o
 error). Sprints 2→4 are the structural fix and must land in order. Sprint 5 seals
 it at the prompt layer.
 
-## 6. Definition of done (whole effort)
-- Every claim in F1–F6 is reproduced by `smoke-step27` and then flipped green.
-- No model call added to the scheduler; no new connector; LINE untouched.
-- Reminders, local events, Google events, class blocks, and tank windows are all
-  considered in one deterministic availability pass.
-- Constraint-violating writes are held for confirm, never auto-reported as done.
-- UTC ISO storage, app-maintained `updated_at`, and the approval/auto-execute
-  policy are all preserved.
+## 6. Definition of done (whole effort) — VERIFIED
+
+Status per item (`smoke:step27` = 38 PASS; also build, `smoke:persona`,
+`smoke:step12` green):
+
+- [x] F1–F5 reproduced by `smoke-step27` and flipped green (RC1–RC7 asserted).
+      F6 (apology→verification) is addressed structurally by the verifier + gate
+      but has no dedicated assertion — functionally covered, not directly tested.
+- [x] No model call added to the scheduler; no new connector; LINE untouched.
+- [x] Reminders, local events, Google events, class blocks, and tank windows are
+      all considered in one deterministic availability pass (`availabilityResolver`).
+- [x] Constraint-violating writes are held for confirm, never auto-reported as
+      done (`actionDispatcher` constraint gate, Sprint 4).
+- [x] UTC ISO storage, app-maintained `updated_at`, and the approval/auto-execute
+      policy are all preserved.
+
+### Sprint-to-code map
+| Sprint | Delivers | Key files |
+|--------|----------|-----------|
+| 0 | repro harness | `scripts/smoke-step27.ts` |
+| 1 | pre-computed temporal render (RC2) | `agenda.ts`, `chatPrompt.ts` |
+| 2 | structured sticky constraints (RC3, RC4) | `schemas/scheduleConstraint.ts`, `services/scheduleConstraints.ts` |
+| 3 | unified availability resolver (RC1, RC5) | `services/availabilityResolver.ts` |
+| 4 | schedule verifier + action gate (RC6, RC7) | `services/scheduleVerifier.ts`, `actionDispatcher.ts` |
+| 5 | prompt/persona hardening + regression | `chatPrompt.ts`, `scripts/smoke-persona.ts` |
