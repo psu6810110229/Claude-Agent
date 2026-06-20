@@ -25,7 +25,7 @@ import {
   getGmailUnread,
   getSettings,
   listActivity,
-  listApprovals,
+  listApprovalsWithConflicts,
   listEvents,
   listMemory,
   listReminders,
@@ -36,7 +36,7 @@ import {
 const PRELOADERS: Record<string, () => void> = {
   "/":          () => preload("/api/chat/history", () => getChatHistory(100)),
   "/tasks":     () => preload("/api/tasks",    listTasks),
-  "/approvals": () => preload("/api/approvals", listApprovals),
+  "/approvals": () => preload("/api/approvals", listApprovalsWithConflicts),
   "/activity":  () => preload("/api/activity",  () => listActivity(100)),
   "/settings":  () => preload("/api/settings",  getSettings),
   "/memory":    () => preload("/api/memory",    listMemory),

@@ -7,7 +7,7 @@ import {
   getChatHistory,
   getSettings,
   listActivity,
-  listApprovals,
+  listApprovalsWithConflicts,
   listEvents,
   listMemory,
   listReminders,
@@ -18,7 +18,7 @@ import {
 export function Prefetcher() {
   useEffect(() => {
     preload("/api/tasks",        listTasks);
-    preload("/api/approvals",    listApprovals);
+    preload("/api/approvals",    listApprovalsWithConflicts);
     preload("/api/activity",     () => listActivity(100));
     preload("/api/settings",     getSettings);
     preload("/api/memory",       listMemory);
