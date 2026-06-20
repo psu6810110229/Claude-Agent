@@ -125,6 +125,25 @@ export function buildActionReport(
   const pending = dispatched.filter((d) => d.mode === "pending");
 
   const lines: string[] = [];
+
+  // Create-time clash warnings come FIRST — they are the reason a create was
+  // held for confirm instead of auto-added. One line per clashing new event.
+  const CLASH_LABEL: Record<string, string> = {
+    overlap: "ทับเวลากับ",
+    no_buffer: "ชิดกันเกินไปกับ",
+    tight_travel: "เวลาเดินทางไม่พอจาก",
+  };
+  for (const d of dispatched) {
+    if (!d.conflicts || d.conflicts.length === 0) continue;
+    const newTitle =
+      (d.approval.payload as { title?: string })?.title ?? "รายการใหม่";
+    const clashes = d.conflicts
+      .map((c) => `${CLASH_LABEL[c.kind] ?? "ชนกับ"} “${c.withTitle}”`)
+      .join(", ");
+    lines.push(
+      `⚠️ “${newTitle}” ${clashes} — เตรียมไว้รอคุณยืนยัน ยังไม่ได้ใส่ในปฏิทินค่ะ`,
+    );
+  }
   if (executed.length > 0) {
     lines.push(
       executed.length === 1
@@ -155,7 +174,9 @@ export function buildActionReport(
   const executedSpeakable = executed.filter(
     (d) => !SILENT_TYPES.has(d.approval.action_type),
   );
+  const hasClash = dispatched.some((d) => (d.conflicts?.length ?? 0) > 0);
   const spokenParts: string[] = [];
+  if (hasClash) spokenParts.push("เวลานี้ทับกับนัดเดิมอยู่ ฝากเช็กก่อนยืนยันค่ะ");
   if (executedSpeakable.length > 0) spokenParts.push("เรียบร้อยแล้วค่ะ");
   if (failed.length > 0) spokenParts.push("มีบางรายการทำไม่สำเร็จค่ะ");
   if (pending.length > 0) spokenParts.push("อีกบางรายการรอคุณยืนยันค่ะ");

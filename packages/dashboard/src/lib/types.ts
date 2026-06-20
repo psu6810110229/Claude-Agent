@@ -112,6 +112,61 @@ export interface ScheduleHealthResponse {
   available: boolean;
 }
 
+/** A `google_event.update` payload (Tier 2 reschedule proposal). */
+export interface UpdateGoogleEventPayload {
+  id: string;
+  title?: string;
+  starts_at?: string;
+  ends_at?: string;
+  location?: string;
+  notes?: string;
+}
+
+/**
+ * One AI-proposed schedule fix (Tier 2), AFTER it has been queued as a pending
+ * approval. The user approves/rejects `approvalId` through the normal queue.
+ */
+export interface ScheduleFixProposal {
+  approvalId: number;
+  actionType: "google_event.update";
+  payload: UpdateGoogleEventPayload;
+  reason: string;
+  /** Kind of the Tier 1 finding this fix addresses, when the model linked one. */
+  findingKind: ScheduleFindingKind | string | null;
+  /** Current title of the targeted event (display-only). */
+  eventTitle: string | null;
+}
+
+/**
+ * POST /api/calendar/fix-proposals — proposal-only, approval-gated. `available`
+ * mirrors the calendar fetch (fail-closed). Empty `proposals` + a `notes` line
+ * means the calendar was readable but nothing could be safely proposed.
+ */
+export interface ScheduleFixResponse {
+  available: boolean;
+  proposals: ScheduleFixProposal[];
+  notes?: string;
+}
+
+/**
+ * A create-time scheduling clash for a pending `google_event.create` (recomputed
+ * on each /api/approvals read). `withTitle` is the EXISTING event it clashes with.
+ */
+export interface ApprovalConflict {
+  kind: "overlap" | "tight_travel" | "no_buffer";
+  severity: "high" | "medium" | "low";
+  withTitle: string;
+  detail: string;
+  startUtc: string;
+  endUtc: string;
+}
+
+/** GET /api/approvals — approvals plus per-id create-time conflict warnings. */
+export interface ApprovalsResponse {
+  approvals: Approval[];
+  conflicts: Record<number, ApprovalConflict[]>;
+}
+
 /** Deterministic schedule-health thresholds (GET/PUT /api/settings/schedule). */
 export interface SchedulePrefs {
   workStartHour: number;

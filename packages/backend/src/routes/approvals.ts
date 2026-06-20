@@ -15,10 +15,51 @@ import {
 } from "../db/repositories/approvalRepo.js";
 import { logActivity } from "../db/repositories/activityRepo.js";
 import { executeAction, ExecutorError } from "../services/executor.js";
+import {
+  makeCreateConflictChecker,
+  type CreateConflictInput,
+  type EventConflict,
+} from "../services/eventConflicts.js";
+import {
+  realGoogleEventsFetcher,
+  type GoogleEventsFetcher,
+} from "../services/googleCalendar.js";
 
-export async function approvalRoutes(app: FastifyInstance): Promise<void> {
+/** Plugin options. `calendarFetcher` is injectable so tests can stub Google. */
+export interface ApprovalRouteOptions {
+  calendarFetcher?: GoogleEventsFetcher;
+}
+
+export async function approvalRoutes(
+  app: FastifyInstance,
+  opts: ApprovalRouteOptions = {},
+): Promise<void> {
+  // Recompute create-time clashes for PENDING google_event.create rows on read,
+  // so the queue can warn "this overlaps with X" without persisting the warning.
+  // Fail-closed per row (checker returns [] on any calendar error).
+  const conflictChecker = makeCreateConflictChecker(
+    opts.calendarFetcher ?? realGoogleEventsFetcher,
+  );
+
   app.get("/api/approvals", async () => {
-    return approvalListResponseSchema.parse({ approvals: listApprovals() });
+    const approvals = listApprovals();
+    const conflicts: Record<number, EventConflict[]> = {};
+    await Promise.all(
+      approvals.map(async (a) => {
+        if (
+          a.status === "pending" &&
+          a.action_type === "google_event.create" &&
+          a.payload != null
+        ) {
+          const found = await conflictChecker(a.payload as CreateConflictInput);
+          if (found.length > 0) conflicts[a.id] = found;
+        }
+      }),
+    );
+    return {
+      ...approvalListResponseSchema.parse({ approvals }),
+      conflicts,
+    };
   });
 
   app.post("/api/approvals", async (req, reply) => {

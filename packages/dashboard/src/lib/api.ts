@@ -6,6 +6,7 @@ import type {
   Activity,
   ProviderChoice,
   Approval,
+  ApprovalsResponse,
   BriefResult,
   CalendarEvent,
   ChatMessage,
@@ -22,6 +23,7 @@ import type {
   GmailListResponse,
   GoogleEventListResponse,
   ScheduleHealthResponse,
+  ScheduleFixResponse,
   SchedulePrefs,
   MemoryContent,
   MemoryEntry,
@@ -121,6 +123,15 @@ export async function listApprovals(): Promise<Approval[]> {
   return data.approvals;
 }
 
+/**
+ * Approvals plus per-id create-time conflict warnings (recomputed server-side
+ * for pending `google_event.create` rows). `conflicts` is keyed by approval id.
+ */
+export async function listApprovalsWithConflicts(): Promise<ApprovalsResponse> {
+  const data = await request<ApprovalsResponse>("/api/approvals");
+  return { approvals: data.approvals, conflicts: data.conflicts ?? {} };
+}
+
 export function approveApproval(id: number): Promise<Approval> {
   return request<Approval>(`/api/approvals/${id}/approve`, { method: "POST" });
 }
@@ -211,6 +222,18 @@ export function getCalendarUpcoming(): Promise<GoogleEventListResponse> {
 /** Schedule-health findings over today+upcoming (read-only analysis). */
 export function getCalendarHealth(): Promise<ScheduleHealthResponse> {
   return request<ScheduleHealthResponse>("/api/calendar/health");
+}
+
+/**
+ * Tier 2 — ask the AI to PROPOSE reschedule fixes for the current findings.
+ * Bodyless POST. Each accepted proposal is queued as a PENDING approval (never
+ * auto-executed); the response carries the approval ids + human-readable reasons.
+ * Fail-closed: returns `available:false` or an empty list rather than erroring.
+ */
+export function proposeScheduleFixes(): Promise<ScheduleFixResponse> {
+  return request<ScheduleFixResponse>("/api/calendar/fix-proposals", {
+    method: "POST",
+  });
 }
 
 /** Read the deterministic schedule-health thresholds. */

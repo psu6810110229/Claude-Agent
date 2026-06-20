@@ -9,6 +9,12 @@ import { getConfigBool } from "../db/repositories/configRepo.js";
 import { executeAction, ExecutorError } from "./executor.js";
 import { getActionMeta } from "./actionRegistry.js";
 import {
+  makeCreateConflictChecker,
+  type CreateConflictChecker,
+  type CreateConflictInput,
+  type EventConflict,
+} from "./eventConflicts.js";
+import {
   AUTO_EXECUTE_ENABLED,
   AUTO_EXECUTE_DESTRUCTIVE_ENABLED,
 } from "../config.js";
@@ -66,7 +72,21 @@ export type DispatchMode = "executed" | "failed" | "pending";
 export interface DispatchResult {
   mode: DispatchMode;
   approval: Approval;
+  /**
+   * Create-time scheduling clashes detected for this action (empty for non-create
+   * actions or when none were found). A non-empty list forces the action to stay
+   * pending so the user is warned and confirms before it lands on the calendar.
+   */
+  conflicts: EventConflict[];
 }
+
+/**
+ * Default create-conflict checker (reads the live calendar via the real Google
+ * fetcher). Built once; tests inject their own via the dispatch options. Fails
+ * closed to `[]` so a calendar error never blocks a create.
+ */
+const defaultCreateConflictChecker: CreateConflictChecker =
+  makeCreateConflictChecker();
 
 /**
  * Local-DB archives are reversible-ish but treated as confirm-required. Fact
@@ -127,11 +147,35 @@ export async function dispatchProposedAction(
   actionType: ActionType,
   payload: unknown,
   source: string,
+  opts: { conflictChecker?: CreateConflictChecker } = {},
 ): Promise<DispatchResult> {
+  // Create-time conflict detection: for a NEW Google event, check it against the
+  // live calendar. A real clash (overlap / too-tight buffer) forces a confirm so
+  // the create can never auto-execute silently over an existing commitment.
+  // Computed even when already pending so the warning can be surfaced. Fails
+  // closed to [] (no warning, unchanged behaviour).
+  let conflicts: EventConflict[] = [];
+  if (actionType === "google_event.create") {
+    const checker = opts.conflictChecker ?? defaultCreateConflictChecker;
+    try {
+      conflicts = await checker(payload as CreateConflictInput);
+    } catch {
+      conflicts = [];
+    }
+  }
+
   const approval = createApproval(actionType, payload);
 
-  if (!isAutoExecuteEnabled() || requiresConfirmation(actionType, payload)) {
-    return { mode: "pending", approval };
+  const mustConfirm =
+    requiresConfirmation(actionType, payload) || conflicts.length > 0;
+  if (!isAutoExecuteEnabled() || mustConfirm) {
+    if (conflicts.length > 0) {
+      logActivity(
+        "action.conflict_held",
+        `approval #${approval.id} (${actionType}) from ${source}: ${conflicts.length} clash(es) — held for confirm`,
+      );
+    }
+    return { mode: "pending", approval, conflicts };
   }
 
   try {
@@ -146,7 +190,7 @@ export async function dispatchProposedAction(
       "action.auto_executed",
       `approval #${approval.id} (${actionType}) from ${source}: ${result.summary}`,
     );
-    return { mode: "executed", approval: updated };
+    return { mode: "executed", approval: updated, conflicts };
   } catch (err) {
     const message =
       err instanceof ExecutorError || err instanceof Error
@@ -158,6 +202,6 @@ export async function dispatchProposedAction(
       "action.auto_failed",
       `approval #${approval.id} (${actionType}) from ${source}: ${message}`,
     );
-    return { mode: "failed", approval: updated };
+    return { mode: "failed", approval: updated, conflicts };
   }
 }

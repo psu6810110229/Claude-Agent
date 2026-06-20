@@ -41,7 +41,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   app.register(healthRoutes);
   app.register(taskRoutes);
   app.register(activityRoutes);
-  app.register(approvalRoutes);
+  app.register(approvalRoutes, { calendarFetcher: options.calendarFetcher });
   app.register(memoryRoutes);
   app.register(factRoutes);
   app.register(eventRoutes);
@@ -51,7 +51,10 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     aiInvoker: options.aiInvoker,
     calendarFetcher: options.calendarFetcher,
   });
-  app.register(calendarRoutes, { calendarFetcher: options.calendarFetcher });
+  app.register(calendarRoutes, {
+    calendarFetcher: options.calendarFetcher,
+    aiInvoker: options.aiInvoker,
+  });
   app.register(notificationRoutes);
   app.register(chatRoutes, {
     aiInvoker: options.aiInvoker,

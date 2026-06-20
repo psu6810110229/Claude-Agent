@@ -6,6 +6,7 @@ import { bucketEvents, bucketReminders } from "@/lib/agenda";
 import { ErrorBanner } from "@/components/States";
 import { EventList, GoogleEventList, ReminderList } from "@/components/Agenda";
 import { ScheduleHealth } from "@/components/ScheduleHealth";
+import { ScheduleFixProposals } from "@/components/ScheduleFixProposals";
 import type {
   CalendarEvent,
   GoogleEventListResponse,
@@ -64,6 +65,7 @@ export default function UpcomingPage() {
         <section className="section">
           <h3>สุขภาพตาราง</h3>
           <ScheduleHealth />
+          <ScheduleFixProposals />
         </section>
 
         {data && (

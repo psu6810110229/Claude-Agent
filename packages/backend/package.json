@@ -37,6 +37,8 @@
     "smoke:step22": "tsx scripts/smoke-step22.ts",
     "smoke:step23": "tsx scripts/smoke-step23.ts",
     "smoke:step24": "tsx scripts/smoke-step24.ts",
+    "smoke:step25": "tsx scripts/smoke-step25.ts",
+    "smoke:step26": "tsx scripts/smoke-step26.ts",
     "smoke:persona": "tsx scripts/smoke-persona.ts"
   },
   "dependencies": {

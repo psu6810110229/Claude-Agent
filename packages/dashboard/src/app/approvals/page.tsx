@@ -1,11 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, RotateCw, X } from "lucide-react";
+import { AlertTriangle, Check, RotateCw, X } from "lucide-react";
 import {
   ApiError,
   approveApproval,
-  listApprovals,
+  listApprovalsWithConflicts,
   rejectApproval,
 } from "@/lib/api";
 import { useData } from "@/lib/useData";
@@ -17,7 +17,28 @@ import {
   summarizePayload,
   summarizePayloadDetail,
 } from "@/lib/actionDisplay";
-import type { Approval } from "@/lib/types";
+import type { Approval, ApprovalConflict } from "@/lib/types";
+
+const CLASH_LABEL: Record<ApprovalConflict["kind"], string> = {
+  overlap: "ทับเวลากับ",
+  no_buffer: "ชิดกันเกินไปกับ",
+  tight_travel: "เวลาเดินทางไม่พอจาก",
+};
+
+function ConflictWarning({ conflicts }: { conflicts: ApprovalConflict[] }) {
+  if (conflicts.length === 0) return null;
+  return (
+    <div className="approval-clash" role="alert">
+      <AlertTriangle aria-hidden="true" strokeWidth={1.9} />
+      <span>
+        {conflicts
+          .map((c) => `${CLASH_LABEL[c.kind] ?? "ชนกับ"} “${c.withTitle}”`)
+          .join(", ")}{" "}
+        — ตรวจก่อนอนุมัติ
+      </span>
+    </div>
+  );
+}
 
 type ApprovalDecision = "approve" | "reject";
 type ApprovalColumnKey = "pending" | "approved" | "attention" | "rejected";
@@ -79,8 +100,11 @@ function ApprovalsSkeleton() {
 
 export default function ApprovalsPage() {
   const { notify } = useToast();
-  const { data: approvals, loading, error, reload } =
-    useData("/api/approvals", listApprovals);
+  const { data, loading, error, reload } =
+    useData("/api/approvals", listApprovalsWithConflicts);
+
+  const approvals = data?.approvals;
+  const conflicts = data?.conflicts ?? {};
 
   const [busyId, setBusyId] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -153,6 +177,7 @@ export default function ApprovalsPage() {
                 approvals={columns[column.key]}
                 busyId={busyId}
                 column={column}
+                conflicts={conflicts}
                 key={column.key}
                 run={run}
               />
@@ -168,11 +193,13 @@ function ApprovalColumn({
   approvals,
   busyId,
   column,
+  conflicts,
   run,
 }: {
   approvals: Approval[];
   busyId: number | null;
   column: (typeof BOARD_COLUMNS)[number];
+  conflicts: Record<number, ApprovalConflict[]>;
   run: (approval: Approval, decision: ApprovalDecision) => Promise<void>;
 }) {
   return (
@@ -196,6 +223,7 @@ function ApprovalColumn({
             <ApprovalCard
               approval={approval}
               busy={busyId === approval.id}
+              conflicts={conflicts[approval.id] ?? []}
               key={approval.id}
               run={run}
             />
@@ -209,10 +237,12 @@ function ApprovalColumn({
 function ApprovalCard({
   approval,
   busy,
+  conflicts,
   run,
 }: {
   approval: Approval;
   busy: boolean;
+  conflicts: ApprovalConflict[];
   run: (approval: Approval, decision: ApprovalDecision) => Promise<void>;
 }) {
   const pending = approval.status === "pending";
@@ -251,6 +281,8 @@ function ApprovalCard({
           </p>
         )}
       </div>
+
+      {pending && <ConflictWarning conflicts={conflicts} />}
 
       <div className="approval-origin">
         <span>Source: approval queue</span>

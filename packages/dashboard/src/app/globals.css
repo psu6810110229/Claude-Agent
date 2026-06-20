@@ -4249,6 +4249,106 @@ pre.payload {
   background: var(--ok);
 }
 
+/* --- Schedule fix proposals (Tier 2, AI-proposed reschedules) ------------ */
+.fix-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.fix-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.fix-trigger {
+  gap: 7px;
+}
+.fix-trigger svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.fix-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.fix-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fix-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 13px 14px;
+  border-radius: var(--radius);
+  background: var(--surface-1, rgba(255, 255, 255, 0.03));
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.fix-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.fix-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fix-event {
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: var(--text);
+}
+
+.fix-reason {
+  color: var(--muted-strong);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.fix-slot {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+.fix-slot strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Approval create-time clash warning ---------------------------------- */
+.approval-clash {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 9px 11px;
+  border-radius: var(--radius);
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+.approval-clash svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
 /* --- Schedule preferences editor (Tier 1 "C") ---------------------------- */
 .sched-prefs {
   display: flex;
