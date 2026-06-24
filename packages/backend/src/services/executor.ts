@@ -39,6 +39,7 @@ import {
   deleteGoogleCalendarEvent,
   GoogleCalendarError,
 } from "./googleCalendar.js";
+import { invalidateGoogleCache } from "./googleCalendarCache.js";
 import {
   createGmailDraft,
   sendGmailEmail,
@@ -191,6 +192,7 @@ export async function executeAction(
       const data = parsed.data as CreateGoogleEventPayload;
       try {
         const event = await createGoogleCalendarEvent(data);
+        invalidateGoogleCache(); // [L3] write-through: next read reflects it
         return { summary: `created Google Calendar event ${event.id}` };
       } catch (err) {
         if (err instanceof GoogleCalendarError) {
@@ -203,6 +205,7 @@ export async function executeAction(
       const data = parsed.data as UpdateGoogleEventPayload;
       try {
         const event = await updateGoogleCalendarEvent(data);
+        invalidateGoogleCache(); // [L3] write-through
         return {
           summary: `updated Google Calendar event ${event.id}`,
           undoJson: JSON.stringify(event.undoSnapshot),
@@ -218,6 +221,7 @@ export async function executeAction(
       const data = parsed.data as DeleteGoogleEventPayload;
       try {
         const event = await deleteGoogleCalendarEvent(data);
+        invalidateGoogleCache(); // [L3] write-through
         return {
           summary: `deleted Google Calendar event ${event.id}`,
           undoJson: JSON.stringify(event.undoSnapshot),
