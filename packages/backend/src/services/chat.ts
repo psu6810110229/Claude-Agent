@@ -52,6 +52,7 @@ import {
   getRecentLineByChatSafe,
   getFocusedChatMessages,
   getChatCoverageByName,
+  getChatHeadTail,
   searchLineMessages,
 } from "./lineChat.js";
 import {
@@ -79,6 +80,8 @@ import {
   LINE_CONTEXT_PER_CHAT,
   LINE_CONTEXT_MAX_CHATS,
   LINE_FOCUSED_MSG_CAP,
+  LINE_BOUNDARY_HEAD,
+  LINE_BOUNDARY_TAIL,
   LINE_SEARCH_CAP,
   nowIso,
 } from "../config.js";
@@ -366,6 +369,39 @@ export function detectFocusedChat(
   return null;
 }
 
+/**
+ * S3 — deterministic BOUNDARY-intent detector (no AI). True when the user asks
+ * how far a chat's history goes (earliest / first / since when / how far back),
+ * as opposed to its content. Substring match — Thai has no word spaces, so the
+ * same rationale as searchLineMessages applies. Pure — exported for tests.
+ */
+const LINE_BOUNDARY_CUES = [
+  // Thai
+  "เก่าสุด",
+  "เก่าที่สุด",
+  "แรกสุด",
+  "ครั้งแรก",
+  "ข้อความแรก",
+  "วันแรก",
+  "เริ่มเมื่อไหร่",
+  "เริ่มตั้งแต่",
+  "ตั้งแต่เมื่อไหร่",
+  "ย้อนไปถึง",
+  "ย้อนหลังถึง",
+  "ย้อนไปได้ถึง",
+  // English
+  "earliest",
+  "oldest",
+  "since when",
+  "how far back",
+  "first message",
+  "start of",
+];
+export function isLineBoundaryIntent(message: string): boolean {
+  const m = message.toLowerCase();
+  return LINE_BOUNDARY_CUES.some((c) => m.includes(c.toLowerCase()));
+}
+
 /** Build compact recall context for a chat turn. Exported for the idle follow-up. */
 export async function buildChatContext(
   message: string,
@@ -557,7 +593,12 @@ export async function buildChatContext(
   );
   let lineFocusedChat: ChatContext["lineFocusedChat"] = null;
   if (focusedChatName) {
-    const msgs = getFocusedChatMessages(focusedChatName, LINE_FOCUSED_MSG_CAP);
+    // S3 — boundary questions ("เก่าสุด/since when") need the OLDEST messages, not
+    // just the recent tail: route them to head+tail. Content questions keep tail.
+    const boundary = isLineBoundaryIntent(message);
+    const msgs = boundary
+      ? getChatHeadTail(focusedChatName, LINE_BOUNDARY_HEAD, LINE_BOUNDARY_TAIL)
+      : getFocusedChatMessages(focusedChatName, LINE_FOCUSED_MSG_CAP);
     if (msgs.length > 0) {
       // S1 — coverage envelope: the TRUE extent of this chat's history, so Friday
       // never describes the windowed tail's oldest message as the export's start.
@@ -571,6 +612,7 @@ export async function buildChatContext(
         })),
         coverage: getChatCoverageByName(focusedChatName),
         shown: msgs.length,
+        boundary,
       };
     }
   }

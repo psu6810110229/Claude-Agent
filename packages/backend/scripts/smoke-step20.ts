@@ -205,6 +205,29 @@ async function main(): Promise<void> {
       fs.rmSync(gapFile, { force: true });
     }
 
+    // --- 6d. S3 head+tail retrieval + boundary intent ---
+    const allTest = line.getLineMessages("[LINE]TestChat.txt", 500); // 6 msgs
+    const ht = line.getChatHeadTail("TestChat", 2, 2);
+    assert(ht.length === 4, "head+tail returns head(2)+tail(2) when chat exceeds it");
+    assert(
+      ht[0].text === allTest[0].text && ht[3].text === allTest[5].text,
+      "head+tail keeps the OLDEST and NEWEST messages",
+    );
+    assert(
+      !ht.some((m) => m.text === allTest[3].text),
+      "head+tail omits the middle (a non-boundary message is absent)",
+    );
+    const whole = line.getChatHeadTail("TestChat", 10, 10);
+    assert(whole.length === allTest.length, "head+tail returns whole chat when it fits");
+
+    const chat = await import("../src/services/chat.js");
+    assert(chat.isLineBoundaryIntent("กลุ่มกยศ เก่าสุดวันไหน"), "TH boundary cue detected");
+    assert(chat.isLineBoundaryIntent("earliest message in this chat?"), "EN boundary cue detected");
+    assert(
+      !chat.isLineBoundaryIntent("กลุ่มกยศ คุยเรื่องอะไรบ้าง"),
+      "content question is NOT boundary intent",
+    );
+
     // --- 7. getRecentLineMessages newest-first + chat tag ---
     const recent = line.getRecentLineMessages(3);
     assert(recent.length === 3, "getRecentLineMessages caps to limit");

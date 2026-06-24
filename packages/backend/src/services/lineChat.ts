@@ -433,6 +433,32 @@ export function getChatCoverageByName(chatName: string): LineChatCoverage | null
 }
 
 /**
+ * S3 — first `head` + last `tail` messages of a chat (oldest→newest, head before
+ * tail). For BOUNDARY questions (earliest / how far back): the tail alone never
+ * contains the oldest message, so we also surface the head. When the chat fits in
+ * head+tail the whole thing is returned (no omission). Fail-soft → [].
+ */
+export function getChatHeadTail(
+  chatName: string,
+  head: number,
+  tail: number,
+): LineMessage[] {
+  if (!isLineEnabled()) return [];
+  try {
+    const file = listExportFiles().find((f) => chatNameFromFile(f) === chatName);
+    if (!file) return [];
+    const messages = readFileMessages(file);
+    const h = Math.max(0, Math.min(head, 500));
+    const t = Math.max(0, Math.min(tail, 500));
+    if (h + t === 0) return [];
+    if (messages.length <= h + t) return messages; // whole chat fits — no gap
+    return [...messages.slice(0, h), ...messages.slice(messages.length - t)];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Recent messages across ALL chats (newest first), tagged with chat name.
  * FAIL-SOFT: returns [] on disabled / any error — used in chat recall context
  * exactly like the Drive/Contacts context fetchers.

@@ -574,6 +574,15 @@ export const LINE_COVERAGE_GAP_DAYS = Number(
 );
 
 /**
+ * S3 — when the user asks a BOUNDARY question about one chat (earliest / since
+ * when / how far back), load the first N + last N messages instead of the tail
+ * only, so the OLDEST messages are actually in the window (not just summarised
+ * from coverage).
+ */
+export const LINE_BOUNDARY_HEAD = Number(process.env.LINE_BOUNDARY_HEAD ?? 10);
+export const LINE_BOUNDARY_TAIL = Number(process.env.LINE_BOUNDARY_TAIL ?? 10);
+
+/**
  * Max keyword-matched LINE messages injected into chat recall context. Read-only
  * retrieval over the ingested exports. Clamped to [0, 50]; invalid/NaN → 12.
  */

@@ -226,6 +226,11 @@ export interface ChatContext {
     } | null;
     /** How many messages the window below actually carries (≤ coverage.count). */
     shown?: number;
+    /**
+     * S3 — true when the window is HEAD+TAIL (oldest + newest), loaded because the
+     * user asked a boundary question. False/absent = recent tail only.
+     */
+    boundary?: boolean;
   } | null;
   /**
    * Step 22 — compact list of active topics the user is tracking. Empty when
@@ -475,13 +480,18 @@ export function buildChatPrompt(ctx: ChatContext): string {
             .join("; ") +
           `. Describe it as segments around these gaps; do NOT imply continuous activity across them.`
         : "";
+    const windowNote = ctx.lineFocusedChat?.boundary
+      ? `The ${shown} message(s) below are the OLDEST + NEWEST of this chat (the ` +
+        `middle is omitted) — so the FIRST line IS the chat's earliest message and ` +
+        `the LAST line is its most recent. Answer boundary questions directly from these.`
+      : `The ${shown} message(s) below are the most RECENT subset, NOT the whole ` +
+        `chat — the earliest message you can SUMMARISE is the oldest shown, but the ` +
+        `chat's history GOES BACK to the COVERAGE "from" date above. Never say the ` +
+        `export starts at, or that nothing exists before, the oldest message shown.`;
     return (
       `  COVERAGE: this chat has ${cov.count} message(s), from ` +
       `${cov.earliest.date} ${cov.earliest.time} to ${cov.latest.date} ${cov.latest.time} ` +
-      `(Asia/Bangkok). The ${shown} message(s) below are the most RECENT subset, NOT ` +
-      `the whole chat — the earliest message you can SUMMARISE is the oldest shown, but ` +
-      `the chat's history GOES BACK to the COVERAGE "from" date above. Never say the ` +
-      `export starts at, or that nothing exists before, the oldest message shown.` +
+      `(Asia/Bangkok). ${windowNote}` +
       gapNote
     );
   })();
