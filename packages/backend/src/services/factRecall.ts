@@ -1,6 +1,13 @@
 import { listActiveFacts } from "../db/repositories/factRepo.js";
 import { FACT_RECALL_CAP } from "../config.js";
+import { parseConstraintFromFact } from "./scheduleConstraints.js";
 import type { MemoryFact } from "../schemas/fact.js";
+
+/**
+ * Max schedule-block facts force-recalled on a scheduling-intent turn (§4 — keep
+ * the boost from flooding the prompt; pinned + keyword matches still win the rest).
+ */
+const SCHEDULE_BOOST_CAP = 3;
 
 /**
  * Step 16 — deterministic fact recall. Given the user's message, pick the most
@@ -39,6 +46,7 @@ function scoreFact(fact: MemoryFact, msgTokens: Set<string>): number {
 export function recallFacts(
   message: string,
   cap: number = FACT_RECALL_CAP,
+  schedulingIntent: boolean = false,
 ): MemoryFact[] {
   const all = listActiveFacts();
   const pinned = all.filter((f) => f.pinned);
@@ -51,10 +59,34 @@ export function recallFacts(
     .sort((a, b) => b.score - a.score)
     .map((s) => s.fact);
 
-  // Pinned always win the first slots; fill the remainder with scored matches.
+  // Pinned always win the first slots.
   const out = [...pinned];
+
+  // §4 — schedule-fact boost: on a scheduling-intent turn, force-recall recurring
+  // CLASS blocks even when they share no keyword with the message, so the schedule
+  // never silently drops. Gated by the SAME parser that builds constraints: a fact
+  // qualifies ONLY if it parses to a `recurring_block` (an explicit HH:MM–HH:MM
+  // window + class signal). A single-time routine ("feed cat 08:00") has no window
+  // range → parses to null → never boosted, so the context can't bloat. protected
+  // windows (tank) are NOT boosted here — they already ride the sticky constraints
+  // channel. Sub-capped so they can never evict pinned/keyword facts.
+  if (schedulingIntent) {
+    let boosted = 0;
+    for (const f of rest) {
+      if (boosted >= SCHEDULE_BOOST_CAP || out.length >= cap) break;
+      if (out.some((o) => o.id === f.id)) continue;
+      const c = parseConstraintFromFact(f);
+      if (c && c.kind === "recurring_block") {
+        out.push(f);
+        boosted++;
+      }
+    }
+  }
+
+  // Fill the remainder with scored keyword matches (dedupe against boosted/pinned).
   for (const f of scored) {
     if (out.length >= cap) break;
+    if (out.some((o) => o.id === f.id)) continue;
     out.push(f);
   }
   return out.slice(0, cap);

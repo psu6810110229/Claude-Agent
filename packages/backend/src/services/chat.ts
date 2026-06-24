@@ -68,6 +68,7 @@ import type { Approval } from "../schemas/approval.js";
 import {
   CLAUDE_BRIEF_TIMEOUT_MS,
   CLAUDE_CONTEXT_TASK_CAP,
+  FACT_RECALL_CAP,
   BRIEF_EVENT_CAP,
   BRIEF_REMINDER_CAP,
   CHAT_GOOGLE_WINDOW_DAYS,
@@ -209,6 +210,24 @@ export function buildActionReport(
   return { text: lines.join("\n"), spoken: spokenParts.join(" ") };
 }
 
+/**
+ * S1 anti-nag interceptor set — action types that represent a DATA MUTATION /
+ * correction. When one is in flight, the code (not the prompt) suppresses any
+ * clarifying question on the same turn: a system that is ALREADY acting on a
+ * correction must not also interrogate the (often frustrated) user. Gated on
+ * action-PRESENCE, not sentiment — deterministic, can't be talked out of it by
+ * the model. Execution of these stays confirm-gated in the dispatcher unchanged.
+ */
+const MUTATION_ACTION_TYPES: ReadonlySet<string> = new Set<string>([
+  "fact.update",
+  "fact.forget",
+  "task.archive",
+  "event.archive",
+  "reminder.archive",
+  "google_event.delete",
+  "google_event.update",
+]);
+
 function chatFailureMessage(reason: string): string {
   if (reason === "disabled") {
     return "ยังช่วยคิดด้วย AI ไม่ได้ค่ะ โหมด AI ยังไม่พร้อมใช้งาน เปิดใช้งานแล้วลองใหม่ได้";
@@ -344,8 +363,14 @@ export async function buildChatContext(
     summary: m.summary,
   }));
 
-  // Step 16 — real memory: pick the facts most relevant to this message.
-  const facts = recallFacts(message).map((f) => ({
+  // Step 16 — real memory: pick the facts most relevant to this message. On a
+  // scheduling-intent turn, also force-recall recurring class blocks (§4 boost) so
+  // a class-schedule fact never drops out of a "มีเรียนไหม" read.
+  const facts = recallFacts(
+    message,
+    FACT_RECALL_CAP,
+    isSchedulingIntent(message),
+  ).map((f) => ({
     id: f.id,
     content: f.content,
     category: f.category,
@@ -804,17 +829,55 @@ export async function runChat(
     };
   }
 
-  // 5. Valid: each action is dispatched — auto-executed when eligible, else a
-  //    pending approval. Unverified requesters: skip dispatch entirely (defense
-  //    in depth — prompt also instructs the model not to propose writes for guests).
+  // 5. H4 — structural fact-id remap. The prompt showed facts as opaque refs
+  //    [F1], [F2], … so the model never sees a real DB id. Map the F-number the
+  //    model put in a fact.update / fact.forget "id" back to the real id here,
+  //    BEFORE dispatch. An unmapped ref (out of range / hallucinated) cannot be
+  //    targeted safely → drop that action rather than risk hitting the wrong row.
+  const factIdMap = new Map<number, number>();
+  ctx.facts.forEach((f, i) => factIdMap.set(i + 1, f.id));
+  const actionsToDispatch: AiAction[] = [];
+  for (const action of check.data.actions) {
+    if (
+      action.action_type === "fact.update" ||
+      action.action_type === "fact.forget"
+    ) {
+      const localId = (action.payload as { id?: number }).id;
+      const realId =
+        typeof localId === "number" ? factIdMap.get(localId) : undefined;
+      if (realId === undefined) continue; // unmapped fact ref — drop, do not guess
+      actionsToDispatch.push({
+        ...action,
+        payload: { ...action.payload, id: realId },
+      } as AiAction);
+    } else {
+      actionsToDispatch.push(action);
+    }
+  }
+
+  // Each action is dispatched — auto-executed when eligible, else a pending
+  // approval. Unverified requesters: skip dispatch entirely (defense in depth —
+  // prompt also instructs the model not to propose writes for guests).
   const dispatched: DispatchResult[] = verified
     ? await Promise.all(
-        check.data.actions.map((action: AiAction) =>
+        actionsToDispatch.map((action: AiAction) =>
           dispatchProposedAction(action.action_type, action.payload, "chat"),
         ),
       )
     : [];
   const approvals: Approval[] = dispatched.map((d) => d.approval);
+
+  // 5b. S1 anti-nag interceptor — if a data mutation/correction is in flight, the
+  // backend FORCES the follow-up question off this turn. This is the code-level
+  // guarantee that survives the model ignoring the "don't re-ask" prompt rule: a
+  // turn that is already acting on a correction never also interrogates the user.
+  const hasMutation = dispatched.some((d) =>
+    MUTATION_ACTION_TYPES.has(d.approval.action_type),
+  );
+  if (hasMutation) {
+    check.data.clarification = undefined;
+    check.data.clarification_choices = undefined;
+  }
 
   // 6. Persist the exchange (user + assistant). Only reaches here on success,
   //    so history never contains failed/rejected attempts.

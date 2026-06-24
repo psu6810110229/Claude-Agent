@@ -134,10 +134,14 @@ export function materializeConstraints(
       const startMs =
         Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), sh, sm) -
         BANGKOK_OFFSET_MS;
-      const endMs =
+      let endMs =
         Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), eh, em) -
         BANGKOK_OFFSET_MS;
-      if (endMs <= startMs) continue; // skip malformed windows
+      if (endMs === startMs) continue; // zero-length window — nothing to gate
+      // OVERNIGHT (H1/D3): endLocal at/before startLocal means the window crosses
+      // midnight (e.g. 22:00–06:00). Push the end to the next calendar day so the
+      // interval engine sees one continuous span instead of silently dropping it.
+      if (endMs < startMs) endMs += DAY_MS;
       out.push(
         synth(
           `${PREFIX.constraint}${c.source}`,
