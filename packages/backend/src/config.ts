@@ -203,6 +203,28 @@ export const GOOGLE_OAUTH_REDIRECT_PORT = Number(
 export const GOOGLE_CALENDAR_MAX_RESULTS = 50;
 
 /**
+ * Google Calendar cache (S2) — cut per-turn latency without losing freshness.
+ *
+ * In-proc SWR cache around `realGoogleEventsFetcher`. Two TTLs: the "today"
+ * window changes often (refetched aggressively); the "upcoming" window is
+ * stable (long TTL). `MIN_FRESH` bounds how often a scheduling-intent turn
+ * forces a synchronous refetch (burst protection). `ENABLED` is a kill-switch
+ * (default ON) — disable to restore the fetch-every-turn behavior instantly.
+ */
+export const GCAL_CACHE_ENABLED = !/^(0|false)$/i.test(
+  process.env.GCAL_CACHE_ENABLED ?? "",
+);
+export const GCAL_CACHE_TTL_TODAY_MS = Number(
+  process.env.GCAL_CACHE_TTL_TODAY_MS ?? 45000,
+);
+export const GCAL_CACHE_TTL_UPCOMING_MS = Number(
+  process.env.GCAL_CACHE_TTL_UPCOMING_MS ?? 300000,
+);
+export const GCAL_CACHE_MIN_FRESH_MS = Number(
+  process.env.GCAL_CACHE_MIN_FRESH_MS ?? 10000,
+);
+
+/**
  * Step 11 — Background scheduler (reminder/event firing + notifications).
  *
  * Scheduler is OFF unless explicitly enabled. When on, it ticks on a fixed
