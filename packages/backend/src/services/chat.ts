@@ -228,6 +228,23 @@ const MUTATION_ACTION_TYPES: ReadonlySet<string> = new Set<string>([
   "google_event.update",
 ]);
 
+/**
+ * 5c backstop — denial patterns that wrongly claim no schedule exists. Matched
+ * against the model's reply; deliberately narrow (Thai + English) to avoid firing
+ * on legitimate replies that DO list the schedule.
+ */
+const SCHEDULE_DENIAL_RE =
+  /ไม่มี(ตาราง|เรียน|กิจกรรม|นัด|รายการ|อะไร)|ไม่พบ(ตาราง|เรียน|กิจกรรม)|ว่างทั้งวัน|no (schedule|class|classes|event)|nothing (scheduled|on)/i;
+
+/** Thai weekday names (0 = Sunday … 6 = Saturday) for the backstop summary. */
+const THAI_WEEKDAYS = [
+  "อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์",
+];
+function formatThaiWeekdays(weekdays: number[]): string {
+  if (weekdays.length === 0) return "ทุกวัน";
+  return weekdays.map((d) => THAI_WEEKDAYS[d] ?? "?").join("/");
+}
+
 function chatFailureMessage(reason: string): string {
   if (reason === "disabled") {
     return "ยังช่วยคิดด้วย AI ไม่ได้ค่ะ โหมด AI ยังไม่พร้อมใช้งาน เปิดใช้งานแล้วลองใหม่ได้";
@@ -877,6 +894,31 @@ export async function runChat(
   if (hasMutation) {
     check.data.clarification = undefined;
     check.data.clarification_choices = undefined;
+  }
+
+  // 5c. Deterministic NO-SCHEDULE backstop. The "a schedule fact IS the schedule"
+  // rule is prompt-only; a model (esp. Gemini) can still answer "ไม่มีตาราง...ใน
+  // ปฏิทิน" while a recurring class block sits right in context. When this turn HAS
+  // recurring_block constraints but the reply denies a schedule, the backend appends
+  // the real blocks (weekday + time) so a present schedule can never be silently
+  // denied. Heuristic by design (denial regex); only fires when blocks exist.
+  const recurringBlocks = (ctx.constraints ?? []).filter(
+    (c) => c.kind === "recurring_block",
+  );
+  if (recurringBlocks.length > 0) {
+    const reply = check.data.reply;
+    const alreadyListed = recurringBlocks.some((c) =>
+      reply.includes(c.startLocal),
+    );
+    if (!alreadyListed && SCHEDULE_DENIAL_RE.test(reply)) {
+      const summary = recurringBlocks
+        .map((c) => `${formatThaiWeekdays(c.weekdays)} ${c.startLocal}–${c.endLocal}`)
+        .join(", ");
+      check.data.reply = `${reply}\n\n📚 หมายเหตุจากระบบ: มีตารางเรียนที่บันทึกไว้ — ${summary} (ถ้าต้องการเฉพาะวันใด บอกได้)`;
+      if (check.data.spoken) {
+        check.data.spoken = `${check.data.spoken} ที่จริงมีตารางเรียนบันทึกไว้ด้วย ลองถามเจาะจงวันได้`;
+      }
+    }
   }
 
   // 6. Persist the exchange (user + assistant). Only reaches here on success,

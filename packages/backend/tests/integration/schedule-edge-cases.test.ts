@@ -54,6 +54,7 @@ async function main(): Promise<void> {
   const {
     isSchedulingIntent,
     parseConstraintFromFact,
+    parseScheduleConstraintsFromFact,
   } = await import("../../src/services/scheduleConstraints.js");
   const {
     materializeConstraints,
@@ -346,6 +347,68 @@ async function main(): Promise<void> {
       expected: "false",
       got: String(v),
       note: "'ว่าง' is a substring of 'ระหว่าง' → false positive from substring matching",
+    });
+  }
+
+  // --- D5 multi-window: ALL classes in one fact parse (live regression) ---
+  // The exact live fact string carries TWO classes; both windows must surface.
+  {
+    const live =
+      "วันพฤหัสบดี: มีเรียนวิชา 240-219 (NETWORK ADMINISTRATOR MODULE) เวลา 09:00-12:00 น. ที่ห้อง R301 (CDECOMLAB) และมีเรียนวิชา 240-218 (CIRCUIT AND BASIC ELECTRONIC) เวลา 15:00-17:00 น. ที่ห้อง R200";
+    const cs = parseScheduleConstraintsFromFact({
+      id: 950,
+      content: live,
+      keywords: "",
+      category: "routine",
+      pinned: false,
+      source: "test",
+      created_at: "",
+      updated_at: "",
+    } as any);
+    const win = cs.map((c) => `${c.startLocal}-${c.endLocal}`).sort();
+    const okKinds = cs.length === 2 && cs.every((c) => c.kind === "recurring_block");
+    const okWin =
+      win.join(",") === "09:00-12:00,15:00-17:00" &&
+      cs.every((c) => c.weekdays.length === 1 && c.weekdays[0] === 4);
+    check({
+      id: "D5",
+      phase: "discovery",
+      name: "multi-window: live fact yields BOTH classes as recurring_block (Thu)",
+      pass: okKinds && okWin,
+      expected: "2 recurring_block windows 09:00-12:00 + 15:00-17:00, weekday Thu(4)",
+      got: `count=${cs.length} kinds=${cs.map((c) => c.kind)} win=${win} wd=${cs.map((c) => c.weekdays)}`,
+    });
+  }
+
+  // --- D6 backstop: a denial reply with a class block in context is corrected ---
+  // Model (stub) denies a schedule while a recurring_block sits in context; the
+  // backend must append the real blocks so a present schedule is never denied.
+  {
+    createFact({
+      content:
+        "วันพฤหัสบดี: มีเรียน 09:00-12:00 น. และ 15:00-17:00 น.",
+      keywords: "",
+      category: "routine",
+    });
+    const stub = async (): Promise<string> =>
+      JSON.stringify({
+        reply: "พรุ่งนี้ไม่มีตารางเรียนหรือกิจกรรมที่บันทึกไว้ในปฏิทินค่ะ",
+        spoken: "พรุ่งนี้ไม่มีตารางเรียนค่ะ",
+        sensitivity: "normal",
+        actions: [],
+      });
+    const out: any = await runChat("โอเค ขอตารางเรียนพรุ่งนี้ที", stub, noGoogle, {
+      verified: true,
+    });
+    const reply: string = out.reply ?? "";
+    const corrected = reply.includes("09:00") && reply.includes("15:00");
+    check({
+      id: "D6",
+      phase: "discovery",
+      name: "backstop: denial reply with class block in context is corrected",
+      pass: corrected,
+      expected: "reply appended with real blocks (contains 09:00 AND 15:00)",
+      got: `corrected=${corrected} reply=${reply.slice(0, 120)}`,
     });
   }
 

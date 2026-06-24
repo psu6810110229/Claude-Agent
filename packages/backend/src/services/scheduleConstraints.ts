@@ -189,28 +189,25 @@ function normTime(h: string, m: string): string | null {
 const WINDOW_RE =
   /(\d{1,2})([:.])(\d{2})\s*[-–—~]\s*(\d{1,2})([:.])(\d{2})/;
 
+/** Global variant for extracting EVERY window in a fact (multi-class facts). */
+const WINDOW_RE_G = new RegExp(WINDOW_RE.source, "g");
+
 /**
  * Parse one fact into a constraint, or null when it carries no time window
  * (conservative: only explicit windows become constraints).
  */
-export function parseConstraintFromFact(
+/**
+ * Parse ALL time windows from a fact into constraints. A single schedule fact can
+ * list several classes ("…09:00-12:00…และ…15:00-17:00…") — each window becomes its
+ * own constraint. Weekday + kind are derived once from the whole fact (they apply
+ * to every window in it). Returns [] when no valid window survives the D1/H2
+ * currency guard. Pure apart from reading the fact.
+ */
+export function parseScheduleConstraintsFromFact(
   fact: MemoryFact,
-): ScheduleConstraint | null {
+): ScheduleConstraint[] {
   const text = fact.content ?? "";
-  const win = WINDOW_RE.exec(text);
-  if (!win) return null;
-
-  const startLocal = normTime(win[1], win[3]);
-  const endLocal = normTime(win[4], win[6]);
-  if (!startLocal || !endLocal) return null;
-
   const lower = text.toLowerCase();
-
-  // H2/D1 — kill the numeric/money false positive. A "." separator collides with
-  // decimals ("ค่าเทอม 12.00-15.00 พันบาท"); only trust it as a clock time when the
-  // fact carries an explicit time-context token. Colon windows are always trusted.
-  const usesDotSeparator = win[2] === "." || win[5] === ".";
-  if (usesDotSeparator && !hasTimeContext(lower)) return null;
 
   const weekdays = Array.from(
     new Set(
@@ -219,19 +216,41 @@ export function parseConstraintFromFact(
   ).sort((a, b) => a - b);
 
   const kind: ScheduleConstraintKind = classifyConstraintKind(fact, lower);
-
   const hint = LABEL_HINTS.find((h) => lower.includes(h.kw));
   const label = hint ? hint.label : text.trim().slice(0, 24);
 
-  return {
-    kind,
-    label,
-    weekdays,
-    startLocal,
-    endLocal,
-    source: `fact#${fact.id}`,
-    raw: text.slice(0, 200),
-  };
+  const out: ScheduleConstraint[] = [];
+  for (const m of text.matchAll(WINDOW_RE_G)) {
+    const startLocal = normTime(m[1], m[3]);
+    const endLocal = normTime(m[4], m[6]);
+    if (!startLocal || !endLocal) continue;
+    // H2/D1 — a "." separator collides with decimals/money ("12.00-15.00 บาท");
+    // only trust it as a clock time when the fact carries a time-context token.
+    // Colon windows are always trusted. Skips ONLY the offending window.
+    const usesDotSeparator = m[2] === "." || m[5] === ".";
+    if (usesDotSeparator && !hasTimeContext(lower)) continue;
+    out.push({
+      kind,
+      label,
+      weekdays,
+      startLocal,
+      endLocal,
+      source: `fact#${fact.id}`,
+      raw: text.slice(0, 200),
+    });
+  }
+  return out;
+}
+
+/**
+ * Back-compat single-window accessor: the FIRST valid window in the fact (or null).
+ * Kept so existing callers/tests that expect one constraint per fact are unchanged;
+ * new callers that need every class should use `parseScheduleConstraintsFromFact`.
+ */
+export function parseConstraintFromFact(
+  fact: MemoryFact,
+): ScheduleConstraint | null {
+  return parseScheduleConstraintsFromFact(fact)[0] ?? null;
 }
 
 /**
@@ -240,9 +259,7 @@ export function parseConstraintFromFact(
  * still applies.
  */
 export function resolveScheduleConstraints(): ScheduleConstraint[] {
-  return listActiveFacts()
-    .map(parseConstraintFromFact)
-    .filter((c): c is ScheduleConstraint => c !== null);
+  return listActiveFacts().flatMap(parseScheduleConstraintsFromFact);
 }
 
 /** One-line human description for the prompt CONSTRAINTS block. */
