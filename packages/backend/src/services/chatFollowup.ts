@@ -7,10 +7,8 @@ import { buildFollowupPrompt } from "./chatPrompt.js";
 import { unwrapJsonOutput } from "./jsonOutput.js";
 import { ClaudeError, type ClaudeInvoker } from "./claudeClient.js";
 import { GeminiError } from "./geminiClient.js";
-import {
-  realGoogleEventsFetcher,
-  type GoogleEventsFetcher,
-} from "./googleCalendar.js";
+import { type GoogleEventsFetcher } from "./googleCalendar.js";
+import { cachedGoogleEventsFetcher } from "./googleCalendarCache.js";
 import type { Approval } from "../schemas/approval.js";
 import { CLAUDE_BRIEF_TIMEOUT_MS } from "../config.js";
 
@@ -35,7 +33,7 @@ export type FollowupResult =
 
 export async function runChatFollowup(
   invoke: ClaudeInvoker,
-  fetchGoogle: GoogleEventsFetcher = realGoogleEventsFetcher,
+  fetchGoogle: GoogleEventsFetcher = cachedGoogleEventsFetcher,
 ): Promise<FollowupResult> {
   // Build recall context from the existing conversation (no new user message).
   const ctx = await buildChatContext("", fetchGoogle);

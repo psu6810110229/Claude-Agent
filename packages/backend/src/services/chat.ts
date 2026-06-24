@@ -33,10 +33,11 @@ import {
 import { unwrapJsonOutput } from "./jsonOutput.js";
 import { ClaudeError, type ClaudeInvoker } from "./claudeClient.js";
 import { GeminiError } from "./geminiClient.js";
+import { type GoogleEventsFetcher } from "./googleCalendar.js";
 import {
-  realGoogleEventsFetcher,
-  type GoogleEventsFetcher,
-} from "./googleCalendar.js";
+  cachedGoogleEventsFetcher,
+  primeFresh,
+} from "./googleCalendarCache.js";
 import {
   fetchUnreadGmailMessages,
   isGmailEnabled,
@@ -439,6 +440,16 @@ export async function buildChatContext(
   // Raw events retain `end` (dropped by the ctx mapping below) so the Sprint-3
   // availability resolver can measure real durations/overlaps.
   let rawGoogleEvents: GoogleEvent[] = [];
+  // [L2] On a scheduling-intent turn, force the cache fresh BEFORE reading so the
+  // answer reflects a phone/web edit made seconds ago. Only when running through
+  // the real cache (an injected stub fetcher in tests skips this). MIN_FRESH
+  // gating + fail-soft live inside `primeFresh`.
+  if (fetchGoogle === cachedGoogleEventsFetcher && isSchedulingIntent(message)) {
+    await Promise.all([
+      primeFresh(todayStartUtc, todayEndUtc),
+      primeFresh(todayEndUtc, wideEndUtc),
+    ]).catch(() => {});
+  }
   try {
     const [gToday, gUpcoming] = await Promise.all([
       fetchGoogle(todayStartUtc, todayEndUtc),
@@ -787,7 +798,7 @@ export async function buildChatContext(
 export async function runChat(
   message: string,
   invoke: ClaudeInvoker,
-  fetchGoogle: GoogleEventsFetcher = realGoogleEventsFetcher,
+  fetchGoogle: GoogleEventsFetcher = cachedGoogleEventsFetcher,
   opts: { verified?: boolean; sessionId?: string; originalMessage?: string } = {},
 ): Promise<ChatResult> {
   const verified = opts.verified ?? true;
