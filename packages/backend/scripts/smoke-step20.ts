@@ -140,6 +140,33 @@ async function main(): Promise<void> {
     }
     assert(threw, "getLineMessages rejects unknown/traversal chat id");
 
+    // --- 6b. S1 coverage envelope (docs/line-coverage-plan.md §0/§3) ---
+    const allMsgs = line.getLineMessages("[LINE]TestChat.txt", 500);
+    const cov = line.getChatCoverageByName("TestChat");
+    assert(cov !== null, "getChatCoverageByName returns coverage for a known chat");
+    assert(cov!.count === allMsgs.length, "coverage.count = total parsed messages");
+    assert(
+      cov!.earliest!.date === allMsgs[0].date &&
+        cov!.earliest!.time === allMsgs[0].time,
+      "coverage.earliest = first parsed message",
+    );
+    assert(
+      cov!.latest!.date === allMsgs[allMsgs.length - 1].date &&
+        cov!.latest!.time === allMsgs[allMsgs.length - 1].time,
+      "coverage.latest = last parsed message",
+    );
+    // Tail-slice illusion guard: a small window is NOT the whole chat — coverage
+    // must report MORE than the windowed message count (the gby-กยศ bug, L1).
+    const oneWindow = line.getFocusedChatMessages("TestChat", 1);
+    assert(
+      oneWindow.length === 1 && cov!.count > oneWindow.length,
+      "coverage spans more than a 1-message window (tail-slice guard)",
+    );
+    assert(
+      line.getChatCoverageByName("NoSuchChat") === null,
+      "getChatCoverageByName null for unknown chat",
+    );
+
     // --- 7. getRecentLineMessages newest-first + chat tag ---
     const recent = line.getRecentLineMessages(3);
     assert(recent.length === 3, "getRecentLineMessages caps to limit");

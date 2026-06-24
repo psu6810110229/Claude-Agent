@@ -208,6 +208,18 @@ export interface ChatContext {
   lineFocusedChat?: {
     chat: string;
     messages: { sender: string | null; text: string; date: string; time: string }[];
+    /**
+     * S1 — coverage envelope: the chat's TRUE history extent (Bangkok-native),
+     * independent of the windowed `messages` below. The authority for "earliest
+     * / how far back / since when" questions. Optional/null when unavailable.
+     */
+    coverage?: {
+      earliest: { date: string; time: string } | null;
+      latest: { date: string; time: string } | null;
+      count: number;
+    } | null;
+    /** How many messages the window below actually carries (≤ coverage.count). */
+    shown?: number;
   } | null;
   /**
    * Step 22 — compact list of active topics the user is tracking. Empty when
@@ -442,15 +454,30 @@ export function buildChatPrompt(ctx: ChatContext): string {
           .join("\n")
       : "  (none or LINE disabled)";
 
+  const focusedCoverageLine = (() => {
+    const cov = ctx.lineFocusedChat?.coverage;
+    if (!cov || cov.count === 0 || !cov.earliest || !cov.latest) return null;
+    const shown = ctx.lineFocusedChat?.shown ?? 0;
+    return (
+      `  COVERAGE: this chat has ${cov.count} message(s), from ` +
+      `${cov.earliest.date} ${cov.earliest.time} to ${cov.latest.date} ${cov.latest.time} ` +
+      `(Asia/Bangkok). The ${shown} message(s) below are the most RECENT subset, NOT ` +
+      `the whole chat — the earliest message you can SUMMARISE is the oldest shown, but ` +
+      `the chat's history GOES BACK to the COVERAGE "from" date above. Never say the ` +
+      `export starts at, or that nothing exists before, the oldest message shown.`
+    );
+  })();
+
   const lineFocusedChat = ctx.restricted
     ? "  (withheld — requester not verified)"
     : ctx.lineFocusedChat && ctx.lineFocusedChat.messages.length > 0
-      ? ctx.lineFocusedChat.messages
-          .map(
+      ? [
+          ...(focusedCoverageLine ? [focusedCoverageLine] : []),
+          ...ctx.lineFocusedChat.messages.map(
             (m) =>
               `  - [${ctx.lineFocusedChat!.chat}] ${m.date} ${m.time} (Asia/Bangkok) ${m.sender ?? "(system)"}: ${m.text.slice(0, 200)}`,
-          )
-          .join("\n")
+          ),
+        ].join("\n")
       : "  (no specific chat in focus this turn — the user did not name one, or the named chat had no recent exported messages)";
 
   const lineMatches =
@@ -1064,9 +1091,12 @@ who said what, the topic, the sentiment, and the practical point / what changed.
 When this section HAS messages, do NOT answer with only the chat's name, size, or
 last-activity timestamp — that is the bug to avoid. If this section is empty or
 says none, do NOT invent content and NEVER say a vague "คุยทั่วไป": say honestly
-that you only see the chat's metadata, or ask which chat they mean. SAME CAVEATS
-as LINE MESSAGES: export-based, NOT live, no read/unread status, nothing newer
-than the user's last export):
+that you only see the chat's metadata, or ask which chat they mean. A COVERAGE
+line, when present, is the ONLY authority on how far this chat's history goes:
+answer "earliest / oldest / since when / how far back" from COVERAGE, never from
+the oldest message shown (that is just the start of the recent window). SAME
+CAVEATS as LINE MESSAGES: export-based, NOT live, no read/unread status, nothing
+newer than the user's last export):
 ${lineFocusedChat}
 
 LINE SEARCH MATCHES (read-only; LINE messages across ALL exported chats whose

@@ -356,6 +356,46 @@ export function getFocusedChatMessages(
   }
 }
 
+/** S1 — Bangkok-native coverage envelope for a chat (see getChatCoverageByName). */
+export interface LineChatCoverage {
+  /** First parsed message's local date/time, or null when the chat is empty. */
+  earliest: { date: string; time: string } | null;
+  /** Last parsed message's local date/time, or null when the chat is empty. */
+  latest: { date: string; time: string } | null;
+  /** Total parsed messages across the WHOLE export (not the shown window). */
+  count: number;
+}
+
+/**
+ * S1 — coverage envelope for ONE chat: how far its history actually goes, as a
+ * deterministic FACT separate from the (windowed) message list. Lets Friday
+ * answer "how far back does this chat go / earliest message" from the WHOLE
+ * export, not from the tail slice it was shown — the bug in docs/line-coverage-
+ * plan.md §0 (L1). Dates/times are Bangkok-native (same basis as the rendered
+ * messages), taken from the first/last parsed message (file order is
+ * chronological). Fail-soft → null on disabled / unknown chat / error.
+ */
+export function getChatCoverageByName(chatName: string): LineChatCoverage | null {
+  if (!isLineEnabled()) return null;
+  try {
+    const file = listExportFiles().find((f) => chatNameFromFile(f) === chatName);
+    if (!file) return null;
+    const messages = readFileMessages(file);
+    if (messages.length === 0) {
+      return { earliest: null, latest: null, count: 0 };
+    }
+    const first = messages[0];
+    const last = messages[messages.length - 1];
+    return {
+      earliest: { date: first.date, time: first.time },
+      latest: { date: last.date, time: last.time },
+      count: messages.length,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Recent messages across ALL chats (newest first), tagged with chat name.
  * FAIL-SOFT: returns [] on disabled / any error — used in chat recall context

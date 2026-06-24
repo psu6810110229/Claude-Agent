@@ -51,6 +51,7 @@ import {
   getLineChatSummariesSafe,
   getRecentLineByChatSafe,
   getFocusedChatMessages,
+  getChatCoverageByName,
   searchLineMessages,
 } from "./lineChat.js";
 import {
@@ -558,6 +559,8 @@ export async function buildChatContext(
   if (focusedChatName) {
     const msgs = getFocusedChatMessages(focusedChatName, LINE_FOCUSED_MSG_CAP);
     if (msgs.length > 0) {
+      // S1 — coverage envelope: the TRUE extent of this chat's history, so Friday
+      // never describes the windowed tail's oldest message as the export's start.
       lineFocusedChat = {
         chat: focusedChatName,
         messages: msgs.map((m) => ({
@@ -566,6 +569,8 @@ export async function buildChatContext(
           date: m.date,
           time: m.time,
         })),
+        coverage: getChatCoverageByName(focusedChatName),
+        shown: msgs.length,
       };
     }
   }
