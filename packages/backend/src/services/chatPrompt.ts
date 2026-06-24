@@ -217,6 +217,12 @@ export interface ChatContext {
       earliest: { date: string; time: string } | null;
       latest: { date: string; time: string } | null;
       count: number;
+      /** S2 — no-message stretches; history is SEGMENTED, not continuous. */
+      gaps?: {
+        from: { date: string; time: string };
+        to: { date: string; time: string };
+        days: number;
+      }[];
     } | null;
     /** How many messages the window below actually carries (≤ coverage.count). */
     shown?: number;
@@ -458,13 +464,25 @@ export function buildChatPrompt(ctx: ChatContext): string {
     const cov = ctx.lineFocusedChat?.coverage;
     if (!cov || cov.count === 0 || !cov.earliest || !cov.latest) return null;
     const shown = ctx.lineFocusedChat?.shown ?? 0;
+    const gapNote =
+      cov.gaps && cov.gaps.length > 0
+        ? ` This history is SEGMENTED — not continuous: ` +
+          cov.gaps
+            .map(
+              (g) =>
+                `a ~${g.days}-day gap with NO messages between ${g.from.date} and ${g.to.date}`,
+            )
+            .join("; ") +
+          `. Describe it as segments around these gaps; do NOT imply continuous activity across them.`
+        : "";
     return (
       `  COVERAGE: this chat has ${cov.count} message(s), from ` +
       `${cov.earliest.date} ${cov.earliest.time} to ${cov.latest.date} ${cov.latest.time} ` +
       `(Asia/Bangkok). The ${shown} message(s) below are the most RECENT subset, NOT ` +
       `the whole chat — the earliest message you can SUMMARISE is the oldest shown, but ` +
       `the chat's history GOES BACK to the COVERAGE "from" date above. Never say the ` +
-      `export starts at, or that nothing exists before, the oldest message shown.`
+      `export starts at, or that nothing exists before, the oldest message shown.` +
+      gapNote
     );
   })();
 

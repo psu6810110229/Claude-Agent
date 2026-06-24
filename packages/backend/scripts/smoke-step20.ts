@@ -167,6 +167,44 @@ async function main(): Promise<void> {
       "getChatCoverageByName null for unknown chat",
     );
 
+    // --- 6c. S2 gap-aware coverage (segmented export) ---
+    // Temporary 2-block fixture (Sept 2025 + Jun 2026) with one big gap. Written,
+    // asserted, then removed so it does not disturb the single-chat counts above
+    // or the cross-chat sections below. Mirrors the กยศ shape (plan §0/§7).
+    const GAP_FIXTURE = [
+      "2025.09.01 Monday",
+      "12:34 A m1",
+      "2025.09.02 Tuesday",
+      "09:00 B m2",
+      "2026.06.08 Monday",
+      "10:00 C m3",
+      "2026.06.09 Tuesday",
+      "20:00 D m4",
+      "",
+    ].join("\n");
+    const gapFile = path.join(TEST_LINE_DIR, "[LINE]GapChat.txt");
+    fs.writeFileSync(gapFile, GAP_FIXTURE, "utf8");
+    try {
+      const gcov = line.getChatCoverageByName("GapChat");
+      assert(gcov !== null && gcov.count === 4, "gap fixture parsed 4 messages");
+      assert(gcov!.earliest!.date === "2025-09-01", "gap coverage earliest = Sept 2025");
+      assert(gcov!.latest!.date === "2026-06-09", "gap coverage latest = Jun 2026");
+      assert(gcov!.gaps.length === 1, "exactly one gap detected (>7 days)");
+      assert(
+        gcov!.gaps[0].from.date === "2025-09-02" &&
+          gcov!.gaps[0].to.date === "2026-06-08",
+        "gap bounds = last-before / first-after the empty stretch",
+      );
+      assert(gcov!.gaps[0].days > 200, "gap span is the ~9-month stretch");
+      // Adjacent days (≤7) must NOT be flagged as gaps.
+      assert(
+        !gcov!.gaps.some((g) => g.from.date === "2025-09-01"),
+        "consecutive-day boundary is not a gap",
+      );
+    } finally {
+      fs.rmSync(gapFile, { force: true });
+    }
+
     // --- 7. getRecentLineMessages newest-first + chat tag ---
     const recent = line.getRecentLineMessages(3);
     assert(recent.length === 3, "getRecentLineMessages caps to limit");

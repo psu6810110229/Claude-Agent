@@ -565,6 +565,15 @@ export const LINE_CONTEXT_MAX_CHATS = Number(
 );
 
 /**
+ * S2 — a stretch of MORE than this many days with no exported message counts as
+ * a coverage GAP. Lets Friday describe a segmented export (e.g. "Sept, then a
+ * gap, then June") honestly instead of as one continuous range.
+ */
+export const LINE_COVERAGE_GAP_DAYS = Number(
+  process.env.LINE_COVERAGE_GAP_DAYS ?? 7,
+);
+
+/**
  * Max keyword-matched LINE messages injected into chat recall context. Read-only
  * retrieval over the ingested exports. Clamped to [0, 50]; invalid/NaN → 12.
  */

@@ -5,6 +5,7 @@ import {
   LINE_MAX_RESULTS,
   LINE_ENABLED,
   BANGKOK_OFFSET_MS,
+  LINE_COVERAGE_GAP_DAYS,
 } from "../config.js";
 import { getConfigBool } from "../db/repositories/configRepo.js";
 import type { LineMessage, LineChatSummary } from "../schemas/lineChat.js";
@@ -356,6 +357,16 @@ export function getFocusedChatMessages(
   }
 }
 
+/** S2 — a stretch with no messages, bounding messages are Bangkok-native. */
+export interface LineCoverageGap {
+  /** Last message BEFORE the gap. */
+  from: { date: string; time: string };
+  /** First message AFTER the gap. */
+  to: { date: string; time: string };
+  /** Whole-day span between the two dates (> LINE_COVERAGE_GAP_DAYS). */
+  days: number;
+}
+
 /** S1 — Bangkok-native coverage envelope for a chat (see getChatCoverageByName). */
 export interface LineChatCoverage {
   /** First parsed message's local date/time, or null when the chat is empty. */
@@ -364,6 +375,15 @@ export interface LineChatCoverage {
   latest: { date: string; time: string } | null;
   /** Total parsed messages across the WHOLE export (not the shown window). */
   count: number;
+  /** S2 — segments with no messages > LINE_COVERAGE_GAP_DAYS (oldest→newest). */
+  gaps: LineCoverageGap[];
+}
+
+const DAY_MS = 86_400_000;
+
+/** Whole-day span between two "YYYY-MM-DD" local dates (b − a). */
+function dayDiff(a: string, b: string): number {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / DAY_MS);
 }
 
 /**
@@ -382,14 +402,30 @@ export function getChatCoverageByName(chatName: string): LineChatCoverage | null
     if (!file) return null;
     const messages = readFileMessages(file);
     if (messages.length === 0) {
-      return { earliest: null, latest: null, count: 0 };
+      return { earliest: null, latest: null, count: 0, gaps: [] };
     }
     const first = messages[0];
     const last = messages[messages.length - 1];
+    // S2 — single pass over chronological messages; emit a gap whenever two
+    // adjacent messages are more than LINE_COVERAGE_GAP_DAYS apart by date.
+    const gaps: LineCoverageGap[] = [];
+    for (let i = 1; i < messages.length; i++) {
+      const prev = messages[i - 1];
+      const cur = messages[i];
+      const days = dayDiff(prev.date, cur.date);
+      if (days > LINE_COVERAGE_GAP_DAYS) {
+        gaps.push({
+          from: { date: prev.date, time: prev.time },
+          to: { date: cur.date, time: cur.time },
+          days,
+        });
+      }
+    }
     return {
       earliest: { date: first.date, time: first.time },
       latest: { date: last.date, time: last.time },
       count: messages.length,
+      gaps,
     };
   } catch {
     return null;
