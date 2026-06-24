@@ -218,7 +218,7 @@ export interface ChatContext {
       latest: { date: string; time: string } | null;
       count: number;
       /** S2 — no-message stretches; history is SEGMENTED, not continuous. */
-      gaps?: {
+      gaps: {
         from: { date: string; time: string };
         to: { date: string; time: string };
         days: number;

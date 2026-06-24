@@ -228,6 +228,26 @@ async function main(): Promise<void> {
       "content question is NOT boundary intent",
     );
 
+    // --- 6e. S4 coverage-claim verifier guard ---
+    const verifier = await import("../src/services/evidenceVerifier.js");
+    const okCov = line.getChatCoverageByName("TestChat");
+    const okVerdict = verifier.verifyLineCoverageClaim({ chat: "TestChat", coverage: okCov });
+    assert(okVerdict.confidence === "high", "coverage present → high-confidence verdict");
+    assert(
+      okVerdict.allowedClaims.some((c) => c.includes(okCov!.earliest!.date)),
+      "verdict ALLOWS stating the coverage earliest date",
+    );
+    assert(
+      okVerdict.blockedClaims.some((c) => c.includes("ขัดกับ COVERAGE")),
+      "verdict BLOCKS claims that contradict coverage",
+    );
+    const nullVerdict = verifier.verifyLineCoverageClaim({ chat: "X", coverage: null });
+    assert(nullVerdict.confidence === "low", "no coverage → low-confidence (force hedge)");
+    assert(
+      nullVerdict.blockedClaims.some((c) => c.includes("window")),
+      "no coverage → blocks inferring a start from the window",
+    );
+
     // --- 7. getRecentLineMessages newest-first + chat tag ---
     const recent = line.getRecentLineMessages(3);
     assert(recent.length === 3, "getRecentLineMessages caps to limit");

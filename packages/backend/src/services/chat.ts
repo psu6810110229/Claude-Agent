@@ -65,7 +65,10 @@ import {
   buildLineEvidenceForTopic,
   makeEmptyLineEvidence,
 } from "./lineEvidence.js";
-import { verifyLineEvidenceAnswerIntent } from "./evidenceVerifier.js";
+import {
+  verifyLineEvidenceAnswerIntent,
+  verifyLineCoverageClaim,
+} from "./evidenceVerifier.js";
 import { verifyScheduleAnswerIntent } from "./scheduleVerifier.js";
 import type { Approval } from "../schemas/approval.js";
 import {
@@ -703,6 +706,18 @@ export async function buildChatContext(
         evidence: lineEvidenceValue,
       });
     }
+  }
+
+  // S4 — coverage-claim guard for a focused-chat BOUNDARY question. Forces Friday
+  // to answer "earliest/since when" from the coverage fact (or hedge when none),
+  // never from the windowed tail (docs/line-coverage-plan.md L1). Only when no
+  // evidence verdict already governs the turn, so answer-intent keeps priority.
+  // Verified-path only — the redaction gate discards it for unverified.
+  if (!verifierGuidanceValue && lineFocusedChat && isLineBoundaryIntent(message)) {
+    verifierGuidanceValue = verifyLineCoverageClaim({
+      chat: lineFocusedChat.chat,
+      coverage: lineFocusedChat.coverage ?? null,
+    });
   }
 
   // Step 27 / Sprint 2 — STICKY schedule constraints (RC3/RC4). Resolved from

@@ -9,6 +9,7 @@
  */
 
 import type { LineEvidence } from "./lineEvidence.js";
+import type { LineChatCoverage } from "./lineChat.js";
 
 export interface EvidenceVerdict {
   confidence: "high" | "medium" | "low";
@@ -136,4 +137,72 @@ export function verifyLineEvidenceAnswerIntent(input: {
   blockedClaims.push('"ไม่มีอัปเดต" เป็น absolute');
 
   return { confidence, guidance, allowedClaims, blockedClaims };
+}
+
+/**
+ * S4 — coverage-claim guard for a focused-chat BOUNDARY question
+ * ("เก่าสุด/since when"). The bug it prevents: Friday narrating the oldest message
+ * in its WINDOW as the start of the whole export (docs/line-coverage-plan.md L1).
+ *
+ * - No coverage fact → it CANNOT state the extent: force a hedge, block any
+ *   "starts at / nothing older" claim.
+ * - Coverage present → it MUST answer the boundary from coverage (earliest/latest/
+ *   count, segmented if gaps), and is blocked from contradicting it.
+ *
+ * Pure, deterministic. Verified-path only (caller discards for unverified).
+ */
+export function verifyLineCoverageClaim(input: {
+  chat: string;
+  coverage: LineChatCoverage | null;
+}): EvidenceVerdict {
+  const { coverage } = input;
+  if (
+    !coverage ||
+    coverage.count === 0 ||
+    !coverage.earliest ||
+    !coverage.latest
+  ) {
+    return {
+      confidence: "low",
+      guidance: [
+        ...ALWAYS_GUIDANCE,
+        "ยังไม่มีข้อมูล coverage ของแชทนี้ — บอกจุดเริ่ม/ข้อความเก่าสุดไม่ได้",
+        "บอกตรงๆ ว่าเห็นแค่ข้อความล่าสุด ยืนยันไม่ได้ว่าแชทเริ่มเมื่อไหร่",
+      ],
+      allowedClaims: [
+        '"ตอนนี้เห็นแค่ข้อความล่าสุดของแชทนี้ ยังบอกไม่ได้ว่าเริ่มเมื่อไหร่ค่ะ"',
+      ],
+      blockedClaims: [
+        ...ALWAYS_BLOCKED_CLAIMS,
+        '"export เริ่มที่ <วันของข้อความที่เห็น>" — ห้ามอ้างจุดเริ่มจาก window',
+        '"ไม่มีข้อความเก่ากว่านี้" เป็น absolute',
+      ],
+    };
+  }
+
+  const e = coverage.earliest;
+  const l = coverage.latest;
+  const segmented = coverage.gaps.length > 0;
+  return {
+    confidence: "high",
+    guidance: [
+      ...ALWAYS_GUIDANCE,
+      `ตอบ "เก่าสุด/เริ่มเมื่อไหร่" จาก COVERAGE: เก่าสุด ${e.date} ${e.time}`,
+      "ห้ามบอกว่า export เริ่มที่ข้อความล่าสุดที่เห็น — ใช้ค่า COVERAGE",
+      ...(segmented
+        ? [
+            `ประวัติไม่ต่อเนื่อง มีช่วงเว้น ${coverage.gaps.length} ช่วง — อธิบายเป็นช่วงๆ`,
+          ]
+        : []),
+    ],
+    allowedClaims: [
+      `"export ของแชทนี้เก่าสุด ${e.date} ${e.time}, ล่าสุด ${l.date} ${l.time}, รวม ${coverage.count} ข้อความ"`,
+    ],
+    blockedClaims: [
+      ...ALWAYS_BLOCKED_CLAIMS,
+      `"export เริ่มหลัง ${e.date}" — ขัดกับ COVERAGE`,
+      '"ไม่มีข้อความเก่ากว่าที่เห็น" — ขัดกับ COVERAGE',
+      ...(segmented ? ['"ประวัติต่อเนื่อง/คุยกันตลอด" — มีช่วงเว้นจริง'] : []),
+    ],
+  };
 }
