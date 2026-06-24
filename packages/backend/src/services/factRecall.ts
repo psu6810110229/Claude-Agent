@@ -9,6 +9,19 @@ import type { MemoryFact } from "../schemas/fact.js";
  */
 const SCHEDULE_BOOST_CAP = 3;
 
+/** A clock time anywhere in the text (HH:MM or HH.MM). */
+const SCHEDULE_TIME_RE = /\d{1,2}[:.]\d{2}/;
+
+/**
+ * "Schedule-like" fact: a routine fact carrying clock times. Catches real-world
+ * timetables stored as a weekly table with single start-times ("จันทร์ (08:00 …),
+ * อังคาร (09:00 …)") that DON'T parse into HH:MM–HH:MM windows and so never become
+ * a recurring_block. We still must surface these so the model sees the schedule.
+ */
+export function isScheduleLikeFact(fact: MemoryFact): boolean {
+  return fact.category === "routine" && SCHEDULE_TIME_RE.test(fact.content ?? "");
+}
+
 /**
  * Step 16 — deterministic fact recall. Given the user's message, pick the most
  * relevant facts to inject into the prompt:
@@ -76,7 +89,10 @@ export function recallFacts(
       if (boosted >= SCHEDULE_BOOST_CAP || out.length >= cap) break;
       if (out.some((o) => o.id === f.id)) continue;
       const c = parseConstraintFromFact(f);
-      if (c && c.kind === "recurring_block") {
+      // Boost a clean recurring_block (HH:MM–HH:MM class) OR a schedule-like
+      // routine fact (weekly table of single start-times) — the latter can't be a
+      // constraint but MUST still reach the model so it can read the schedule.
+      if ((c && c.kind === "recurring_block") || isScheduleLikeFact(f)) {
         out.push(f);
         boosted++;
       }

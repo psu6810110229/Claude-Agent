@@ -412,6 +412,62 @@ async function main(): Promise<void> {
     });
   }
 
+  // --- D7 recall surfacing: weekly-table schedule fact reaches the model ---
+  // The live format (single start-times grouped per day) parses to 0 windows but
+  // MUST still be recalled on a scheduling turn so the model can read it.
+  {
+    const { recallFacts: recall } = await import("../../src/services/factRecall.js");
+    const f = createFact({
+      content:
+        "ตารางเรียน 1/2569: พฤหัสบดี (09:00 240-219, 15:00 240-218), ศุกร์ (10:00 240-121)",
+      keywords: "",
+      category: "routine",
+    });
+    const msg = "โอเค ขอตารางเรียนพรุ่งนี้ที";
+    const rec = recall(msg, 20, isSchedulingIntent(msg));
+    check({
+      id: "D7",
+      phase: "discovery",
+      name: "recall surfacing: weekly-table schedule fact recalled on scheduling turn",
+      pass: rec.some((x: any) => x.id === f.id),
+      expected: `recalled ids include ${f.id}`,
+      got: `recalled=${rec.map((x: any) => x.id)}`,
+      note: "format parses to 0 windows; surfaced via schedule-like recall boost",
+    });
+  }
+
+  // --- D8 backstop (unstructured): denial + weekly-table fact → table appended ---
+  {
+    createFact({
+      content:
+        "ตารางเรียนภาค 1/2569: พฤหัสบดี (09:00 240-219, 15:00 240-218)",
+      keywords: "",
+      category: "routine",
+    });
+    const stub = async (): Promise<string> =>
+      JSON.stringify({
+        reply: "ถ้าดูจากตารางในปฏิทิน พรุ่งนี้ไม่มีคลาสตารางเรียนค่ะ",
+        spoken: "พรุ่งนี้ไม่มีตารางเรียนค่ะ",
+        sensitivity: "normal",
+        actions: [],
+      });
+    const out: any = await runChat("โอเค ขอตารางเรียนพรุ่งนี้ที", stub, noGoogle, {
+      verified: true,
+    });
+    const reply: string = out.reply ?? "";
+    // Either backstop branch (structured summary OR raw table) adds this marker;
+    // its presence proves a denial-with-schedule-in-context was corrected.
+    const corrected = reply.includes("หมายเหตุจากระบบ");
+    check({
+      id: "D8",
+      phase: "discovery",
+      name: "backstop: denial with schedule in context is never left standing",
+      pass: corrected,
+      expected: "reply appended with system schedule note (denial corrected)",
+      got: `corrected=${corrected} reply=${reply.slice(0, 160)}`,
+    });
+  }
+
   // ============================ SUMMARY ============================
   const fails = results.filter((r) => !r.pass);
   console.log("\n================ DOOMSDAY MATRIX ================");

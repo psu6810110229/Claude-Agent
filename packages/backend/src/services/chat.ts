@@ -234,7 +234,7 @@ const MUTATION_ACTION_TYPES: ReadonlySet<string> = new Set<string>([
  * on legitimate replies that DO list the schedule.
  */
 const SCHEDULE_DENIAL_RE =
-  /ไม่มี(ตาราง|เรียน|กิจกรรม|นัด|รายการ|อะไร)|ไม่พบ(ตาราง|เรียน|กิจกรรม)|ว่างทั้งวัน|no (schedule|class|classes|event)|nothing (scheduled|on)/i;
+  /ไม่มี(ตาราง|เรียน|คลาส|กิจกรรม|นัด|รายการ|อะไร)|ไม่พบ(ตาราง|เรียน|คลาส|กิจกรรม)|ว่างทั้งวัน|no (schedule|class|classes|event)|nothing (scheduled|on)/i;
 
 /** Thai weekday names (0 = Sunday … 6 = Saturday) for the backstop summary. */
 const THAI_WEEKDAYS = [
@@ -905,18 +905,33 @@ export async function runChat(
   const recurringBlocks = (ctx.constraints ?? []).filter(
     (c) => c.kind === "recurring_block",
   );
-  if (recurringBlocks.length > 0) {
-    const reply = check.data.reply;
-    const alreadyListed = recurringBlocks.some((c) =>
-      reply.includes(c.startLocal),
-    );
-    if (!alreadyListed && SCHEDULE_DENIAL_RE.test(reply)) {
+  // Schedule-table facts (weekly tables of single start-times) can't be structured
+  // constraints but still represent a real schedule the model must not deny.
+  const scheduleLikeFacts = (ctx.facts ?? []).filter(
+    (f) => f.category === "routine" && /\d{1,2}[:.]\d{2}/.test(f.content),
+  );
+  const reply = check.data.reply;
+  if (
+    (recurringBlocks.length > 0 || scheduleLikeFacts.length > 0) &&
+    SCHEDULE_DENIAL_RE.test(reply)
+  ) {
+    if (recurringBlocks.length > 0 && !recurringBlocks.some((c) => reply.includes(c.startLocal))) {
+      // Structured blocks → tidy weekday + time summary.
       const summary = recurringBlocks
         .map((c) => `${formatThaiWeekdays(c.weekdays)} ${c.startLocal}–${c.endLocal}`)
         .join(", ");
       check.data.reply = `${reply}\n\n📚 หมายเหตุจากระบบ: มีตารางเรียนที่บันทึกไว้ — ${summary} (ถ้าต้องการเฉพาะวันใด บอกได้)`;
       if (check.data.spoken) {
         check.data.spoken = `${check.data.spoken} ที่จริงมีตารางเรียนบันทึกไว้ด้วย ลองถามเจาะจงวันได้`;
+      }
+    } else if (scheduleLikeFacts.length > 0) {
+      // Unstructured weekly table → surface the stored table verbatim (truthful,
+      // complete) so a real schedule is never denied even when it cannot be parsed
+      // into per-day windows. Capped to keep the reply readable.
+      const table = scheduleLikeFacts[0].content.slice(0, 600);
+      check.data.reply = `${reply}\n\n📚 หมายเหตุจากระบบ: มีตารางเรียนบันทึกไว้ในความจำ — ${table}`;
+      if (check.data.spoken) {
+        check.data.spoken = `${check.data.spoken} ที่จริงมีตารางเรียนบันทึกไว้ในความจำด้วย ดูรายละเอียดบนหน้าจอได้`;
       }
     }
   }
