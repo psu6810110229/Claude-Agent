@@ -19,6 +19,7 @@ import { gmailRoutes } from "./routes/gmail.js";
 import { contactsRoutes } from "./routes/contacts.js";
 import { driveRoutes } from "./routes/drive.js";
 import { lineRoutes } from "./routes/line.js";
+import { classBlockRoutes } from "./routes/classBlocks.js";
 import type { ClaudeInvoker } from "./services/claudeClient.js";
 import type { GoogleEventsFetcher } from "./services/googleCalendar.js";
 import type { TtsSynthesizer } from "./services/tts.js";
@@ -67,5 +68,6 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   app.register(contactsRoutes);
   app.register(driveRoutes);
   app.register(lineRoutes);
+  app.register(classBlockRoutes, { calendarFetcher: options.calendarFetcher });
   return app;
 }

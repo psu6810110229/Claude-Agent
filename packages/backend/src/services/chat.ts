@@ -6,6 +6,7 @@ import {
   resolveScheduleConstraints,
 } from "./scheduleConstraints.js";
 import { resolveAvailability } from "./availabilityResolver.js";
+import { findFreeSlotsForDay } from "./freeSlotFinder.js";
 import { getSchedulePrefs } from "./schedulePrefs.js";
 import type { GoogleEvent } from "../schemas/googleCalendar.js";
 import { listEvents } from "../db/repositories/eventRepo.js";
@@ -405,6 +406,47 @@ export function isLineBoundaryIntent(message: string): boolean {
   return LINE_BOUNDARY_CUES.some((c) => m.includes(c.toLowerCase()));
 }
 
+/**
+ * Deterministic FREE-TIME intent detector (no AI). True when the user is asking
+ * to FIND open time ("หาเวลาว่าง / ว่างตอนไหน / find time"), as opposed to merely
+ * checking a clash. Compound markers only — bare "ว่าง" is too broad (it already
+ * triggers scheduling intent). Pure — exported for tests.
+ */
+const FREE_TIME_MARKERS = [
+  "หาเวลาว่าง",
+  "เวลาว่าง",
+  "ช่วงว่าง",
+  "ตอนไหนว่าง",
+  "ว่างตอนไหน",
+  "ว่างช่วงไหน",
+  "มีเวลาว่าง",
+  "หาเวลา",
+  "เวลาไปปั่น",
+  "free time",
+  "free slot",
+  "when am i free",
+  "find time",
+  "find me time",
+];
+export function isFreeTimeIntent(message: string): boolean {
+  const m = message.toLowerCase();
+  return FREE_TIME_MARKERS.some((c) => m.includes(c.toLowerCase()));
+}
+
+/**
+ * Resolve which Bangkok day a free-time question is about. Minimal + robust:
+ * "พรุ่งนี้ / tomorrow" → +1 day; otherwise today. Returns the instant `now`
+ * shifted by whole days (the finder re-derives the Bangkok calendar day from it).
+ */
+export function resolveFreeTimeDay(message: string, now: Date): Date {
+  const m = message.toLowerCase();
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  if (m.includes("พรุ่งนี้") || m.includes("tomorrow")) {
+    return new Date(now.getTime() + DAY_MS);
+  }
+  return now;
+}
+
 /** Build compact recall context for a chat turn. Exported for the idle follow-up. */
 export async function buildChatContext(
   message: string,
@@ -770,6 +812,32 @@ export async function buildChatContext(
     }
   }
 
+  // Free-time finder: open gaps for the asked-about day across Google + local
+  // events + class blocks/protected windows. Only on an explicit "find free time"
+  // turn (a strict subset of scheduling intent). FAILS SOFT → null (never a fake
+  // free window). Redacted to null for unverified in the gate below.
+  let freeSlots: ChatContext["freeSlots"] = null;
+  if (schedulingIntent && isFreeTimeIntent(message)) {
+    try {
+      const targetDay = resolveFreeTimeDay(message, now);
+      const slots = findFreeSlotsForDay(targetDay, {
+        googleEvents: rawGoogleEvents,
+        localEvents: [...eb.today, ...eb.upcoming].map((e) => ({
+          id: e.id,
+          title: e.title,
+          starts_at: e.starts_at,
+          ends_at: e.ends_at,
+        })),
+        constraints,
+      });
+      const bkk = new Date(targetDay.getTime() + 7 * 60 * 60 * 1000);
+      const date = `${bkk.getUTCFullYear()}-${String(bkk.getUTCMonth() + 1).padStart(2, "0")}-${String(bkk.getUTCDate()).padStart(2, "0")}`;
+      freeSlots = { date, slots };
+    } catch {
+      freeSlots = null;
+    }
+  }
+
   const GENERIC_BUSY = "ไม่ว่าง (รายละเอียดส่วนตัว)";
   const GENERIC_TASK = "งานส่วนตัว";
   const GENERIC_REMINDER = "เตือนความจำส่วนตัว";
@@ -813,6 +881,7 @@ export async function buildChatContext(
       constraints: [],
       availability: null,
       scheduleVerifier: null,
+      freeSlots: null,
       autoExecute: isAutoExecuteEnabled(),
       autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
       restricted: true,
@@ -851,6 +920,8 @@ export async function buildChatContext(
     availability,
     // Step 27 / Sprint 4 — schedule verdict / claim guardrails (verified path only).
     scheduleVerifier,
+    // Schedule Import — free-time windows (verified path only; null otherwise).
+    freeSlots,
     autoExecute: isAutoExecuteEnabled(),
     autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
     restricted: false,

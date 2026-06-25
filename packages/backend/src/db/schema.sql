@@ -191,3 +191,73 @@ CREATE TABLE IF NOT EXISTS active_topic (
 CREATE INDEX IF NOT EXISTS idx_active_topic_status_source ON active_topic (status, source);
 CREATE INDEX IF NOT EXISTS idx_active_topic_baseline ON active_topic (baseline_at);
 CREATE INDEX IF NOT EXISTS idx_active_topic_updated ON active_topic (updated_at);
+
+-- Schedule Import — LOCAL weekly class/timetable blocks (NOT Google Calendar).
+-- A class_block is a recurring weekly commitment (one row per weekday occurrence:
+-- a Mon+Wed class is two rows). It is the structured successor to free-text
+-- "routine" class facts and is emitted as a `recurring_block` ScheduleConstraint
+-- into the SAME availability/verifier engine that already merges Google + local
+-- events, so Friday can cross-reference classes against the calendar and find
+-- free time WITHOUT any class ever being written to Google Calendar.
+--
+-- Times are Asia/Bangkok wall-clock "HH:MM" (UTC+7, no DST) — the user's local
+-- clock — matching the ScheduleConstraint convention. weekday is the Bangkok
+-- weekday (0=Sun..6=Sat). active_from/active_until are Bangkok "YYYY-MM-DD" term
+-- bounds (inclusive); NULL = unbounded. Outside the active range the block does
+-- not materialize, so a past-term class never blocks availability. status:
+-- 'active' -> 'archived' (soft-archive, never hard-deleted). source: 'import'
+-- (from a parsed upload) | 'manual'. updated_at app-maintained per convention.
+CREATE TABLE IF NOT EXISTS class_block (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  subject      TEXT NOT NULL,
+  weekday      INTEGER NOT NULL,            -- 0=Sun..6=Sat (Bangkok)
+  start_local  TEXT NOT NULL,              -- "HH:MM" Bangkok local
+  end_local    TEXT NOT NULL,              -- "HH:MM" Bangkok local
+  location     TEXT,
+  active_from  TEXT,                        -- "YYYY-MM-DD" Bangkok; NULL = no lower bound
+  active_until TEXT,                        -- "YYYY-MM-DD" Bangkok; NULL = no upper bound
+  status       TEXT NOT NULL DEFAULT 'active',
+  source       TEXT NOT NULL DEFAULT 'import',  -- 'import' | 'manual'
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_class_block_status ON class_block (status, weekday);
+
+-- Schedule Import — staging buffer for a parsed timetable upload, held for the
+-- inline review card BEFORE the user approves. Nothing here affects availability;
+-- on approval the SELECTED items are written into class_block (the real store) and
+-- the import is marked 'approved'. status: 'pending' -> 'approved' | 'discarded'.
+-- source_kind: 'image' | 'pdf'. term_from/term_until are Bangkok "YYYY-MM-DD"
+-- bounds applied to every created block. `note` is a short user-safe extractor
+-- note — NEVER raw file bytes. updated_at app-maintained.
+CREATE TABLE IF NOT EXISTS schedule_import (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  status      TEXT NOT NULL DEFAULT 'pending',
+  source_kind TEXT NOT NULL,
+  term_from   TEXT,
+  term_until  TEXT,
+  note        TEXT,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
+
+-- One candidate class parsed from the upload. weekday/start_local/end_local are
+-- NULLABLE: when the extractor could not read a field confidently it is left NULL
+-- and the review card requires the user to fill it before that item can be
+-- approved (no silent guessing onto the calendar). `selected`=1 means the user
+-- intends to create it. status: 'candidate' -> 'approved' | 'rejected'.
+CREATE TABLE IF NOT EXISTS schedule_import_item (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  import_id   INTEGER NOT NULL,
+  subject     TEXT NOT NULL,
+  weekday     INTEGER,
+  start_local TEXT,
+  end_local   TEXT,
+  location    TEXT,
+  selected    INTEGER NOT NULL DEFAULT 1,
+  status      TEXT NOT NULL DEFAULT 'candidate',
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL,
+  FOREIGN KEY (import_id) REFERENCES schedule_import(id)
+);
+CREATE INDEX IF NOT EXISTS idx_schedule_import_item_import ON schedule_import_item (import_id);

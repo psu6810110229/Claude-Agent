@@ -278,6 +278,18 @@ export interface ChatContext {
    * scheduling-intent turn. Null otherwise / for an unverified requester.
    */
   scheduleVerifier?: ScheduleVerdict | null;
+  /**
+   * Schedule Import — deterministic free-time windows for the day the user asked
+   * about (e.g. "หาเวลาว่างไปปั่นจักรยานวันนี้"). Computed by the free-slot finder
+   * across Google + local events + class blocks/protected windows. Null when the
+   * turn is not a free-time question or the requester is unverified. The model
+   * MUST narrate these — never eyeball gaps from the event lists.
+   */
+  freeSlots?: {
+    /** Bangkok "YYYY-MM-DD" the slots are for, or null for "today". */
+    date: string | null;
+    slots: { startUtc: string; endUtc: string; minutes: number }[];
+  } | null;
   /** Live runtime: reversible actions execute immediately (no approval queue). */
   autoExecute: boolean;
   /** Live runtime: recoverable destructive Google delete also auto-executes. */
@@ -571,6 +583,22 @@ export function buildChatPrompt(ctx: ChatContext): string {
     const b = v.blockedClaims.map((l) => `  BLOCKED: ${l}`).join("\n");
     const a = v.allowedClaims.map((l) => `  ALLOWED: ${l}`).join("\n");
     return [g, b, a].filter(Boolean).join("\n");
+  })();
+
+  const freeSlotsSection = (() => {
+    if (ctx.restricted) return "  (withheld — requester not verified)";
+    const fs = ctx.freeSlots;
+    if (!fs) return "  (not computed — not a free-time question this turn)";
+    if (fs.slots.length === 0)
+      return "  (no open window of the requested length found in the day — the day is effectively full)";
+    return fs.slots
+      .map((s) => {
+        const hrs = Math.floor(s.minutes / 60);
+        const mins = s.minutes % 60;
+        const dur = hrs > 0 ? `${hrs}h${mins > 0 ? ` ${mins}m` : ""}` : `${mins}m`;
+        return `  - ${bangkokInstantLabel(s.startUtc)} → ${bangkokInstantLabel(s.endUtc)} (${dur} free)`;
+      })
+      .join("\n");
   })();
 
   const scheduleVerifierSection = (() => {
@@ -1215,6 +1243,14 @@ ${
       : "  (no clashes found across all sources for this turn)"
     : "  (not computed — not a scheduling question this turn)"
 }
+
+FREE TIME WINDOWS (deterministic backend pass: open gaps in the user's waking
+hours for the asked-about day, AFTER subtracting Google + local events + class
+blocks + protected windows. This is the SOLE source of truth for "หาเวลาว่าง / when
+am I free / find time to ...". When the user asks for free time, narrate THESE
+windows — pick the ones long enough for what they want to do; NEVER eyeball gaps
+from the event lists yourself):
+${freeSlotsSection}
 
 SCHEDULE VERIFIER (Step 27 — deterministic claim guardrails for THIS scheduling
 turn, derived from AVAILABILITY + CONSTRAINTS above. Treat exactly like the LINE
