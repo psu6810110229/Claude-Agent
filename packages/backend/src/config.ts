@@ -643,6 +643,58 @@ export const FACT_RECALL_CAP = Number(
   process.env.CLAUDE_AGENT_FACT_RECALL_CAP ?? 20,
 );
 
+/**
+ * Schedule Import — local timetable (class_block) + free-slot finder.
+ *
+ * Uploaded timetables become LOCAL recurring class blocks (never Google
+ * Calendar). The free-slot finder answers "find me open time today" by
+ * subtracting all busy intervals (Google + local events + class blocks) from a
+ * day window. The window is the user's waking hours, independent of the
+ * schedule-health "work hours" (which tune overload analysis, not leisure).
+ */
+
+/** Free-slot search day window — Bangkok local hours [start, end). Default 08:00–22:00. */
+export const FREE_SLOT_DAY_START_HOUR = Number(
+  process.env.CLAUDE_AGENT_FREE_SLOT_DAY_START_HOUR ?? 8,
+);
+export const FREE_SLOT_DAY_END_HOUR = Number(
+  process.env.CLAUDE_AGENT_FREE_SLOT_DAY_END_HOUR ?? 22,
+);
+
+/** Minimum free gap (minutes) reported by the free-slot finder. */
+export const FREE_SLOT_MIN_MINUTES = Number(
+  process.env.CLAUDE_AGENT_FREE_SLOT_MIN_MINUTES ?? 30,
+);
+
+/**
+ * Schedule Import upload limits (security: bound the parse + storage surface).
+ * Allowlist is enforced by BOTH extension/MIME and magic-byte sniff. Size cap is
+ * a hard multipart limit. Files are stored under data/uploads/<uuid> (gitignored)
+ * and purged after the import resolves or after the TTL.
+ */
+export const UPLOAD_DIR =
+  process.env.CLAUDE_AGENT_UPLOAD_DIR ?? path.join(DATA_DIR, "uploads");
+
+/** Max upload size in bytes (default 10 MB). */
+export const UPLOAD_MAX_BYTES = Number(
+  process.env.CLAUDE_AGENT_UPLOAD_MAX_BYTES ?? 10 * 1024 * 1024,
+);
+
+/** Hours an uploaded file is retained before TTL purge. */
+export const UPLOAD_TTL_HOURS = Number(
+  process.env.CLAUDE_AGENT_UPLOAD_TTL_HOURS ?? 24,
+);
+
+/** Max candidate class rows accepted from a single parsed timetable. */
+export const SCHEDULE_IMPORT_MAX_ITEMS = Number(
+  process.env.CLAUDE_AGENT_SCHEDULE_IMPORT_MAX_ITEMS ?? 60,
+);
+
+/** Max PDF pages the extractor will read (DoS bound). */
+export const PDF_MAX_PAGES = Number(
+  process.env.CLAUDE_AGENT_PDF_MAX_PAGES ?? 20,
+);
+
 /** Single source of truth for UTC ISO 8601 timestamps. */
 export function nowIso(): string {
   return new Date().toISOString();

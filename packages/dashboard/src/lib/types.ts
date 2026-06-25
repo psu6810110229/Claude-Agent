@@ -241,6 +241,83 @@ export interface DriveUploadResponse {
   message?: string;
 }
 
+// --- Schedule Import (local timetable) ------------------------------------
+
+/** A local weekly class block (never a Google event). HH:MM Bangkok local. */
+export interface ClassBlock {
+  id: number;
+  subject: string;
+  weekday: number; // 0=Sun..6=Sat
+  start_local: string; // "HH:MM"
+  end_local: string; // "HH:MM"
+  location: string | null;
+  active_from: string | null; // "YYYY-MM-DD"
+  active_until: string | null;
+  status: string;
+  source: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A staging session created from a parsed timetable upload. */
+export interface ScheduleImport {
+  id: number;
+  status: string; // pending | approved | discarded
+  source_kind: string; // image | pdf
+  term_from: string | null;
+  term_until: string | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One candidate class awaiting review. Null fields must be filled before approve. */
+export interface ScheduleImportItem {
+  id: number;
+  import_id: number;
+  subject: string;
+  weekday: number | null;
+  start_local: string | null;
+  end_local: string | null;
+  location: string | null;
+  selected: number; // 0 | 1
+  status: string; // candidate | approved | rejected
+  created_at: string;
+  updated_at: string;
+}
+
+/** POST /api/uploads response. */
+export interface UploadResult {
+  id: string;
+  kind: "image" | "pdf";
+  mime: string;
+}
+
+/** POST /api/schedule-imports response. */
+export interface ScheduleImportResult {
+  import: ScheduleImport;
+  items: ScheduleImportItem[];
+}
+
+/** POST /api/schedule-imports/:id/approve response. */
+export interface ApproveImportResult {
+  created: ClassBlock[];
+  skipped: ScheduleImportItem[];
+  rejected: number;
+}
+
+/** One open window from GET /api/free-slots. */
+export interface FreeSlot {
+  startUtc: string;
+  endUtc: string;
+  minutes: number;
+}
+
+export interface FreeSlotsResult {
+  date: string | null;
+  slots: FreeSlot[];
+}
+
 export type ReminderStatus = "active" | "done" | "archived";
 
 export interface Reminder {

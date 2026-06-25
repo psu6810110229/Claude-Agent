@@ -24,6 +24,11 @@ import type { ScheduleConstraint } from "../schemas/scheduleConstraint.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** Zero-pad to 2 digits for "YYYY-MM-DD" assembly. */
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
 /** How far ahead constraint windows are materialized (Bangkok days from now). */
 const HORIZON_DAYS = 8;
 
@@ -127,8 +132,17 @@ export function materializeConstraints(
       ),
     );
     const dow = d.getUTCDay();
+    // Bangkok calendar date of this materialized day, "YYYY-MM-DD", for term-range
+    // gating. `d` already carries the Bangkok day in its UTC fields (see above).
+    const dayStr = `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(
+      d.getUTCDate(),
+    )}`;
     for (const c of constraints) {
       if (c.weekdays.length > 0 && !c.weekdays.includes(dow)) continue;
+      // Term bounds (class_block): skip days outside [activeFrom, activeUntil].
+      // ISO date strings sort lexicographically, so plain comparison is correct.
+      if (c.activeFrom && dayStr < c.activeFrom) continue;
+      if (c.activeUntil && dayStr > c.activeUntil) continue;
       const [sh, sm] = c.startLocal.split(":").map(Number);
       const [eh, em] = c.endLocal.split(":").map(Number);
       const startMs =

@@ -30,8 +30,17 @@ export interface ScheduleConstraint {
   startLocal: string;
   /** Bangkok local end "HH:MM" (exclusive). */
   endLocal: string;
-  /** Provenance, e.g. "fact#44". */
+  /** Provenance, e.g. "fact#44" or "class_block#12". */
   source: string;
   /** Original fact text — kept as evidence and conservative fallback. */
   raw: string;
+  /**
+   * Optional Bangkok "YYYY-MM-DD" term lower bound (inclusive). When set, the
+   * constraint does NOT materialize on any day before it — so a past-term class
+   * never blocks availability. NULL/undefined = no lower bound. Fact-derived
+   * constraints leave these unset (always active); class_block term ranges set them.
+   */
+  activeFrom?: string | null;
+  /** Optional Bangkok "YYYY-MM-DD" term upper bound (inclusive). */
+  activeUntil?: string | null;
 }

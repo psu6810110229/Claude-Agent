@@ -4,6 +4,7 @@ import type {
   ScheduleConstraint,
   ScheduleConstraintKind,
 } from "../schemas/scheduleConstraint.js";
+import { resolveClassBlockConstraints } from "./classBlockConstraints.js";
 
 /**
  * Step 27 / Sprint 2 — fact → structured constraint resolver (RC3, RC4).
@@ -259,7 +260,14 @@ export function parseConstraintFromFact(
  * still applies.
  */
 export function resolveScheduleConstraints(): ScheduleConstraint[] {
-  return listActiveFacts().flatMap(parseScheduleConstraintsFromFact);
+  // Structured class_block rows (the import store) + legacy fact-derived
+  // constraints. Both feed the same availability/verifier engine; the
+  // dedup on (subject, weekday, start) at create time keeps a class entered in
+  // both stores from double-counting in the common case.
+  return [
+    ...resolveClassBlockConstraints(),
+    ...listActiveFacts().flatMap(parseScheduleConstraintsFromFact),
+  ];
 }
 
 /** One-line human description for the prompt CONSTRAINTS block. */

@@ -25,7 +25,11 @@ import {
   speak,
   unlockAudioPlayback,
   verifyIdentity,
+  uploadScheduleFile,
+  createScheduleImport,
 } from "@/lib/api";
+import { ScheduleImportCard } from "@/components/ScheduleImportCard";
+import type { ScheduleImportResult, ApproveImportResult } from "@/lib/types";
 import {
   cancelAck,
   nextAckRequestId,
@@ -135,6 +139,9 @@ export default function HomePage() {
   const [activeClarification, setActiveClarification] =
     useState<ClarificationPrompt | null>(null);
   const [muted, setMuted] = useState(false);
+  // Schedule import — attach a timetable image/PDF → inline review card.
+  const [attachBusy, setAttachBusy] = useState(false);
+  const [importCard, setImportCard] = useState<ScheduleImportResult | null>(null);
   // Step 15 — privacy guard (conversational flow)
   const [verified, setVerified] = useState(false);
   const [guardEnabled, setGuardEnabled] = useState(false);
@@ -513,6 +520,63 @@ export default function HomePage() {
     }
   }
 
+  // Attach a timetable image/PDF: upload → parse → show the inline review card.
+  // A failure surfaces as an assistant message, never silently.
+  async function onAttach(file: File) {
+    if (attachBusy || sending) return;
+    clearFollowup();
+    setAttachBusy(true);
+    setImportCard(null);
+    setSendError(null);
+    stickToBottomRef.current = true;
+    const fileBubble: ChatMessage = {
+      id: -Date.now(),
+      role: "user",
+      content: `📎 ${file.name}`,
+      actions_json: null,
+      status: "active",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, fileBubble]);
+    try {
+      const uploaded = await uploadScheduleFile(file);
+      const result = await createScheduleImport(uploaded.id);
+      if (result.items.length === 0) {
+        setMessages((prev) => [
+          ...prev,
+          fallbackAssistantMessage(
+            "ไฟล์นี้ยังอ่านเป็นตารางเรียนไม่ได้ค่ะ ลองรูปที่ชัดขึ้นหรือ PDF ตารางโดยตรง",
+          ),
+        ]);
+        return;
+      }
+      setImportCard(result);
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : String(err);
+      setMessages((prev) => [...prev, fallbackAssistantMessage(`อ่านไฟล์ไม่สำเร็จ: ${message}`)]);
+      notify({ kind: "error", title: "อ่านไฟล์ไม่สำเร็จ", description: message });
+    } finally {
+      setAttachBusy(false);
+    }
+  }
+
+  function onImportApproved(result: ApproveImportResult) {
+    setImportCard(null);
+    const n = result.created.length;
+    notify({
+      kind: "success",
+      title: "เพิ่มตารางเรียนแล้ว",
+      description: `บันทึก ${n} คาบเข้าตารางในเครื่อง`,
+    });
+    setMessages((prev) => [
+      ...prev,
+      fallbackAssistantMessage(
+        `เพิ่มตารางเรียนให้แล้ว ${n} คาบ ${result.skipped.length > 0 ? `(ข้าม ${result.skipped.length} คาบที่ข้อมูลไม่ครบ) ` : ""}— ถามได้เลยว่าวันไหนเรียนอะไร หรือให้หาเวลาว่างก็ได้ค่ะ`,
+      ),
+    ]);
+  }
+
   async function runBrief(type: BriefType) {
     if (sending || briefBusy) return;
     clearFollowup();
@@ -696,6 +760,38 @@ export default function HomePage() {
               />
             ))}
 
+            {attachBusy && (
+              <div className="chat-bubble-wrapper assistant">
+                <div className="chat-avatar assistant-avatar" aria-hidden="true">
+                  <span className="avatar-text">F</span>
+                </div>
+                <div className="chat-bubble assistant typing">
+                  <span className="chat-role-label">Friday</span>
+                  <ThinkingContent status="กำลังอ่านตารางเรียนจากไฟล์" />
+                </div>
+              </div>
+            )}
+
+            {importCard && (
+              <div className="chat-bubble-wrapper assistant">
+                <div className="chat-avatar assistant-avatar" aria-hidden="true">
+                  <span className="avatar-text">F</span>
+                </div>
+                <div className="chat-import-slot">
+                  <ScheduleImportCard
+                    importId={importCard.import.id}
+                    sourceKind={importCard.import.source_kind}
+                    initialItems={importCard.items}
+                    initialTermFrom={importCard.import.term_from}
+                    initialTermUntil={importCard.import.term_until}
+                    note={importCard.import.note}
+                    onApproved={onImportApproved}
+                    onCancel={() => setImportCard(null)}
+                  />
+                </div>
+              </div>
+            )}
+
             {sending && (
               <div className="chat-bubble-wrapper assistant">
                 <div className="chat-avatar assistant-avatar" aria-hidden="true">
@@ -744,6 +840,8 @@ export default function HomePage() {
         <JarvisInput
           onSubmit={doSend}
           onBrief={runBrief}
+          onAttach={onAttach}
+          attachBusy={attachBusy}
           disabled={sending || briefBusy !== null}
           briefBusy={briefBusy}
           provider={provider}
