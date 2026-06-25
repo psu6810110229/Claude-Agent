@@ -5,7 +5,7 @@ import { Trash2, Clock, Bike } from "lucide-react";
 import { listClassBlocks, getFreeSlots, deleteClassBlock, ApiError } from "@/lib/api";
 import { useData } from "@/lib/useData";
 import { ErrorBanner } from "@/components/States";
-import { WEEKDAY_FULL } from "@/components/ScheduleImportCard";
+import { WeekHourGrid, type GridBlock } from "@/components/WeekHourGrid";
 import type { ClassBlock, FreeSlotsResult } from "@/lib/types";
 
 async function loadSchedule(): Promise<{
@@ -18,8 +18,6 @@ async function loadSchedule(): Promise<{
   ]);
   return { blocks, free };
 }
-
-const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
 function toMin(hhmm: string): number {
   const [h, m] = hhmm.split(":").map(Number);
@@ -55,16 +53,17 @@ export default function SchedulePage() {
     }
   }
 
-  const byDay = new Map<number, ClassBlock[]>();
-  for (const b of data?.blocks ?? []) {
-    const arr = byDay.get(b.weekday) ?? [];
-    arr.push(b);
-    byDay.set(b.weekday, arr);
-  }
-  for (const arr of byDay.values()) {
-    arr.sort((a, b) => toMin(a.start_local) - toMin(b.start_local));
-  }
-  const activeDays = DAY_ORDER.filter((d) => byDay.has(d));
+  const gridBlocks: GridBlock[] = (data?.blocks ?? []).map((b) => ({
+    id: b.id,
+    weekday: b.weekday,
+    startMin: toMin(b.start_local),
+    endMin: toMin(b.end_local),
+    title: b.subject,
+    subtitle: b.location,
+  }));
+  const todayWeekday = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Asia/Bangkok" }),
+  ).getDay();
 
   return (
     <>
@@ -107,42 +106,26 @@ export default function SchedulePage() {
 
             <section className="section">
               <h3>คาบเรียนต่อสัปดาห์</h3>
-              {activeDays.length === 0 ? (
-                <div className="state">
-                  ยังไม่มีตารางเรียน — แนบรูปหรือ PDF ตารางในหน้าแชตเพื่อให้ Friday อ่านให้
-                </div>
-              ) : (
-                <div className="sch-week">
-                  {activeDays.map((d) => (
-                    <div className="sch-day" key={d}>
-                      <div className="sch-day-head">{WEEKDAY_FULL[d]}</div>
-                      <div className="sch-day-list">
-                        {(byDay.get(d) ?? []).map((b) => (
-                          <div className="sch-block" key={b.id}>
-                            <div className="sch-block-main">
-                              <span className="sch-block-time">
-                                {b.start_local}–{b.end_local}
-                              </span>
-                              <span className="sch-block-subj">{b.subject}</span>
-                              {b.location && <span className="sch-block-loc">{b.location}</span>}
-                            </div>
-                            <button
-                              type="button"
-                              className="sch-block-del"
-                              onClick={() => remove(b.id)}
-                              disabled={busyId === b.id}
-                              aria-label={`ลบ ${b.subject}`}
-                              title="ลบ"
-                            >
-                              <Trash2 aria-hidden="true" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <WeekHourGrid
+                blocks={gridBlocks}
+                highlightWeekday={todayWeekday}
+                emptyHint="ยังไม่มีตารางเรียน — แนบรูปหรือ PDF ตารางในหน้าแชตเพื่อให้ Friday อ่านให้"
+                renderChipExtra={(b) => (
+                  <button
+                    type="button"
+                    className="whg-del"
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      void remove(b.id as number);
+                    }}
+                    disabled={busyId === b.id}
+                    aria-label={`ลบ ${b.title}`}
+                    title="ลบ"
+                  >
+                    <Trash2 aria-hidden="true" />
+                  </button>
+                )}
+              />
             </section>
           </>
         )}

@@ -11,6 +11,7 @@ import type {
   ScheduleImportItem,
   ApproveImportResult,
 } from "@/lib/types";
+import { WeekHourGrid, type GridBlock } from "./WeekHourGrid";
 
 /** Editable fields for one candidate item (selected is a boolean intent here). */
 type ItemPatch = {
@@ -250,7 +251,7 @@ export function ScheduleImportCard({
   );
 }
 
-/** Weekly grid: day columns × an hour rail, class chips positioned by time. */
+/** Weekly grid (day rows × time columns), delegated to the shared WeekHourGrid. */
 function ScheduleGrid({
   items,
   onEdit,
@@ -265,102 +266,47 @@ function ScheduleGrid({
   );
   const unplaced = items.filter((i) => !placed.includes(i));
 
-  const days = useMemo(() => {
-    const present = new Set(placed.map((i) => i.weekday as number));
-    // Mon..Sat by default; include Sunday only if used.
-    const order = [1, 2, 3, 4, 5, 6, 0].filter((d) => present.has(d));
-    return order.length > 0 ? order : [1, 2, 3, 4, 5];
-  }, [placed]);
-
-  const { minH, maxH } = useMemo(() => {
-    let lo = 24 * 60;
-    let hi = 0;
-    for (const i of placed) {
-      lo = Math.min(lo, toMin(i.start_local)!);
-      hi = Math.max(hi, toMin(i.end_local)!);
-    }
-    if (lo >= hi) {
-      lo = 8 * 60;
-      hi = 18 * 60;
-    }
-    return { minH: Math.floor(lo / 60), maxH: Math.ceil(hi / 60) };
-  }, [placed]);
-
-  const HOUR_PX = 52;
-  const hours = Array.from({ length: maxH - minH + 1 }, (_, i) => minH + i);
-  const gridHeight = (maxH - minH) * HOUR_PX;
+  const blocks: GridBlock[] = placed.map((i) => ({
+    id: i.id,
+    weekday: i.weekday as number,
+    startMin: toMin(i.start_local)!,
+    endMin: toMin(i.end_local)!,
+    title: i.subject,
+    subtitle: i.location,
+    tone: i.selected !== 1 ? "muted" : !isComplete(i) ? "warn" : "normal",
+  }));
 
   return (
     <div className="si-grid-wrap">
-      <div className="si-grid" style={{ gridTemplateColumns: `38px repeat(${days.length}, 1fr)` }}>
-        <div className="si-grid-corner" />
-        {days.map((d) => (
-          <div className="si-grid-dayhead" key={`h-${d}`}>
-            {WEEKDAY_FULL[d]}
-          </div>
-        ))}
-
-        <div className="si-grid-rail" style={{ height: gridHeight }}>
-          {hours.slice(0, -1).map((h) => (
-            <div className="si-grid-hour" key={h} style={{ height: HOUR_PX }}>
-              <span>{String(h).padStart(2, "0")}:00</span>
-            </div>
-          ))}
-        </div>
-
-        {days.map((d) => (
-          <div className="si-grid-col" key={`c-${d}`} style={{ height: gridHeight }}>
-            {hours.slice(0, -1).map((h) => (
-              <div className="si-grid-line" key={h} style={{ top: (h - minH) * HOUR_PX }} />
-            ))}
-            {placed
-              .filter((i) => i.weekday === d)
-              .map((i) => {
-                const s = toMin(i.start_local)!;
-                const e = toMin(i.end_local)!;
-                const top = ((s - minH * 60) / 60) * HOUR_PX;
-                const height = Math.max(22, ((e - s) / 60) * HOUR_PX - 3);
-                const off = i.selected !== 1;
-                const bad = !isComplete(i);
-                return (
-                  <button
-                    type="button"
-                    key={i.id}
-                    className={`si-chip ${off ? "off" : ""} ${bad ? "bad" : ""}`}
-                    style={{ top, height }}
-                    onClick={() => onEdit(i.id)}
-                    title="แก้ไข"
-                  >
-                    <span className="si-chip-subj">{i.subject}</span>
-                    <span className="si-chip-time">
-                      {i.start_local}–{i.end_local}
-                    </span>
-                    {i.location && <span className="si-chip-loc">{i.location}</span>}
-                    <span
-                      className="si-chip-check"
-                      role="checkbox"
-                      aria-checked={!off}
-                      tabIndex={0}
-                      onClick={(ev) => {
-                        ev.stopPropagation();
-                        onToggle(i.id, off);
-                      }}
-                      onKeyDown={(ev) => {
-                        if (ev.key === " " || ev.key === "Enter") {
-                          ev.preventDefault();
-                          ev.stopPropagation();
-                          onToggle(i.id, off);
-                        }
-                      }}
-                    >
-                      {!off && <Check aria-hidden="true" />}
-                    </span>
-                  </button>
-                );
-              })}
-          </div>
-        ))}
-      </div>
+      <WeekHourGrid
+        blocks={blocks}
+        onChipClick={(id) => onEdit(id as number)}
+        renderChipExtra={(b) => {
+          const item = items.find((x) => x.id === b.id);
+          const off = item?.selected !== 1;
+          return (
+            <span
+              className="whg-check"
+              role="checkbox"
+              aria-checked={!off}
+              tabIndex={0}
+              onClick={(ev) => {
+                ev.stopPropagation();
+                onToggle(b.id as number, off);
+              }}
+              onKeyDown={(ev) => {
+                if (ev.key === " " || ev.key === "Enter") {
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  onToggle(b.id as number, off);
+                }
+              }}
+            >
+              {!off && <Check aria-hidden="true" />}
+            </span>
+          );
+        }}
+      />
 
       {unplaced.length > 0 && (
         <div className="si-unplaced">
