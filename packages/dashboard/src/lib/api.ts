@@ -752,6 +752,34 @@ export async function listClassBlocks(): Promise<ClassBlock[]> {
   return data.blocks;
 }
 
+/** Manual class-block create/edit payload (Bangkok "HH:MM" / weekday 0–6). */
+export interface ClassBlockInput {
+  subject: string;
+  weekday: number;
+  start_local: string;
+  end_local: string;
+  location?: string | null;
+}
+
+/** Create a local class block (source defaults to "manual" on the backend). */
+export function createClassBlock(input: ClassBlockInput): Promise<{ block: ClassBlock }> {
+  return request<{ block: ClassBlock }>("/api/class-blocks", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Patch an existing class block. */
+export function updateClassBlock(
+  id: number,
+  input: ClassBlockInput,
+): Promise<{ block: ClassBlock }> {
+  return request<{ block: ClassBlock }>(`/api/class-blocks/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
 /** Archive (soft-delete) a class block. */
 export function deleteClassBlock(id: number): Promise<{ block: ClassBlock }> {
   return request<{ block: ClassBlock }>(`/api/class-blocks/${id}`, {

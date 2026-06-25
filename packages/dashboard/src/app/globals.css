@@ -4800,6 +4800,7 @@ pre.payload {
   background: var(--glass);
   border-radius: var(--radius);
   border: 1px solid var(--border);
+  overflow: hidden; /* clip today-row tint to the rounded corners */
 }
 .whg-headrow { display: flex; position: sticky; top: 0; z-index: 3; }
 .whg-corner {
@@ -4812,8 +4813,8 @@ pre.payload {
   border-bottom: 1px solid var(--border-strong);
   border-top-left-radius: var(--radius);
 }
-.whg-hours { display: flex; background: var(--surface); border-bottom: 1px solid var(--border-strong); }
-.whg-hour { flex-shrink: 0; height: 30px; display: flex; align-items: center; }
+.whg-hours { position: relative; height: 30px; background: var(--surface); border-bottom: 1px solid var(--border-strong); }
+.whg-hour { position: absolute; top: 0; height: 30px; display: flex; align-items: center; }
 .whg-hour span {
   font-size: 10px;
   font-variant-numeric: tabular-nums;
@@ -4821,6 +4822,8 @@ pre.payload {
   padding-left: 6px;
   white-space: nowrap;
 }
+/* Trailing label sits on the right edge → pull it left so it never overflows. */
+.whg-hour-end span { padding-left: 0; transform: translateX(calc(-100% + 1px)); }
 .whg-row { display: flex; position: relative; }
 .whg-row.today { background: var(--accent-soft); }
 .whg-daylabel {
@@ -4844,8 +4847,6 @@ pre.payload {
 .whg-vline { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border); }
 .whg-chip {
   position: absolute;
-  top: 6px;
-  bottom: 6px;
   border: 0;
   border-radius: 9px;
   padding: 5px 9px;
@@ -4905,6 +4906,10 @@ pre.payload {
 }
 .whg-check svg { width: 11px; height: 11px; color: #fff; }
 .whg-del {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  z-index: 1;
   width: 18px;
   height: 18px;
   border: 0;
@@ -4929,8 +4934,55 @@ pre.payload {
 }
 
 /* Destructive confirm button (delete a class block) */
-.jarvis-dialog-actions .primary.danger { background: var(--rose); border-color: var(--rose); }
+.jarvis-dialog-actions .primary.danger { background: var(--rose); border-color: var(--rose); color: #fff; }
 .jarvis-dialog-actions .primary.danger:hover:not(:disabled) { filter: brightness(1.08); }
+
+/* ---- Schedule editor: toolbar + add/edit form ---------------------------- */
+.sch-grid-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.sch-grid-head h3 { margin: 0; }
+.sch-grid-tools { display: flex; gap: 8px; }
+.sch-grid-tools button,
+.jarvis-dialog-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sch-grid-tools button svg,
+.jarvis-dialog-actions button svg { width: 15px; height: 15px; flex-shrink: 0; }
+.sch-edit-hint { margin: 0 0 8px; font-size: 12.5px; color: var(--muted-strong); }
+
+.sch-form { display: flex; flex-direction: column; gap: 11px; margin-top: 12px; }
+.sch-field-row { display: flex; gap: 11px; }
+.sch-field-row .sch-field { flex: 1; }
+.sch-field { display: flex; flex-direction: column; gap: 5px; }
+.sch-field > span { font-size: 12px; font-weight: 580; color: var(--muted-strong); }
+.sch-field input,
+.sch-field select {
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 10px 12px;
+  width: 100%;
+}
+.sch-field > span { white-space: nowrap; }
+.sch-field input:focus,
+.sch-field select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.sch-field input::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; }
 
 /* ---- DayAgendaCard: one day's combined schedule (classes + work + events) ---- */
 .day-agenda { display: flex; flex-direction: column; gap: 12px; }
