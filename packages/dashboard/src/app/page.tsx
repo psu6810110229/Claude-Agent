@@ -28,9 +28,14 @@ import {
   uploadScheduleFile,
   createScheduleImport,
   listClassBlocks,
+  getCalendarToday,
+  getCalendarUpcoming,
+  listEvents,
+  listReminders,
 } from "@/lib/api";
 import { ScheduleImportCard } from "@/components/ScheduleImportCard";
 import { WeekHourGrid, type GridBlock } from "@/components/WeekHourGrid";
+import { DayAgendaCard, type DayItem } from "@/components/DayAgendaCard";
 import type {
   ScheduleImportResult,
   ApproveImportResult,
@@ -93,6 +98,112 @@ function isTimetableViewIntent(text: string): boolean {
 function hhmmToMin(hhmm: string): number {
   const [h, m] = hhmm.split(":").map(Number);
   return (h || 0) * 60 + (m || 0);
+}
+
+/**
+ * "What's on a given DAY" intent — classes + dated work + events for ONE day,
+ * distinct from the weekly class timetable. Requires a day reference AND is NOT
+ * a class-specific ask (so "ตารางเรียนวันนี้" stays the weekly classes view).
+ */
+const THAI_WEEKDAYS = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"];
+function isDayAgendaIntent(text: string): boolean {
+  const m = text.toLowerCase();
+  const hasDay = ["วันนี้", "พรุ่งนี้", "วันนั้น", "today", "tomorrow"].some((k) => m.includes(k));
+  const asksSchedule = ["ตาราง", "มีอะไร", "มีงาน", "ต้องทำ", "อะไรบ้าง", "นัด", "schedule", "what"].some(
+    (k) => m.includes(k),
+  );
+  const classSpecific = ["ตารางเรียน", "ตารางสอน", "คาบเรียน", "timetable"].some((k) => m.includes(k));
+  return hasDay && asksSchedule && !classSpecific;
+}
+
+function bkkDateStr(d: Date): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(d);
+}
+function bkkWeekday(d: Date): number {
+  return new Date(d.toLocaleString("en-US", { timeZone: "Asia/Bangkok" })).getDay();
+}
+function bkkTimeLabel(iso: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Bangkok",
+  }).format(new Date(iso));
+}
+function bkkMinOf(iso: string): number {
+  const [h, m] = bkkTimeLabel(iso).split(":").map(Number);
+  return h * 60 + m;
+}
+/** Resolve which day an agenda request targets (today, or +1 for พรุ่งนี้). */
+function resolveAgendaDay(text: string): Date {
+  const m = text.toLowerCase();
+  if (m.includes("พรุ่งนี้") || m.includes("tomorrow")) {
+    return new Date(Date.now() + 24 * 60 * 60 * 1000);
+  }
+  return new Date();
+}
+function dayAgendaLabel(d: Date): string {
+  const today = bkkDateStr(new Date());
+  const tmr = bkkDateStr(new Date(Date.now() + 24 * 60 * 60 * 1000));
+  const ds = bkkDateStr(d);
+  const prefix = ds === today ? "วันนี้" : ds === tmr ? "พรุ่งนี้" : THAI_WEEKDAYS[bkkWeekday(d)];
+  const dm = new Intl.DateTimeFormat("th-TH", {
+    day: "numeric",
+    month: "short",
+    timeZone: "Asia/Bangkok",
+  }).format(d);
+  return `ตาราง${prefix} · ${THAI_WEEKDAYS[bkkWeekday(d)]} ${dm}`;
+}
+
+/** Assemble one day's combined agenda from all local + Google sources. Fail-soft. */
+async function buildDayAgenda(targetDay: Date): Promise<{ dateLabel: string; items: DayItem[] }> {
+  const dateStr = bkkDateStr(targetDay);
+  const wd = bkkWeekday(targetDay);
+  const [blocks, locals, reminders, gToday, gUpcoming] = await Promise.all([
+    listClassBlocks().catch(() => []),
+    listEvents().catch(() => []),
+    listReminders().catch(() => []),
+    getCalendarToday().catch(() => ({ events: [], available: false })),
+    getCalendarUpcoming().catch(() => ({ events: [], available: false })),
+  ]);
+
+  const items: DayItem[] = [];
+  for (const b of blocks) {
+    if (b.weekday === wd) {
+      items.push({
+        id: `c${b.id}`,
+        kind: "class",
+        startMin: hhmmToMin(b.start_local),
+        startLabel: b.start_local,
+        endLabel: b.end_local,
+        title: b.subject,
+        sub: b.location,
+      });
+    }
+  }
+  const seen = new Set<string>();
+  for (const e of [...gToday.events, ...gUpcoming.events]) {
+    if (seen.has(e.id)) continue;
+    seen.add(e.id);
+    if (e.allDay) {
+      if (e.start === dateStr) {
+        items.push({ id: `g${e.id}`, kind: "event", startMin: null, startLabel: null, endLabel: null, title: e.title, sub: e.location, allDay: true });
+      }
+    } else if (bkkDateStr(new Date(e.start)) === dateStr) {
+      items.push({ id: `g${e.id}`, kind: "event", startMin: bkkMinOf(e.start), startLabel: bkkTimeLabel(e.start), endLabel: e.end ? bkkTimeLabel(e.end) : null, title: e.title, sub: e.location });
+    }
+  }
+  for (const ev of locals) {
+    if (ev.status !== "archived" && bkkDateStr(new Date(ev.starts_at)) === dateStr) {
+      items.push({ id: `e${ev.id}`, kind: "event", startMin: bkkMinOf(ev.starts_at), startLabel: bkkTimeLabel(ev.starts_at), endLabel: ev.ends_at ? bkkTimeLabel(ev.ends_at) : null, title: ev.title, sub: ev.location });
+    }
+  }
+  for (const r of reminders) {
+    if (r.status === "active" && bkkDateStr(new Date(r.due_at)) === dateStr) {
+      items.push({ id: `r${r.id}`, kind: "reminder", startMin: bkkMinOf(r.due_at), startLabel: bkkTimeLabel(r.due_at), endLabel: null, title: r.title, sub: r.notes });
+    }
+  }
+  return { dateLabel: dayAgendaLabel(targetDay), items };
 }
 
 /** Time-of-day greeting in the user's timezone (Asia/Bangkok). */
@@ -175,6 +286,8 @@ export default function HomePage() {
   // When the user asks to SEE their timetable, render the real class blocks as a
   // visual grid inline (deterministic, not the model's text formatting).
   const [timetableBlocks, setTimetableBlocks] = useState<ClassBlock[] | null>(null);
+  // When the user asks for a specific DAY's schedule (classes + work + events).
+  const [dayAgenda, setDayAgenda] = useState<{ dateLabel: string; items: DayItem[] } | null>(null);
   // Step 15 — privacy guard (conversational flow)
   const [verified, setVerified] = useState(false);
   const [guardEnabled, setGuardEnabled] = useState(false);
@@ -356,6 +469,7 @@ export default function HomePage() {
     setLastFailedMessage(null);
     setActiveClarification(null);
     setTimetableBlocks(null);
+    setDayAgenda(null);
 
     const cleanText = text.trim().toLowerCase();
     const isVerificationKeyword = cleanText === "โอเค" || cleanText.startsWith("โอเค") || cleanText === "1234";
@@ -510,9 +624,16 @@ export default function HomePage() {
       await settleAckForFinal(ackRequestId);
       speech?.play(); // text and voice together (after ack, if one was speaking)
       if (!muted && result.resultSpoken) void speak(result.resultSpoken);
-      // Timetable view: render the real class blocks as a visual grid under the
-      // reply (deterministic — never depends on the model's text formatting).
-      if (isTimetableViewIntent(text)) {
+      // Visual schedule cards (deterministic — never depend on the model's text
+      // formatting). Day-agenda takes precedence: "ตารางวันนี้" shows the whole day;
+      // "ตารางเรียน" shows the weekly class grid.
+      if (isDayAgendaIntent(text)) {
+        try {
+          setDayAgenda(await buildDayAgenda(resolveAgendaDay(text)));
+        } catch {
+          // Soft — the text answer still stands.
+        }
+      } else if (isTimetableViewIntent(text)) {
         try {
           const blocks = await listClassBlocks();
           if (blocks.length > 0) setTimetableBlocks(blocks);
@@ -572,6 +693,7 @@ export default function HomePage() {
     setAttachBusy(true);
     setImportCard(null);
     setTimetableBlocks(null);
+    setDayAgenda(null);
     setSendError(null);
     stickToBottomRef.current = true;
     const fileBubble: ChatMessage = {
@@ -862,6 +984,17 @@ export default function HomePage() {
                       ).getDay()}
                     />
                   </div>
+                </div>
+              </div>
+            )}
+
+            {dayAgenda && (
+              <div className="chat-bubble-wrapper assistant">
+                <div className="chat-avatar assistant-avatar" aria-hidden="true">
+                  <span className="avatar-text">F</span>
+                </div>
+                <div className="chat-import-slot">
+                  <DayAgendaCard dateLabel={dayAgenda.dateLabel} items={dayAgenda.items} />
                 </div>
               </div>
             )}
