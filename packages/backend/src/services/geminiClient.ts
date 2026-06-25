@@ -104,6 +104,88 @@ export const realGeminiInvoker: ClaudeInvoker = async (prompt, opts) => {
   return text;
 };
 
+/** One inline binary part for a multimodal request (image or PDF). */
+export interface VisionPart {
+  /** Base64-encoded file bytes (no data: prefix). */
+  data: string;
+  /** MIME type, e.g. "image/png", "image/jpeg", "application/pdf". */
+  mimeType: string;
+}
+
+/**
+ * A multimodal extraction call: a text instruction plus one or more inline
+ * binary parts (image / PDF). Same fail-closed + timeout discipline as the text
+ * invoker. Returns raw model text only — parsing/validation happens upstream.
+ * Used ONLY by the schedule extractor; the chat path is untouched.
+ */
+export type GeminiVisionInvoker = (
+  prompt: string,
+  parts: VisionPart[],
+  opts?: { timeoutMs?: number; model?: string },
+) => Promise<string>;
+
+export const geminiVisionExtract: GeminiVisionInvoker = async (
+  prompt,
+  parts,
+  opts,
+) => {
+  if (!isGeminiConfigured()) {
+    throw new GeminiError(
+      "disabled",
+      "Gemini vision is unavailable. Set GEMINI_ENABLED=1 and GEMINI_API_KEY.",
+    );
+  }
+  if (parts.length === 0) {
+    throw new GeminiError("empty", "No file parts supplied to vision extractor.");
+  }
+
+  const timeoutMs = opts?.timeoutMs ?? GEMINI_TIMEOUT_MS;
+  const modelId =
+    opts?.model && isAllowedGeminiModel(opts.model) ? opts.model : GEMINI_MODEL;
+
+  const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+  const model = genAI.getGenerativeModel({ model: modelId });
+
+  const contentParts = [
+    { text: prompt },
+    ...parts.map((p) => ({
+      inlineData: { data: p.data, mimeType: p.mimeType },
+    })),
+  ];
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let text: string;
+  try {
+    const result = await Promise.race([
+      model.generateContent(contentParts),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new GeminiError("timeout", `Gemini vision timed out after ${timeoutMs}ms`),
+            ),
+          timeoutMs,
+        );
+      }),
+    ]);
+    clearTimeout(timer);
+    text = result.response.text();
+  } catch (err) {
+    clearTimeout(timer);
+    if (err instanceof GeminiError) throw err;
+    const msg = err instanceof Error ? err.message : String(err);
+    if (isRateLimitErrorMessage(msg)) {
+      throw new GeminiError("rate-limit", "Gemini API rate limit or quota was exceeded.");
+    }
+    throw new GeminiError("api-error", "Gemini vision request failed.");
+  }
+
+  if (!text.trim()) {
+    throw new GeminiError("empty", "Gemini vision returned empty response.");
+  }
+  return text;
+};
+
 function isRateLimitErrorMessage(message: string): boolean {
   return (
     /\b429\b/.test(message) ||

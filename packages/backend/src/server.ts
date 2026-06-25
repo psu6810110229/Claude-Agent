@@ -1,4 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
+import multipart from "@fastify/multipart";
+import { UPLOAD_MAX_BYTES } from "./config.js";
 import { healthRoutes } from "./routes/health.js";
 import { taskRoutes } from "./routes/tasks.js";
 import { activityRoutes } from "./routes/activity.js";
@@ -20,6 +22,9 @@ import { contactsRoutes } from "./routes/contacts.js";
 import { driveRoutes } from "./routes/drive.js";
 import { lineRoutes } from "./routes/line.js";
 import { classBlockRoutes } from "./routes/classBlocks.js";
+import { uploadRoutes } from "./routes/uploads.js";
+import { scheduleImportRoutes } from "./routes/scheduleImports.js";
+import type { ScheduleExtractionDeps } from "./services/scheduleExtractor.js";
 import type { ClaudeInvoker } from "./services/claudeClient.js";
 import type { GoogleEventsFetcher } from "./services/googleCalendar.js";
 import type { TtsSynthesizer } from "./services/tts.js";
@@ -34,11 +39,18 @@ export interface BuildServerOptions {
   calendarFetcher?: GoogleEventsFetcher;
   /** Inject a stub TTS synthesizer (tests). Defaults to the real Edge synthesizer. */
   ttsSynthesizer?: TtsSynthesizer;
+  /** Inject stub schedule-extraction invokers (tests). Defaults to real Gemini. */
+  scheduleExtractionDeps?: ScheduleExtractionDeps;
 }
 
 /** Builds the Fastify instance (without listening) so it can be reused in tests. */
 export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   const app = Fastify({ logger: true });
+  // Multipart for schedule-import uploads. One file, hard size cap. Registered
+  // before the routes that consume req.file().
+  app.register(multipart, {
+    limits: { fileSize: UPLOAD_MAX_BYTES, files: 1, fields: 4 },
+  });
   app.register(healthRoutes);
   app.register(taskRoutes);
   app.register(activityRoutes);
@@ -69,5 +81,9 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   app.register(driveRoutes);
   app.register(lineRoutes);
   app.register(classBlockRoutes, { calendarFetcher: options.calendarFetcher });
+  app.register(uploadRoutes);
+  app.register(scheduleImportRoutes, {
+    extractionDeps: options.scheduleExtractionDeps,
+  });
   return app;
 }
