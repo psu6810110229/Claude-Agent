@@ -4872,16 +4872,22 @@ pre.payload {
   outline: 1px solid var(--amber);
 }
 .whg-chip-title {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  line-height: 1.15;
-  white-space: nowrap;
+  line-height: 1.18;
+  width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .whg-chip-sub {
-  font-size: 10px;
+  font-size: 9.5px;
   color: var(--muted-strong);
+  width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4921,3 +4927,7 @@ pre.payload {
   .whg-day-full { display: none; }
   .whg-day-abbr { display: inline; }
 }
+
+/* Destructive confirm button (delete a class block) */
+.jarvis-dialog-actions .primary.danger { background: var(--rose); border-color: var(--rose); }
+.jarvis-dialog-actions .primary.danger:hover:not(:disabled) { filter: brightness(1.08); }

@@ -19,8 +19,8 @@ const WEEKDAY_FULL = [
 ];
 const WEEKDAY_ABBR = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
 
-const HOUR_W = 64; // px per hour column
-const ROW_H = 56; // px per day row
+const HOUR_W = 72; // px per hour column
+const ROW_H = 62; // px per day row
 
 export interface GridBlock {
   id: number | string;

@@ -39,15 +39,20 @@ function fmtSlot(startUtc: string, endUtc: string): string {
 export default function SchedulePage() {
   const { data, loading, error, reload } = useData("/api/schedule", loadSchedule);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ id: number; title: string } | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  async function remove(id: number) {
-    if (busyId) return;
+  async function confirmRemove() {
+    if (!pendingDelete || busyId) return;
+    const id = pendingDelete.id;
     setBusyId(id);
+    setDeleteError(null);
     try {
       await deleteClassBlock(id);
+      setPendingDelete(null);
       await reload();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "ลบไม่สำเร็จ");
+      setDeleteError(err instanceof ApiError ? err.message : "ลบไม่สำเร็จ");
     } finally {
       setBusyId(null);
     }
@@ -116,11 +121,11 @@ export default function SchedulePage() {
                     className="whg-del"
                     onClick={(ev) => {
                       ev.stopPropagation();
-                      void remove(b.id as number);
+                      setDeleteError(null);
+                      setPendingDelete({ id: b.id as number, title: b.title });
                     }}
-                    disabled={busyId === b.id}
                     aria-label={`ลบ ${b.title}`}
-                    title="ลบ"
+                    title="ลบคาบนี้"
                   >
                     <Trash2 aria-hidden="true" />
                   </button>
@@ -130,6 +135,51 @@ export default function SchedulePage() {
           </>
         )}
       </div>
+
+      {pendingDelete && (
+        <div
+          className="jarvis-dialog-backdrop"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !busyId) setPendingDelete(null);
+          }}
+        >
+          <section
+            className="jarvis-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="del-title"
+          >
+            <div className="jarvis-dialog-copy">
+              <p className="page-kicker">ตารางเรียน</p>
+              <h3 id="del-title">ลบคาบเรียนนี้?</h3>
+              <p>
+                ลบ “{pendingDelete.title}” ออกจากตารางในเครื่อง — Friday จะไม่ใช้คาบนี้
+                เทียบเวลาว่างอีก (เพิ่มกลับได้ด้วยการนำเข้าใหม่)
+              </p>
+              {deleteError && <p className="si-error">{deleteError}</p>}
+            </div>
+            <div className="jarvis-dialog-actions">
+              <button
+                type="button"
+                onClick={() => setPendingDelete(null)}
+                disabled={busyId !== null}
+                autoFocus
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                className="primary danger"
+                onClick={confirmRemove}
+                disabled={busyId !== null}
+              >
+                {busyId !== null ? "กำลังลบ..." : "ลบ"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </>
   );
 }

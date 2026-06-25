@@ -27,9 +27,15 @@ import {
   verifyIdentity,
   uploadScheduleFile,
   createScheduleImport,
+  listClassBlocks,
 } from "@/lib/api";
 import { ScheduleImportCard } from "@/components/ScheduleImportCard";
-import type { ScheduleImportResult, ApproveImportResult } from "@/lib/types";
+import { WeekHourGrid, type GridBlock } from "@/components/WeekHourGrid";
+import type {
+  ScheduleImportResult,
+  ApproveImportResult,
+  ClassBlock,
+} from "@/lib/types";
 import {
   cancelAck,
   nextAckRequestId,
@@ -64,6 +70,30 @@ const PROVIDER_LABELS: Record<AiProviderId, string> = {
 
 /** Idle delay before Jarvis offers a proactive follow-up after its last turn. */
 const FOLLOWUP_IDLE_MS = 5000;
+
+/** Deterministic "show me my timetable" intent — drives the inline grid render. */
+const TIMETABLE_VIEW_MARKERS = [
+  "ตารางเรียน",
+  "ตารางสอน",
+  "ขอตาราง",
+  "ดูตาราง",
+  "ตารางทั้งสัปดาห์",
+  "ตารางสัปดาห์",
+  "คาบเรียน",
+  "timetable",
+  "class schedule",
+  "my schedule",
+];
+function isTimetableViewIntent(text: string): boolean {
+  const m = text.toLowerCase();
+  return TIMETABLE_VIEW_MARKERS.some((k) => m.includes(k.toLowerCase()));
+}
+
+/** ClassBlock "HH:MM" → minutes from midnight. */
+function hhmmToMin(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
 
 /** Time-of-day greeting in the user's timezone (Asia/Bangkok). */
 function greetingNow(): string {
@@ -142,6 +172,9 @@ export default function HomePage() {
   // Schedule import — attach a timetable image/PDF → inline review card.
   const [attachBusy, setAttachBusy] = useState(false);
   const [importCard, setImportCard] = useState<ScheduleImportResult | null>(null);
+  // When the user asks to SEE their timetable, render the real class blocks as a
+  // visual grid inline (deterministic, not the model's text formatting).
+  const [timetableBlocks, setTimetableBlocks] = useState<ClassBlock[] | null>(null);
   // Step 15 — privacy guard (conversational flow)
   const [verified, setVerified] = useState(false);
   const [guardEnabled, setGuardEnabled] = useState(false);
@@ -322,6 +355,7 @@ export default function HomePage() {
     setChatErrorRendered(false);
     setLastFailedMessage(null);
     setActiveClarification(null);
+    setTimetableBlocks(null);
 
     const cleanText = text.trim().toLowerCase();
     const isVerificationKeyword = cleanText === "โอเค" || cleanText.startsWith("โอเค") || cleanText === "1234";
@@ -476,6 +510,16 @@ export default function HomePage() {
       await settleAckForFinal(ackRequestId);
       speech?.play(); // text and voice together (after ack, if one was speaking)
       if (!muted && result.resultSpoken) void speak(result.resultSpoken);
+      // Timetable view: render the real class blocks as a visual grid under the
+      // reply (deterministic — never depends on the model's text formatting).
+      if (isTimetableViewIntent(text)) {
+        try {
+          const blocks = await listClassBlocks();
+          if (blocks.length > 0) setTimetableBlocks(blocks);
+        } catch {
+          // Soft — the text answer still stands if blocks can't load.
+        }
+      }
       const clarification = buildClarificationPrompt(
         updated,
         result.clarification,
@@ -527,6 +571,7 @@ export default function HomePage() {
     clearFollowup();
     setAttachBusy(true);
     setImportCard(null);
+    setTimetableBlocks(null);
     setSendError(null);
     stickToBottomRef.current = true;
     const fileBubble: ChatMessage = {
@@ -788,6 +833,35 @@ export default function HomePage() {
                     onApproved={onImportApproved}
                     onCancel={() => setImportCard(null)}
                   />
+                </div>
+              </div>
+            )}
+
+            {timetableBlocks && (
+              <div className="chat-bubble-wrapper assistant">
+                <div className="chat-avatar assistant-avatar" aria-hidden="true">
+                  <span className="avatar-text">F</span>
+                </div>
+                <div className="chat-import-slot">
+                  <div className="si-card">
+                    <div className="si-head-title">
+                      <CalendarDays aria-hidden="true" />
+                      <span>ตารางเรียนของคุณ</span>
+                    </div>
+                    <WeekHourGrid
+                      blocks={timetableBlocks.map<GridBlock>((b) => ({
+                        id: b.id,
+                        weekday: b.weekday,
+                        startMin: hhmmToMin(b.start_local),
+                        endMin: hhmmToMin(b.end_local),
+                        title: b.subject,
+                        subtitle: b.location,
+                      }))}
+                      highlightWeekday={new Date(
+                        new Date().toLocaleString("en-US", { timeZone: "Asia/Bangkok" }),
+                      ).getDay()}
+                    />
+                  </div>
                 </div>
               </div>
             )}
