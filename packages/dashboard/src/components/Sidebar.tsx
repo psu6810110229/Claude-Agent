@@ -17,6 +17,7 @@ import {
   NotebookPen,
   Brain,
   CalendarDays,
+  GraduationCap,
 } from "lucide-react";
 import {
   getCalendarUpcoming,
@@ -26,6 +27,7 @@ import {
   getSettings,
   listActivity,
   listApprovalsWithConflicts,
+  listClassBlocks,
   listEvents,
   listMemory,
   listReminders,
@@ -48,6 +50,7 @@ const PRELOADERS: Record<string, () => void> = {
         ([calendar, events, reminders]) => ({ calendar, events, reminders }),
       ),
     ),
+  "/schedule":  () => preload("/api/class-blocks", listClassBlocks),
 };
 
 const LINKS = [
@@ -59,6 +62,7 @@ const MORE_LINKS = [
   { href: "/tasks",     label: "งาน",           icon: ListTodo      },
   { href: "/activity",  label: "กิจกรรม",       icon: Activity      },
   { href: "/upcoming",  label: "กำหนดการ",      icon: CalendarDays  },
+  { href: "/schedule",  label: "ตารางเรียน",    icon: GraduationCap },
   { href: "/gmail",     label: "Gmail",         icon: Mail          },
   { href: "/drive",     label: "Drive",         icon: HardDrive     },
   { href: "/memory",    label: "ความจำ",        icon: Brain         },

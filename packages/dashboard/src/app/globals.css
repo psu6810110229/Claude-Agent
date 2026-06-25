@@ -4434,3 +4434,355 @@ pre.payload {
   justify-content: flex-end;
   margin-top: 4px;
 }
+
+/* ============================================================================
+   Schedule Import — attach affordance, inline review card (grid + timeline),
+   and the /schedule timetable page. Liquid Glass: frosted surfaces over the
+   void, Arc Blue for action, amber for "needs attention".
+   ========================================================================== */
+
+.ji-attach { display: inline-flex; }
+.jarvis-input.dragging {
+  outline: 2px dashed var(--accent);
+  outline-offset: 3px;
+  background: var(--accent-soft);
+}
+
+.chat-import-slot { flex: 1; min-width: 0; max-width: 640px; }
+
+/* ---- Import review card ---- */
+.si-card {
+  border-radius: var(--radius-lg);
+  background: var(--glass-strong);
+  backdrop-filter: blur(28px) saturate(140%);
+  -webkit-backdrop-filter: blur(28px) saturate(140%);
+  box-shadow: var(--shadow-soft);
+  border: 1px solid var(--border);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.si-card-done {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted-strong);
+}
+.si-done-icon { width: 20px; height: 20px; color: #34d399; }
+
+.si-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.si-head-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--text);
+}
+.si-head-title svg { width: 18px; height: 18px; color: var(--accent); }
+.si-count {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--surface-muted);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.si-view-toggle {
+  display: inline-flex;
+  background: var(--surface-muted);
+  border-radius: 10px;
+  padding: 2px;
+}
+.si-view-toggle button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 26px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.si-view-toggle button svg { width: 16px; height: 16px; }
+.si-view-toggle button.active { background: var(--glass-strong); color: var(--text); }
+
+.si-note { font-size: 13px; color: var(--muted); margin: 0; }
+
+/* ---- Weekly grid ---- */
+.si-grid-wrap { display: flex; flex-direction: column; gap: 10px; }
+.si-grid { display: grid; position: relative; gap: 0 6px; }
+.si-grid-corner { height: 26px; }
+.si-grid-dayhead {
+  height: 26px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted-strong);
+  text-align: center;
+}
+.si-grid-rail { position: relative; }
+.si-grid-hour { position: relative; border-top: 1px solid var(--border); }
+.si-grid-hour span {
+  position: absolute;
+  top: -7px;
+  right: 6px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.si-grid-col { position: relative; border-radius: 10px; background: var(--glass); }
+.si-grid-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--border);
+  pointer-events: none;
+}
+.si-chip {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  border: 0;
+  border-radius: 9px;
+  padding: 4px 6px;
+  background: linear-gradient(135deg, rgba(10,132,255,0.32), rgba(139,92,246,0.28));
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  box-shadow: var(--shadow-soft);
+  transition: transform 0.12s, filter 0.12s;
+}
+.si-chip:hover { transform: translateY(-1px); filter: brightness(1.08); }
+.si-chip.off { opacity: 0.42; filter: grayscale(0.5); }
+.si-chip.bad {
+  background: linear-gradient(135deg, rgba(255,159,10,0.34), rgba(255,159,10,0.2));
+  outline: 1px solid var(--amber);
+}
+.si-chip-subj { font-size: 12px; font-weight: 600; line-height: 1.15; }
+.si-chip-time { font-size: 10px; color: var(--muted-strong); }
+.si-chip-loc { font-size: 10px; color: var(--muted); }
+.si-chip-check {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  background: rgba(0,0,0,0.35);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.si-chip-check svg { width: 12px; height: 12px; color: #fff; }
+
+.si-unplaced { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.si-unplaced-label { font-size: 12px; color: var(--amber); }
+.si-unplaced-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--amber);
+  background: var(--amber-soft);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.si-unplaced-chip svg { width: 12px; height: 12px; }
+
+/* ---- Timeline ---- */
+.si-timeline { display: flex; flex-direction: column; gap: 12px; }
+.si-tl-day { display: flex; flex-direction: column; gap: 6px; }
+.si-tl-dayhead { font-size: 12px; font-weight: 600; color: var(--muted-strong); }
+.si-tl-items { display: flex; flex-direction: column; gap: 5px; }
+.si-tl-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: var(--glass);
+}
+.si-tl-row.off { opacity: 0.5; }
+.si-tl-row.bad { outline: 1px solid var(--amber); }
+.si-tl-check {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border-strong);
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.si-tl-row:not(.off) .si-tl-check { background: var(--accent); border-color: var(--accent); }
+.si-tl-check svg { width: 13px; height: 13px; color: #fff; }
+.si-tl-time {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-strong);
+  width: 92px;
+  flex-shrink: 0;
+}
+.si-tl-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.si-tl-subj { font-size: 13px; font-weight: 500; }
+.si-tl-loc { font-size: 12px; color: var(--muted); }
+.si-tl-bad { width: 14px; height: 14px; color: var(--amber); }
+.si-tl-pencil { width: 13px; height: 13px; color: var(--muted); margin-left: auto; }
+
+/* ---- Inline editor ---- */
+.si-editor {
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.si-editor-row { display: flex; gap: 10px; align-items: flex-end; }
+.si-editor-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.si-editor-field.grow { flex: 1; }
+.si-editor-field input,
+.si-editor-field select {
+  background: var(--glass);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 9px;
+  color: var(--text);
+  font-size: 13px;
+}
+.si-editor-close {
+  width: 30px; height: 30px;
+  border: 0; background: var(--surface-muted);
+  border-radius: 8px; color: var(--muted);
+  cursor: pointer; flex-shrink: 0;
+}
+.si-editor-close svg { width: 16px; height: 16px; }
+.si-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ---- Term inputs + actions ---- */
+.si-term { display: flex; gap: 12px; }
+.si-term label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); flex: 1; }
+.si-term input {
+  background: var(--glass);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 9px;
+  color: var(--text);
+  font-size: 13px;
+}
+.si-warn {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12.5px; color: var(--amber); margin: 0;
+}
+.si-warn svg { width: 15px; height: 15px; flex-shrink: 0; }
+.si-error { font-size: 12.5px; color: var(--rose); margin: 0; }
+.si-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.si-btn-primary {
+  border: 0;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 9px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.si-btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.si-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.si-btn-ghost {
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--muted-strong);
+  font-size: 13px;
+  padding: 9px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.si-hint { font-size: 11.5px; color: var(--muted); margin: 0; text-align: center; }
+
+/* ---- /schedule page ---- */
+.sch-free-strip { display: flex; flex-wrap: wrap; gap: 8px; }
+.sch-free-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--accent-soft);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.sch-free-chip svg { width: 14px; height: 14px; color: var(--accent); }
+.sch-free-chip small { color: var(--muted); }
+
+.sch-week {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+.sch-day {
+  background: var(--glass);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sch-day-head { font-size: 13px; font-weight: 600; color: var(--muted-strong); }
+.sch-day-list { display: flex; flex-direction: column; gap: 6px; }
+.sch-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--glass-strong);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.sch-block-main { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.sch-block-time { font-size: 11px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.sch-block-subj { font-size: 13px; font-weight: 500; color: var(--text); }
+.sch-block-loc { font-size: 11px; color: var(--muted); }
+.sch-block-del {
+  width: 30px; height: 30px;
+  border: 0; background: transparent;
+  color: var(--muted); border-radius: 8px;
+  cursor: pointer; flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.sch-block-del:hover { background: var(--rose-soft); color: var(--rose); }
+.sch-block-del svg { width: 15px; height: 15px; }
+
+@media (max-width: 560px) {
+  .si-tl-time { width: 74px; }
+  .chat-import-slot { max-width: 100%; }
+}

@@ -6,6 +6,7 @@ import {
   ArrowUp,
   ChevronDown,
   Moon,
+  Paperclip,
   Sun,
   Volume2,
   VolumeX,
@@ -36,6 +37,8 @@ export function JarvisInput({
   onGeminiModelChange,
   muted = false,
   onToggleMute,
+  onAttach,
+  attachBusy = false,
 }: {
   onSubmit: (text: string) => void | Promise<void>;
   onBrief?: (type: BriefType) => void | Promise<void>;
@@ -48,14 +51,20 @@ export function JarvisInput({
   onGeminiModelChange?: (model: string) => void;
   muted?: boolean;
   onToggleMute?: () => void;
+  /** Called with a dropped/selected image or PDF (timetable upload). */
+  onAttach?: (file: File) => void | Promise<void>;
+  /** True while an attachment is being uploaded/parsed (disables the button). */
+  attachBusy?: boolean;
 }) {
   const [text, setText] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [unifiedMenuOpen, setUnifiedMenuOpen] = useState(false);
-  
+  const [dragging, setDragging] = useState(false);
+
   const [unifiedPos, setUnifiedPos] = useState<{ left: number; bottom: number } | null>(null);
 
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const menuWrapRef = useRef<HTMLDivElement>(null);
   const unifiedMenuWrapRef = useRef<HTMLDivElement>(null);
   const unifiedMenuRef = useRef<HTMLDivElement>(null);
@@ -122,6 +131,11 @@ export function JarvisInput({
     submit();
   }
 
+  function pickFile(file: File | null | undefined) {
+    if (!file || !onAttach || disabled || attachBusy) return;
+    void onAttach(file);
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     // Enter sends; Shift+Enter inserts a newline.
     if (e.key === "Enter" && !e.shiftKey) {
@@ -137,7 +151,37 @@ export function JarvisInput({
   }
 
   return (
-    <form className="jarvis-input" onSubmit={handleSubmit}>
+    <form
+      className={`jarvis-input${dragging ? " dragging" : ""}`}
+      onSubmit={handleSubmit}
+      onDragOver={(e) => {
+        if (!onAttach) return;
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+        setDragging(false);
+      }}
+      onDrop={(e) => {
+        if (!onAttach) return;
+        e.preventDefault();
+        setDragging(false);
+        pickFile(e.dataTransfer.files?.[0]);
+      }}
+    >
+      {onAttach && (
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/png,image/jpeg,application/pdf"
+          hidden
+          onChange={(e) => {
+            pickFile(e.target.files?.[0]);
+            e.target.value = "";
+          }}
+        />
+      )}
       <textarea
         ref={taRef}
         className="ji-textarea"
@@ -155,6 +199,18 @@ export function JarvisInput({
 
       <div className="ji-toolbar">
         <div className="ji-tools">
+          {onAttach && (
+            <button
+              type="button"
+              className="ji-tool ji-attach"
+              onClick={() => fileRef.current?.click()}
+              disabled={disabled || attachBusy}
+              title="แนบรูป/ไฟล์ตารางเรียน"
+              aria-label="แนบรูปหรือ PDF ตารางเรียน"
+            >
+              <Paperclip strokeWidth={1.8} aria-hidden="true" />
+            </button>
+          )}
           {onProviderChange && (
             <div className="ji-unified-wrap" ref={unifiedMenuWrapRef}>
               <button

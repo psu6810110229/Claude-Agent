@@ -36,6 +36,12 @@ import type {
   Task,
   UpdateTaskBody,
   VerifyResult,
+  ClassBlock,
+  ScheduleImportItem,
+  UploadResult,
+  ScheduleImportResult,
+  ApproveImportResult,
+  FreeSlotsResult,
 } from "./types";
 
 /** Thrown for any non-2xx response; `message` carries the backend's error text. */
@@ -667,6 +673,102 @@ export function generateDailyBrief(): Promise<BriefResult> {
 
 export function generateEveningBrief(): Promise<BriefResult> {
   return request<BriefResult>("/api/briefs/evening", { method: "POST" });
+}
+
+// --- Schedule Import (local timetable) -----------------------------------
+
+/**
+ * Upload one timetable image/PDF. Multipart — bypasses the JSON `request()`
+ * helper. Returns the opaque upload id to hand to createScheduleImport.
+ */
+export async function uploadScheduleFile(file: File): Promise<UploadResult> {
+  const form = new FormData();
+  form.append("file", file);
+  let res: Response;
+  try {
+    res = await fetch("/api/uploads", { method: "POST", body: form });
+  } catch {
+    throw new ApiError("Cannot reach the backend (is it running on :8787?)", 0);
+  }
+  if (!res.ok) {
+    let message = `Upload failed (${res.status})`;
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body?.error) message = body.error;
+    } catch {
+      /* keep generic */
+    }
+    throw new ApiError(message, res.status);
+  }
+  return (await res.json()) as UploadResult;
+}
+
+/** Parse an uploaded file into a staging import (runs extraction; may be slow). */
+export function createScheduleImport(uploadId: string): Promise<ScheduleImportResult> {
+  return request<ScheduleImportResult>("/api/schedule-imports", {
+    method: "POST",
+    body: JSON.stringify({ uploadId }),
+  });
+}
+
+/** Fetch a staging import + its items. */
+export function getScheduleImport(id: number): Promise<ScheduleImportResult> {
+  return request<ScheduleImportResult>(`/api/schedule-imports/${id}`);
+}
+
+/** Edit one candidate item in the review card. */
+export function patchScheduleImportItem(
+  importId: number,
+  itemId: number,
+  patch: Partial<{
+    subject: string;
+    weekday: number | null;
+    start_local: string | null;
+    end_local: string | null;
+    location: string | null;
+    selected: boolean;
+  }>,
+): Promise<{ item: ScheduleImportItem }> {
+  return request<{ item: ScheduleImportItem }>(
+    `/api/schedule-imports/${importId}/items/${itemId}`,
+    { method: "PATCH", body: JSON.stringify(patch) },
+  );
+}
+
+/** Approve selected complete items into local class blocks. */
+export function approveScheduleImport(
+  id: number,
+  term: { term_from?: string | null; term_until?: string | null } = {},
+): Promise<ApproveImportResult> {
+  return request<ApproveImportResult>(`/api/schedule-imports/${id}/approve`, {
+    method: "POST",
+    body: JSON.stringify(term),
+  });
+}
+
+/** List active local class blocks (the saved timetable). */
+export async function listClassBlocks(): Promise<ClassBlock[]> {
+  const data = await request<{ blocks: ClassBlock[] }>("/api/class-blocks");
+  return data.blocks;
+}
+
+/** Archive (soft-delete) a class block. */
+export function deleteClassBlock(id: number): Promise<{ block: ClassBlock }> {
+  return request<{ block: ClassBlock }>(`/api/class-blocks/${id}`, {
+    method: "DELETE",
+  });
+}
+
+/** Find open windows on a day (default today). */
+export function getFreeSlots(
+  date?: string,
+  minMinutes?: number,
+): Promise<FreeSlotsResult> {
+  const params = new URLSearchParams();
+  if (date) params.set("date", date);
+  if (minMinutes) params.set("minMinutes", String(minMinutes));
+  const qs = params.toString();
+  return request<FreeSlotsResult>(`/api/free-slots${qs ? `?${qs}` : ""}`);
 }
 
 // --- Gmail (Step 17) -------------------------------------------------------
