@@ -4931,3 +4931,79 @@ pre.payload {
 /* Destructive confirm button (delete a class block) */
 .jarvis-dialog-actions .primary.danger { background: var(--rose); border-color: var(--rose); }
 .jarvis-dialog-actions .primary.danger:hover:not(:disabled) { filter: brightness(1.08); }
+
+/* ---- DayAgendaCard: one day's combined schedule (classes + work + events) ---- */
+.day-agenda { display: flex; flex-direction: column; gap: 12px; }
+.da-untimed { display: flex; flex-wrap: wrap; gap: 6px; }
+.da-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text);
+}
+.da-chip svg { width: 13px; height: 13px; }
+.da-chip small { color: var(--muted); }
+
+.da-timeline { display: flex; flex-direction: column; }
+.da-row { display: grid; grid-template-columns: 54px 18px 1fr; gap: 8px; }
+.da-time {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding-top: 9px;
+  font-variant-numeric: tabular-nums;
+}
+.da-time-start { font-size: 12px; font-weight: 600; color: var(--text); }
+.da-time-end { font-size: 10px; color: var(--muted); }
+.da-rail { position: relative; display: flex; justify-content: center; }
+.da-rail::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--border);
+}
+.da-timeline .da-row:first-child .da-rail::before { top: 13px; }
+.da-timeline .da-row:last-child .da-rail::before { bottom: auto; height: 13px; }
+.da-dot {
+  position: absolute;
+  top: 9px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--bg-2);
+}
+.da-card {
+  margin: 4px 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--glass-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.da-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+.da-badge svg { width: 12px; height: 12px; }
+.da-title { font-size: 13px; font-weight: 500; color: var(--text); }
+.da-sub { font-size: 11px; color: var(--muted); }
+.kind-class .da-dot { background: var(--violet); }
+.kind-class .da-badge { color: var(--violet); }
+.kind-class.da-chip svg { color: var(--violet); }
+.kind-reminder .da-dot { background: var(--amber); }
+.kind-reminder .da-badge { color: var(--amber); }
+.kind-reminder.da-chip svg { color: var(--amber); }
+.kind-event.da-chip svg { color: var(--accent); }
