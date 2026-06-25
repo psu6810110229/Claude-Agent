@@ -5007,3 +5007,4 @@ pre.payload {
 .kind-reminder .da-badge { color: var(--amber); }
 .kind-reminder.da-chip svg { color: var(--amber); }
 .kind-event.da-chip svg { color: var(--accent); }
+.chat-day-stack { display: flex; flex-direction: column; gap: 12px; }

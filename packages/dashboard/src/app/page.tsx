@@ -106,9 +106,23 @@ function hhmmToMin(hhmm: string): number {
  * a class-specific ask (so "ตารางเรียนวันนี้" stays the weekly classes view).
  */
 const THAI_WEEKDAYS = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"];
+/** Weekday name (Thai/English) → index, for "ขอตารางวันเสาร์" requests. */
+const WEEKDAY_NAME_IDX: [string, number][] = [
+  ["อาทิตย์", 0], ["sunday", 0],
+  ["จันทร์", 1], ["monday", 1],
+  ["อังคาร", 2], ["tuesday", 2],
+  ["พุธ", 3], ["wednesday", 3],
+  ["พฤหัสบดี", 4], ["พฤหัส", 4], ["thursday", 4],
+  ["ศุกร์", 5], ["friday", 5],
+  ["เสาร์", 6], ["saturday", 6],
+];
+const DAY_REF_MARKERS = [
+  "วันนี้", "พรุ่งนี้", "มะรืน", "today", "tomorrow", "สุดสัปดาห์", "weekend",
+  ...WEEKDAY_NAME_IDX.map(([n]) => n),
+];
 function isDayAgendaIntent(text: string): boolean {
   const m = text.toLowerCase();
-  const hasDay = ["วันนี้", "พรุ่งนี้", "วันนั้น", "today", "tomorrow"].some((k) => m.includes(k));
+  const hasDay = DAY_REF_MARKERS.some((k) => m.includes(k));
   const asksSchedule = ["ตาราง", "มีอะไร", "มีงาน", "ต้องทำ", "อะไรบ้าง", "นัด", "schedule", "what"].some(
     (k) => m.includes(k),
   );
@@ -134,31 +148,67 @@ function bkkMinOf(iso: string): number {
   const [h, m] = bkkTimeLabel(iso).split(":").map(Number);
   return h * 60 + m;
 }
-/** Resolve which day an agenda request targets (today, or +1 for พรุ่งนี้). */
-function resolveAgendaDay(text: string): Date {
-  const m = text.toLowerCase();
-  if (m.includes("พรุ่งนี้") || m.includes("tomorrow")) {
-    return new Date(Date.now() + 24 * 60 * 60 * 1000);
-  }
-  return new Date();
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** The next date (>= today, Bangkok) that falls on `weekday`. */
+function nextWeekday(weekday: number): Date {
+  const now = new Date();
+  const delta = (weekday - bkkWeekday(now) + 7) % 7;
+  return new Date(now.getTime() + delta * DAY_MS);
 }
+
+/**
+ * Resolve ALL days an agenda request references (supports multiple, e.g.
+ * "เสาร์และอาทิตย์"). De-duped and sorted ascending. Falls back to today.
+ */
+function resolveAgendaDays(text: string): Date[] {
+  const m = text.toLowerCase();
+  const out: Date[] = [];
+  const seen = new Set<string>();
+  const add = (d: Date) => {
+    const k = bkkDateStr(d);
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push(d);
+    }
+  };
+  if (m.includes("วันนี้") || m.includes("today")) add(new Date());
+  if (m.includes("พรุ่งนี้") || m.includes("tomorrow")) add(new Date(Date.now() + DAY_MS));
+  if (m.includes("มะรืน")) add(new Date(Date.now() + 2 * DAY_MS));
+  if (m.includes("สุดสัปดาห์") || m.includes("weekend")) {
+    add(nextWeekday(6));
+    add(nextWeekday(0));
+  }
+  for (const [name, idx] of WEEKDAY_NAME_IDX) {
+    if (m.includes(name)) add(nextWeekday(idx));
+  }
+  if (out.length === 0) add(new Date());
+  out.sort((a, b) => a.getTime() - b.getTime());
+  return out.slice(0, 7);
+}
+
 function dayAgendaLabel(d: Date): string {
   const today = bkkDateStr(new Date());
-  const tmr = bkkDateStr(new Date(Date.now() + 24 * 60 * 60 * 1000));
+  const tmr = bkkDateStr(new Date(Date.now() + DAY_MS));
   const ds = bkkDateStr(d);
-  const prefix = ds === today ? "วันนี้" : ds === tmr ? "พรุ่งนี้" : THAI_WEEKDAYS[bkkWeekday(d)];
+  const prefix = ds === today ? "วันนี้" : ds === tmr ? "พรุ่งนี้" : "";
   const dm = new Intl.DateTimeFormat("th-TH", {
     day: "numeric",
     month: "short",
     timeZone: "Asia/Bangkok",
   }).format(d);
-  return `ตาราง${prefix} · ${THAI_WEEKDAYS[bkkWeekday(d)]} ${dm}`;
+  const wd = THAI_WEEKDAYS[bkkWeekday(d)];
+  return prefix ? `${prefix} · ${wd} ${dm}` : `วัน${wd} ${dm}`;
 }
 
-/** Assemble one day's combined agenda from all local + Google sources. Fail-soft. */
-async function buildDayAgenda(targetDay: Date): Promise<{ dateLabel: string; items: DayItem[] }> {
-  const dateStr = bkkDateStr(targetDay);
-  const wd = bkkWeekday(targetDay);
+interface AgendaSources {
+  blocks: ClassBlock[];
+  locals: Awaited<ReturnType<typeof listEvents>>;
+  reminders: Awaited<ReturnType<typeof listReminders>>;
+  gevents: Awaited<ReturnType<typeof getCalendarToday>>["events"];
+}
+
+/** Fetch every agenda source ONCE (so a multi-day request isn't N× the calls). */
+async function fetchAgendaSources(): Promise<AgendaSources> {
   const [blocks, locals, reminders, gToday, gUpcoming] = await Promise.all([
     listClassBlocks().catch(() => []),
     listEvents().catch(() => []),
@@ -166,25 +216,26 @@ async function buildDayAgenda(targetDay: Date): Promise<{ dateLabel: string; ite
     getCalendarToday().catch(() => ({ events: [], available: false })),
     getCalendarUpcoming().catch(() => ({ events: [], available: false })),
   ]);
+  const seen = new Set<string>();
+  const gevents = [...gToday.events, ...gUpcoming.events].filter((e) => {
+    if (seen.has(e.id)) return false;
+    seen.add(e.id);
+    return true;
+  });
+  return { blocks, locals, reminders, gevents };
+}
 
+/** Assemble one day's combined agenda from pre-fetched sources. Pure. */
+function assembleDay(targetDay: Date, src: AgendaSources): { dateLabel: string; items: DayItem[] } {
+  const dateStr = bkkDateStr(targetDay);
+  const wd = bkkWeekday(targetDay);
   const items: DayItem[] = [];
-  for (const b of blocks) {
+  for (const b of src.blocks) {
     if (b.weekday === wd) {
-      items.push({
-        id: `c${b.id}`,
-        kind: "class",
-        startMin: hhmmToMin(b.start_local),
-        startLabel: b.start_local,
-        endLabel: b.end_local,
-        title: b.subject,
-        sub: b.location,
-      });
+      items.push({ id: `c${b.id}`, kind: "class", startMin: hhmmToMin(b.start_local), startLabel: b.start_local, endLabel: b.end_local, title: b.subject, sub: b.location });
     }
   }
-  const seen = new Set<string>();
-  for (const e of [...gToday.events, ...gUpcoming.events]) {
-    if (seen.has(e.id)) continue;
-    seen.add(e.id);
+  for (const e of src.gevents) {
     if (e.allDay) {
       if (e.start === dateStr) {
         items.push({ id: `g${e.id}`, kind: "event", startMin: null, startLabel: null, endLabel: null, title: e.title, sub: e.location, allDay: true });
@@ -193,17 +244,23 @@ async function buildDayAgenda(targetDay: Date): Promise<{ dateLabel: string; ite
       items.push({ id: `g${e.id}`, kind: "event", startMin: bkkMinOf(e.start), startLabel: bkkTimeLabel(e.start), endLabel: e.end ? bkkTimeLabel(e.end) : null, title: e.title, sub: e.location });
     }
   }
-  for (const ev of locals) {
+  for (const ev of src.locals) {
     if (ev.status !== "archived" && bkkDateStr(new Date(ev.starts_at)) === dateStr) {
       items.push({ id: `e${ev.id}`, kind: "event", startMin: bkkMinOf(ev.starts_at), startLabel: bkkTimeLabel(ev.starts_at), endLabel: ev.ends_at ? bkkTimeLabel(ev.ends_at) : null, title: ev.title, sub: ev.location });
     }
   }
-  for (const r of reminders) {
+  for (const r of src.reminders) {
     if (r.status === "active" && bkkDateStr(new Date(r.due_at)) === dateStr) {
       items.push({ id: `r${r.id}`, kind: "reminder", startMin: bkkMinOf(r.due_at), startLabel: bkkTimeLabel(r.due_at), endLabel: null, title: r.title, sub: r.notes });
     }
   }
   return { dateLabel: dayAgendaLabel(targetDay), items };
+}
+
+/** Build one agenda per referenced day (fetch once, assemble each). Fail-soft. */
+async function buildDayAgendas(days: Date[]): Promise<{ dateLabel: string; items: DayItem[] }[]> {
+  const src = await fetchAgendaSources();
+  return days.map((d) => assembleDay(d, src));
 }
 
 /** Time-of-day greeting in the user's timezone (Asia/Bangkok). */
@@ -286,8 +343,9 @@ export default function HomePage() {
   // When the user asks to SEE their timetable, render the real class blocks as a
   // visual grid inline (deterministic, not the model's text formatting).
   const [timetableBlocks, setTimetableBlocks] = useState<ClassBlock[] | null>(null);
-  // When the user asks for a specific DAY's schedule (classes + work + events).
-  const [dayAgenda, setDayAgenda] = useState<{ dateLabel: string; items: DayItem[] } | null>(null);
+  // When the user asks for specific DAY(S)' schedule (classes + work + events).
+  // One entry per referenced day (supports "เสาร์และอาทิตย์").
+  const [dayAgenda, setDayAgenda] = useState<{ dateLabel: string; items: DayItem[] }[] | null>(null);
   // Step 15 — privacy guard (conversational flow)
   const [verified, setVerified] = useState(false);
   const [guardEnabled, setGuardEnabled] = useState(false);
@@ -629,7 +687,7 @@ export default function HomePage() {
       // "ตารางเรียน" shows the weekly class grid.
       if (isDayAgendaIntent(text)) {
         try {
-          setDayAgenda(await buildDayAgenda(resolveAgendaDay(text)));
+          setDayAgenda(await buildDayAgendas(resolveAgendaDays(text)));
         } catch {
           // Soft — the text answer still stands.
         }
@@ -988,13 +1046,15 @@ export default function HomePage() {
               </div>
             )}
 
-            {dayAgenda && (
+            {dayAgenda && dayAgenda.length > 0 && (
               <div className="chat-bubble-wrapper assistant">
                 <div className="chat-avatar assistant-avatar" aria-hidden="true">
                   <span className="avatar-text">F</span>
                 </div>
-                <div className="chat-import-slot">
-                  <DayAgendaCard dateLabel={dayAgenda.dateLabel} items={dayAgenda.items} />
+                <div className="chat-import-slot chat-day-stack">
+                  {dayAgenda.map((day) => (
+                    <DayAgendaCard key={day.dateLabel} dateLabel={day.dateLabel} items={day.items} />
+                  ))}
                 </div>
               </div>
             )}
