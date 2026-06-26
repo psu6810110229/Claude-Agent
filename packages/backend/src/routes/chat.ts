@@ -392,6 +392,7 @@ async function handleChat(
     requestedProvider: resolved.selection.requestedProvider ?? null,
     providerReason: resolved.selection.reason,
     approvals: result.approvals,
+    calendarPlan: result.calendarPlan ?? null,
     clarification: result.clarification,
     clarification_choices: result.clarificationChoices,
     notes: result.notes,

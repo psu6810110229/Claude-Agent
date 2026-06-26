@@ -32,13 +32,17 @@ import {
   getCalendarUpcoming,
   listEvents,
   listReminders,
+  discardCalendarPlan,
 } from "@/lib/api";
 import { ScheduleImportCard } from "@/components/ScheduleImportCard";
+import { CalendarPlanCard } from "@/components/CalendarPlanCard";
 import { WeekHourGrid, type GridBlock } from "@/components/WeekHourGrid";
 import { DayAgendaCard, type DayItem } from "@/components/DayAgendaCard";
 import type {
   ScheduleImportResult,
   ApproveImportResult,
+  CalendarPlanResult,
+  ApproveCalendarPlanResult,
   ClassBlock,
   StagedAttachment,
 } from "@/lib/types";
@@ -341,6 +345,10 @@ export default function HomePage() {
   // Schedule import — attach a timetable image/PDF → inline review card.
   const [attachBusy, setAttachBusy] = useState(false);
   const [importCard, setImportCard] = useState<ScheduleImportResult | null>(null);
+  // Bulk Google Calendar add staged from a chat turn → inline review card. The
+  // model put the whole event list in one action; nothing is on the calendar
+  // until the user approves the selected items here.
+  const [planCard, setPlanCard] = useState<CalendarPlanResult | null>(null);
   // Files STAGED in the composer but not yet sent — they wait for the user to
   // type a prompt and hit send, then ride along with that chat turn.
   const [pendingAttachments, setPendingAttachments] = useState<StagedAttachment[]>([]);
@@ -732,6 +740,8 @@ export default function HomePage() {
           // Soft — the text answer still stands if blocks can't load.
         }
       }
+      // Bulk calendar add → show the review card (nothing on the calendar yet).
+      if (result.calendarPlan) setPlanCard(result.calendarPlan);
       const clarification = buildClarificationPrompt(
         updated,
         result.clarification,
@@ -854,6 +864,39 @@ export default function HomePage() {
     ]);
   }
 
+  // The calendar-plan card finished creating events. Post a TRUTHFUL outcome
+  // line into the chat — created / skipped-due-to-conflict / failed are all named
+  // so a clashing event the user did not confirm is NEVER silently lost.
+  function onPlanResolved(result: ApproveCalendarPlanResult) {
+    setPlanCard(null);
+    const parts = [`เพิ่มลงปฏิทินแล้ว ${result.created.length} รายการ`];
+    if (result.skippedConflict.length > 0) {
+      const names = result.skippedConflict
+        .map((s) => s.title + (s.conflict_with ? ` (ทับ ${s.conflict_with})` : ""))
+        .join(", ");
+      parts.push(`ข้าม ${result.skippedConflict.length} รายการที่เวลาทับและยังไม่ได้ยืนยันสร้างทับ: ${names}`);
+    }
+    if (result.failed.length > 0) {
+      parts.push(`ล้มเหลว ${result.failed.length} รายการ: ${result.failed.map((f) => f.title).join(", ")}`);
+    }
+    notify({
+      kind: result.failed.length > 0 ? "error" : "success",
+      title: "อัปเดตปฏิทินแล้ว",
+      description: `สร้าง ${result.created.length} รายการ`,
+    });
+    setMessages((prev) => [...prev, fallbackAssistantMessage(parts.join(" · "))]);
+  }
+
+  // User dismissed the plan card without creating anything ("ไม่เอาเลย").
+  async function onPlanDiscard(planId: number) {
+    setPlanCard(null);
+    try {
+      await discardCalendarPlan(planId);
+    } catch {
+      // Soft — the card is already gone from the UI.
+    }
+  }
+
   async function runBrief(type: BriefType) {
     if (sending || briefBusy) return;
     clearFollowup();
@@ -958,6 +1001,7 @@ export default function HomePage() {
       setActiveAttachmentIds([]);
       setPendingAttachments([]);
       setImportCard(null);
+      setPlanCard(null);
       setSendError(null);
       setChatErrorRendered(false);
       setActiveClarification(null);
@@ -1067,6 +1111,23 @@ export default function HomePage() {
                     note={importCard.import.note}
                     onApproved={onImportApproved}
                     onCancel={() => setImportCard(null)}
+                  />
+                </div>
+              </div>
+            )}
+
+            {planCard && (
+              <div className="chat-bubble-wrapper assistant">
+                <div className="chat-avatar assistant-avatar" aria-hidden="true">
+                  <span className="avatar-text">F</span>
+                </div>
+                <div className="chat-import-slot">
+                  <CalendarPlanCard
+                    planId={planCard.plan.id}
+                    initialItems={planCard.items}
+                    note={planCard.plan.note}
+                    onResolved={onPlanResolved}
+                    onDiscard={() => onPlanDiscard(planCard.plan.id)}
                   />
                 </div>
               </div>

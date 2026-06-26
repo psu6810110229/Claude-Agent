@@ -315,6 +315,47 @@ export interface ApproveImportResult {
   rejected: number;
 }
 
+/** A staged bulk Google Calendar add awaiting review (from a chat turn). */
+export interface CalendarPlan {
+  id: number;
+  status: string; // pending | approved | discarded
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One proposed Google event in a plan. starts_at/ends_at are UTC ISO strings. */
+export interface CalendarPlanItem {
+  id: number;
+  plan_id: number;
+  title: string;
+  starts_at: string;
+  ends_at: string;
+  location: string | null;
+  notes: string | null;
+  selected: number; // 0 | 1
+  override_conflict: number; // 0 | 1
+  conflict_with: string | null;
+  conflict_detail: string | null;
+  status: string; // ready | conflict | created | rejected | skipped
+  created_at: string;
+  updated_at: string;
+}
+
+/** GET/chat-embedded calendar plan payload. */
+export interface CalendarPlanResult {
+  plan: CalendarPlan;
+  items: CalendarPlanItem[];
+}
+
+/** POST /api/calendar-plans/:id/approve response. */
+export interface ApproveCalendarPlanResult {
+  created: { id: number; title: string }[];
+  skippedConflict: { id: number; title: string; conflict_with: string | null }[];
+  rejected: number;
+  failed: { id: number; title: string; error: string }[];
+}
+
 /** One open window from GET /api/free-slots. */
 export interface FreeSlot {
   startUtc: string;
@@ -587,6 +628,8 @@ export interface ChatResult {
   requestedProvider: AiProviderId | null;
   providerReason?: string;
   approvals: Approval[];
+  /** Staged bulk Google Calendar add for review; null on ordinary turns. */
+  calendarPlan?: CalendarPlanResult | null;
   clarification?: string;
   clarification_choices?: string[];
   notes?: string;

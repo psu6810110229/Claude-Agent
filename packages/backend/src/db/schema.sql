@@ -261,3 +261,40 @@ CREATE TABLE IF NOT EXISTS schedule_import_item (
   FOREIGN KEY (import_id) REFERENCES schedule_import(id)
 );
 CREATE INDEX IF NOT EXISTS idx_schedule_import_item_import ON schedule_import_item (import_id);
+
+-- Calendar bulk-create plan — staging buffer for adding MANY Google Calendar
+-- events from one chat turn. The AI emits a single `calendar.bulk_create` action
+-- carrying the full list; the backend stages it here with a per-item conflict
+-- scan and writes NOTHING to Google until the user approves the selected items.
+-- status: 'pending' -> 'approved' | 'discarded'.
+CREATE TABLE IF NOT EXISTS calendar_plan (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  status     TEXT NOT NULL DEFAULT 'pending',
+  note       TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- One proposed Google event in a plan. starts_at/ends_at are UTC ISO strings.
+-- `selected`=1 means the user intends to create it. `override_conflict`=1 means
+-- "create anyway" despite a detected time clash. conflict_with/conflict_detail
+-- snapshot the build-time clash for display (authority is re-checked on approve).
+-- status: 'ready' | 'conflict' -> 'created' | 'rejected' | 'skipped'.
+CREATE TABLE IF NOT EXISTS calendar_plan_item (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  plan_id           INTEGER NOT NULL,
+  title             TEXT NOT NULL,
+  starts_at         TEXT NOT NULL,
+  ends_at           TEXT NOT NULL,
+  location          TEXT,
+  notes             TEXT,
+  selected          INTEGER NOT NULL DEFAULT 1,
+  override_conflict INTEGER NOT NULL DEFAULT 0,
+  conflict_with     TEXT,
+  conflict_detail   TEXT,
+  status            TEXT NOT NULL DEFAULT 'ready',
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL,
+  FOREIGN KEY (plan_id) REFERENCES calendar_plan(id)
+);
+CREATE INDEX IF NOT EXISTS idx_calendar_plan_item_plan ON calendar_plan_item (plan_id);

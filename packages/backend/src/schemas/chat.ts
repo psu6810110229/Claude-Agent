@@ -1,7 +1,20 @@
 import { z } from "zod";
 import { aiActionSchema } from "./aiCommand.js";
+import { calendarBulkCreateActionSchema } from "./calendarPlan.js";
 import { aiProviderIdSchema, aiProviderModeSchema } from "../services/aiProvider.js";
 import { CLAUDE_MAX_ACTIONS, isAllowedGeminiModel } from "../config.js";
+
+/**
+ * Chat actions = every executor action PLUS the chat-only `calendar.bulk_create`
+ * staging action (a single action carrying a whole list of events). The bulk
+ * action is peeled off in chat.ts and turned into a reviewable plan; it is never
+ * dispatched through the executor, so it stays out of the shared aiActionSchema.
+ */
+export const chatActionSchema = z.union([
+  aiActionSchema,
+  calendarBulkCreateActionSchema,
+]);
+export type ChatAction = z.infer<typeof chatActionSchema>;
 
 /**
  * Request schema for POST /api/chat (Step 12; Roadmap 11 Phase 2/4).
@@ -72,7 +85,7 @@ export const chatOutputSchema = z
       .enum(["private", "normal"])
       .nullish()
       .transform((v) => v ?? "normal"),
-    actions: z.array(aiActionSchema).max(CLAUDE_MAX_ACTIONS).default([]),
+    actions: z.array(chatActionSchema).max(CLAUDE_MAX_ACTIONS).default([]),
     clarification: z
       .string()
       .trim()

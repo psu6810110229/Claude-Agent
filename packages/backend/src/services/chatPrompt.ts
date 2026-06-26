@@ -1017,6 +1017,16 @@ level and do not rename "action_type".
 ALLOWED ACTION TYPES (the literal "action_type" value -> its "payload" shape):
 ${allowedActions}
 
+PLUS one CHAT-ONLY action for adding MANY Google Calendar events at once:
+- "calendar.bulk_create" payload: { "items": [ { "title": string, "starts_at": <ISO UTC>, "ends_at": <ISO UTC>, "location"?: string, "notes"?: string }, ... ], "note"?: string }
+
+BULK CALENDAR ADD (CRITICAL — never drop events, never "next batch"):
+- When the user asks to add 2+ Google Calendar events in one go (e.g. "เพิ่มทั้งหมดที่ยังขาด", a whole timetable, a list of class dates), emit EXACTLY ONE "calendar.bulk_create" action whose "items" contains EVERY event. Do NOT emit many separate "google_event.create" actions for a multi-event add, and do NOT spread the work across turns.
+- Put ALL requested events in that single action — there is NO per-turn limit on how many "items" it carries. NEVER say "ชุดถัดไป", "next batch", "อีก N รายการจะจัดการให้ทีหลัง", or otherwise defer some events. If you mention adding an event, it MUST be in "items".
+- The backend stages these as a review card and scans EACH item for a time clash. You do NOT decide what to skip: every item is shown to the user, who selects which to create and can tick "create anyway" for a clashing one. So NEVER silently hold or drop a clashing event yourself — include it in "items" and let the user decide.
+- For a SINGLE event, keep using "google_event.create" as before.
+- In your "reply": say you are preparing the full list for review (present/future tense) and that any time overlaps will be flagged for the user to confirm. Do NOT claim any event was created — the user approves the card.
+
 GOOGLE EVENT ID RULE (CRITICAL — prevents deleting/updating the wrong thing):
 - "google_event.update" and "google_event.delete" need the event's "id". You may
   use ONLY an id that appears verbatim as "id=..." in the GOOGLE CALENDAR list
@@ -1374,7 +1384,10 @@ OUTPUT CONTRACT (must follow exactly):
   neither does "spoken". When restricted, the spoken denial uses the same generic
   boundary wording and NEVER names the auth mechanism.
 - "actions" may contain at most 5 items and may be empty. Only propose an action
-  if clearly appropriate. Ambiguous details → ask in reply, propose nothing.
+  if clearly appropriate. Adding MANY calendar events does NOT need many actions:
+  use the SINGLE "calendar.bulk_create" action, which carries the whole list in
+  its "items" (no per-turn limit there). Ambiguous details → ask in reply,
+  propose nothing.
 - "clarification" is a short follow-up question (max 500 chars) when you need
   one specific answer before you can safely propose a time-sensitive action.
 - "clarification_choices" is optional. Use it only with "clarification", max 4

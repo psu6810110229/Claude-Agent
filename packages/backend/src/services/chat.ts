@@ -24,6 +24,12 @@ import {
 } from "./actionDispatcher.js";
 import { chatOutputSchema } from "../schemas/chat.js";
 import type { AiAction } from "../schemas/aiCommand.js";
+import type {
+  CalendarBulkCreateAction,
+  CalendarPlan,
+  CalendarPlanItem,
+} from "../schemas/calendarPlan.js";
+import { buildCalendarPlan } from "./calendarPlanService.js";
 import { buildChatPrompt, type ChatContext } from "./chatPrompt.js";
 import {
   agendaBounds,
@@ -113,6 +119,13 @@ export type ChatResult =
       /** Short spoken form of resultReport for sequential TTS. */
       resultSpoken?: string;
       approvals: Approval[];
+      /**
+       * Bulk calendar-create plan staged this turn (the AI emitted ONE
+       * `calendar.bulk_create` action carrying many events). The dashboard renders
+       * a review card from this; nothing is on the calendar until the user
+       * approves the selected items. Absent for ordinary turns.
+       */
+      calendarPlan?: { plan: CalendarPlan; items: CalendarPlanItem[] };
       clarification?: string;
       clarificationChoices?: string[];
       notes?: string;
@@ -1004,10 +1017,21 @@ export async function runChat(
   //    model put in a fact.update / fact.forget "id" back to the real id here,
   //    BEFORE dispatch. An unmapped ref (out of range / hallucinated) cannot be
   //    targeted safely → drop that action rather than risk hitting the wrong row.
+  // Peel off the chat-only bulk-create action first: it is staged into a
+  // reviewable plan (below), never dispatched through the executor. Only the
+  // FIRST is honored — one bulk add per turn. Everything else flows as normal.
+  const bulkCreateAction = check.data.actions.find(
+    (a): a is CalendarBulkCreateAction =>
+      a.action_type === "calendar.bulk_create",
+  );
+  const executorActions = check.data.actions.filter(
+    (a): a is AiAction => a.action_type !== "calendar.bulk_create",
+  );
+
   const factIdMap = new Map<number, number>();
   ctx.facts.forEach((f, i) => factIdMap.set(i + 1, f.id));
   const actionsToDispatch: AiAction[] = [];
-  for (const action of check.data.actions) {
+  for (const action of executorActions) {
     if (
       action.action_type === "fact.update" ||
       action.action_type === "fact.forget"
@@ -1037,13 +1061,28 @@ export async function runChat(
     : [];
   const approvals: Approval[] = dispatched.map((d) => d.approval);
 
+  // 5a. Bulk calendar add → stage a reviewable plan (verified path only). The
+  // model put the FULL event list in one action, so nothing is lost to the
+  // per-turn action cap; the per-item conflict scan runs here. Writes NOTHING to
+  // Google. Fails soft: a build error just omits the plan (the reply still posts).
+  let calendarPlan:
+    | { plan: CalendarPlan; items: CalendarPlanItem[] }
+    | undefined;
+  if (verified && bulkCreateAction) {
+    try {
+      calendarPlan = await buildCalendarPlan(bulkCreateAction.payload, fetchGoogle);
+    } catch {
+      calendarPlan = undefined;
+    }
+  }
+
   // 5b. S1 anti-nag interceptor — if a data mutation/correction is in flight, the
   // backend FORCES the follow-up question off this turn. This is the code-level
   // guarantee that survives the model ignoring the "don't re-ask" prompt rule: a
   // turn that is already acting on a correction never also interrogates the user.
-  const hasMutation = dispatched.some((d) =>
-    MUTATION_ACTION_TYPES.has(d.approval.action_type),
-  );
+  const hasMutation =
+    dispatched.some((d) => MUTATION_ACTION_TYPES.has(d.approval.action_type)) ||
+    calendarPlan !== undefined;
   if (hasMutation) {
     check.data.clarification = undefined;
     check.data.clarification_choices = undefined;
@@ -1116,6 +1155,7 @@ export async function runChat(
     resultReport: report?.text,
     resultSpoken: report?.spoken,
     approvals,
+    calendarPlan,
     clarification: check.data.clarification,
     clarificationChoices: check.data.clarification_choices,
     notes: check.data.notes,

@@ -24,6 +24,7 @@ import { lineRoutes } from "./routes/line.js";
 import { classBlockRoutes } from "./routes/classBlocks.js";
 import { uploadRoutes } from "./routes/uploads.js";
 import { scheduleImportRoutes } from "./routes/scheduleImports.js";
+import { calendarPlanRoutes } from "./routes/calendarPlans.js";
 import type { ScheduleExtractionDeps } from "./services/scheduleExtractor.js";
 import type { ClaudeInvoker } from "./services/claudeClient.js";
 import type { GoogleEventsFetcher } from "./services/googleCalendar.js";
@@ -85,5 +86,6 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   app.register(scheduleImportRoutes, {
     extractionDeps: options.scheduleExtractionDeps,
   });
+  app.register(calendarPlanRoutes, { calendarFetcher: options.calendarFetcher });
   return app;
 }

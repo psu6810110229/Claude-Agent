@@ -113,6 +113,14 @@ export const CLAUDE_AI_ENABLED = /^(1|true)$/i.test(
 /** Max proposed actions accepted from a single AI command (anything more is rejected). */
 export const CLAUDE_MAX_ACTIONS = 10;
 
+/**
+ * Max events a single `calendar.bulk_create` action may stage into one calendar
+ * plan. This is the ONE action that carries a whole list, so it deliberately
+ * exceeds CLAUDE_MAX_ACTIONS — a full-semester import must fit in one turn
+ * instead of being silently truncated into "next batch".
+ */
+export const CALENDAR_PLAN_MAX_ITEMS = 60;
+
 /** Cap on open tasks included in the compact context snapshot passed to Claude. */
 export const CLAUDE_CONTEXT_TASK_CAP = 20;
 

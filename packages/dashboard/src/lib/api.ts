@@ -41,6 +41,9 @@ import type {
   UploadResult,
   ScheduleImportResult,
   ApproveImportResult,
+  CalendarPlanItem,
+  CalendarPlanResult,
+  ApproveCalendarPlanResult,
   FreeSlotsResult,
 } from "./types";
 
@@ -750,6 +753,51 @@ export function approveScheduleImport(
   return request<ApproveImportResult>(`/api/schedule-imports/${id}/approve`, {
     method: "POST",
     body: JSON.stringify(term),
+  });
+}
+
+// --- Calendar plan (bulk Google Calendar add from chat) ------------------
+
+/** Fetch a staged calendar plan + its items. */
+export function getCalendarPlan(id: number): Promise<CalendarPlanResult> {
+  return request<CalendarPlanResult>(`/api/calendar-plans/${id}`);
+}
+
+/** Edit one plan item in the review card (selection, override, time, title…). */
+export function patchCalendarPlanItem(
+  planId: number,
+  itemId: number,
+  patch: Partial<{
+    title: string;
+    starts_at: string;
+    ends_at: string;
+    location: string | null;
+    notes: string | null;
+    selected: boolean;
+    override_conflict: boolean;
+  }>,
+): Promise<{ item: CalendarPlanItem }> {
+  return request<{ item: CalendarPlanItem }>(
+    `/api/calendar-plans/${planId}/items/${itemId}`,
+    { method: "PATCH", body: JSON.stringify(patch) },
+  );
+}
+
+/** Approve the plan: create selected items on Google (conflicts re-checked). */
+export function approveCalendarPlan(
+  id: number,
+): Promise<ApproveCalendarPlanResult> {
+  return request<ApproveCalendarPlanResult>(
+    `/api/calendar-plans/${id}/approve`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+}
+
+/** Discard the whole plan (user chose "ไม่เอาเลย"). */
+export function discardCalendarPlan(id: number): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/api/calendar-plans/${id}/discard`, {
+    method: "POST",
+    body: JSON.stringify({}),
   });
 }
 
