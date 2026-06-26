@@ -160,10 +160,20 @@ export const BRIEF_EVENT_CAP = 20;
  * prompt size.
  */
 export const CHAT_GOOGLE_WINDOW_DAYS = Number(
-  process.env.CLAUDE_AGENT_CHAT_GOOGLE_WINDOW_DAYS ?? 120,
+  process.env.CLAUDE_AGENT_CHAT_GOOGLE_WINDOW_DAYS ?? 150,
 );
 export const CHAT_GOOGLE_EVENT_CAP = Number(
-  process.env.CLAUDE_AGENT_CHAT_GOOGLE_EVENT_CAP ?? 50,
+  process.env.CLAUDE_AGENT_CHAT_GOOGLE_EVENT_CAP ?? 200,
+);
+
+/**
+ * How many days of PAST Google Calendar history chat recall includes (Step:
+ * past-window). Lets Friday answer "what did I have yesterday / last week" by
+ * its real id. Capped to bound prompt size; 0 disables past recall. Dashboard,
+ * brief, and schedule-health stay forward-only (they pass the default 0).
+ */
+export const CHAT_GOOGLE_PAST_DAYS = Number(
+  process.env.CLAUDE_AGENT_CHAT_GOOGLE_PAST_DAYS ?? 14,
 );
 
 /** Cap on reminders included in a brief's compact context. */
@@ -207,8 +217,16 @@ export const GOOGLE_OAUTH_REDIRECT_PORT = Number(
   process.env.GOOGLE_CALENDAR_OAUTH_PORT ?? 8799,
 );
 
-/** Cap on events fetched per Google Calendar query. */
-export const GOOGLE_CALENDAR_MAX_RESULTS = 50;
+/** Page size for a single Google Calendar `events.list` call (server max 2500). */
+export const GOOGLE_CALENDAR_MAX_RESULTS = 250;
+
+/**
+ * Hard ceiling on TOTAL events accumulated across paginated `events.list` calls
+ * for one window. Bounds memory/latency on a pathologically dense calendar so a
+ * runaway `nextPageToken` loop can never hang the read. Reaching it just means
+ * the window is truncated (logged), never an error.
+ */
+export const GOOGLE_CALENDAR_MAX_TOTAL = 1000;
 
 /**
  * Google Calendar cache (S2) — cut per-turn latency without losing freshness.

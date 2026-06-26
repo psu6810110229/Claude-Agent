@@ -77,6 +77,8 @@ export function bangkokInstantLabel(utcIso: string, dateOnly = false): string {
 export interface AgendaBounds {
   /** Current instant (ISO UTC). */
   nowUtc: string;
+  /** Start of the past window (today start − pastDays), as a UTC instant. */
+  pastStartUtc: string;
   /** Start of today in Bangkok, expressed as a UTC instant (inclusive). */
   todayStartUtc: string;
   /** Start of tomorrow in Bangkok, as a UTC instant (exclusive end of today). */
@@ -89,6 +91,7 @@ export interface AgendaBounds {
 export function agendaBounds(
   now: Date = new Date(),
   upcomingDays: number = UPCOMING_WINDOW_DAYS,
+  pastDays = 0,
 ): AgendaBounds {
   // Shift into Bangkok wall clock, floor to the calendar date, then shift back.
   const b = new Date(now.getTime() + BANGKOK_OFFSET_MS);
@@ -97,8 +100,10 @@ export function agendaBounds(
     BANGKOK_OFFSET_MS;
   const todayEndMs = todayStartMs + DAY_MS;
   const upcomingEndMs = todayEndMs + upcomingDays * DAY_MS;
+  const pastStartMs = todayStartMs - pastDays * DAY_MS;
   return {
     nowUtc: now.toISOString(),
+    pastStartUtc: new Date(pastStartMs).toISOString(),
     todayStartUtc: new Date(todayStartMs).toISOString(),
     todayEndUtc: new Date(todayEndMs).toISOString(),
     upcomingEndUtc: new Date(upcomingEndMs).toISOString(),

@@ -86,6 +86,7 @@ import {
   BRIEF_REMINDER_CAP,
   CHAT_GOOGLE_WINDOW_DAYS,
   CHAT_GOOGLE_EVENT_CAP,
+  CHAT_GOOGLE_PAST_DAYS,
   CHAT_HISTORY_LIMIT,
   LINE_CONTEXT_PER_CHAT,
   LINE_CONTEXT_MAX_CHATS,
@@ -527,11 +528,13 @@ export async function buildChatContext(
 
   // Google recall uses a WIDE window so the model can target far-future events
   // (e.g. semester dates months out) by their REAL id instead of fabricating one.
-  const { todayStartUtc, todayEndUtc } = agendaBounds(now);
-  const { upcomingEndUtc: wideEndUtc } = agendaBounds(
-    now,
-    CHAT_GOOGLE_WINDOW_DAYS,
-  );
+  const {
+    pastStartUtc,
+    todayStartUtc,
+    todayEndUtc,
+    upcomingEndUtc: wideEndUtc,
+  } = agendaBounds(now, CHAT_GOOGLE_WINDOW_DAYS, CHAT_GOOGLE_PAST_DAYS);
+  const includePast = CHAT_GOOGLE_PAST_DAYS > 0;
   let googleEvents: ChatContext["googleEvents"] = [];
   // Raw events retain `end` (dropped by the ctx mapping below) so the Sprint-3
   // availability resolver can measure real durations/overlaps.
@@ -547,14 +550,21 @@ export async function buildChatContext(
     ]).catch(() => {});
   }
   try {
-    const [gToday, gUpcoming] = await Promise.all([
+    const [gToday, gUpcoming, gPast] = await Promise.all([
       fetchGoogle(todayStartUtc, todayEndUtc),
       fetchGoogle(todayEndUtc, wideEndUtc),
+      // Past is read-only history (answering "what did I have last week"); it
+      // never feeds rawGoogleEvents, so it can't pollute future conflict scans.
+      includePast
+        ? fetchGoogle(pastStartUtc, todayStartUtc)
+        : Promise.resolve([] as GoogleEvent[]),
     ]);
     rawGoogleEvents = [...gToday, ...gUpcoming];
     googleEvents = [
+      // Future first so the cap always favours upcoming over history.
       ...gToday.map((e) => ({ e, bucket: "today" as const })),
       ...gUpcoming.map((e) => ({ e, bucket: "upcoming" as const })),
+      ...gPast.map((e) => ({ e, bucket: "past" as const })),
     ]
       .slice(0, CHAT_GOOGLE_EVENT_CAP)
       .map(({ e, bucket }) => ({

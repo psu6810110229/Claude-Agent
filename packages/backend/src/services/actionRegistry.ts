@@ -258,7 +258,7 @@ export const actionRegistry: Record<ActionType, ActionMeta> = {
     domain: "google",
     humanLabel: "Create Google Calendar event",
     payloadShape:
-      '{ "title": string, "starts_at": <ISO UTC>, "ends_at": <ISO UTC>, "location"?: string, "notes"?: string }',
+      '{ "title": string, "starts_at": <ISO UTC>, "ends_at": <ISO UTC>, "location"?: string, "notes"?: string, "recurrence"?: string[] (iCal lines for a repeating event, e.g. ["RRULE:FREQ=WEEKLY;BYDAY=MO;UNTIL=20261031T000000Z"]; starts_at/ends_at are the FIRST occurrence; omit for a one-off) }',
     riskLevel: "medium",
     policies: ["approval-required", "create-only", "external-service"],
     promptExposure: "allowed",
@@ -269,7 +269,7 @@ export const actionRegistry: Record<ActionType, ActionMeta> = {
     domain: "google",
     humanLabel: "Update Google Calendar event",
     payloadShape:
-      '{ "id": string, "title"?: string, "starts_at"?: <ISO UTC>, "ends_at"?: <ISO UTC>, "location"?: string, "notes"?: string }  (id from the calendar read; at least one field)',
+      '{ "id": string, "title"?: string, "starts_at"?: <ISO UTC>, "ends_at"?: <ISO UTC>, "location"?: string, "notes"?: string, "scope"?: "instance"|"series" }  (id from the calendar read; at least one editable field. scope "series" edits the WHOLE recurring series, "instance" (default) only that one occurrence)',
     riskLevel: "medium",
     policies: ["approval-required", "external-service"],
     promptExposure: "allowed",
@@ -279,7 +279,8 @@ export const actionRegistry: Record<ActionType, ActionMeta> = {
     capability: "google.calendar.delete",
     domain: "google",
     humanLabel: "Delete Google Calendar event",
-    payloadShape: '{ "id": string }  (id from the calendar read)',
+    payloadShape:
+      '{ "id": string, "scope"?: "instance"|"series" }  (id from the calendar read. scope "series" deletes the WHOLE recurring series, "instance" (default) only that one occurrence)',
     riskLevel: "high",
     policies: ["approval-required", "external-service", "destructive"],
     promptExposure: "allowed",

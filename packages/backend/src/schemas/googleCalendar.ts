@@ -75,6 +75,21 @@ export type ScheduleHealthResponse = z.infer<
  * schedule source; creating an event is allowed only through the approval
  * executor, never directly from AI or the command route.
  */
+/**
+ * One iCalendar recurrence line as Google expects in `event.recurrence`, e.g.
+ * "RRULE:FREQ=WEEKLY;BYDAY=MO;UNTIL=20261031T000000Z". We accept RRULE/RDATE/
+ * EXDATE lines and leave deeper RFC 5545 validation to Google (it rejects bad
+ * rules with a clear message that we surface).
+ */
+const recurrenceLine = z
+  .string()
+  .trim()
+  .min(1)
+  .max(1000)
+  .regex(/^(RRULE|RDATE|EXDATE):/i, {
+    message: "recurrence lines must start with RRULE:, RDATE:, or EXDATE:",
+  });
+
 export const createGoogleEventPayloadSchema = z
   .object({
     title: z.string().trim().min(1).max(500),
@@ -82,6 +97,9 @@ export const createGoogleEventPayloadSchema = z
     ends_at: isoUtcDateTime,
     location: z.string().trim().max(500).optional(),
     notes: z.string().trim().max(2000).optional(),
+    /** Optional recurrence (e.g. a weekly class for the whole term). Omit for a
+     * one-off event. The supplied start/end define the FIRST occurrence. */
+    recurrence: z.array(recurrenceLine).min(1).max(8).optional(),
   })
   .refine((v) => v.ends_at > v.starts_at, {
     message: "ends_at must be after starts_at",
@@ -98,6 +116,14 @@ export type CreateGoogleEventPayload = z.infer<
  * `ends_at` are supplied, `ends_at` must be after `starts_at`. The executor
  * snapshots the prior event state (for undo) before patching.
  */
+/**
+ * Recurring-edit scope. "instance" (default) edits/deletes only the single
+ * occurrence identified by `id`; "series" edits/deletes the whole recurring
+ * series the occurrence belongs to. Ignored for non-recurring events.
+ */
+export const recurringScopeSchema = z.enum(["instance", "series"]);
+export type RecurringScope = z.infer<typeof recurringScopeSchema>;
+
 export const updateGoogleEventPayloadSchema = z
   .object({
     id: z.string().trim().min(1),
@@ -106,6 +132,7 @@ export const updateGoogleEventPayloadSchema = z
     ends_at: isoUtcDateTime.optional(),
     location: z.string().trim().max(500).optional(),
     notes: z.string().trim().max(2000).optional(),
+    scope: recurringScopeSchema.optional(),
   })
   .refine(
     (v) =>
@@ -135,6 +162,7 @@ export type UpdateGoogleEventPayload = z.infer<
  */
 export const deleteGoogleEventPayloadSchema = z.object({
   id: z.string().trim().min(1),
+  scope: recurringScopeSchema.optional(),
 });
 export type DeleteGoogleEventPayload = z.infer<
   typeof deleteGoogleEventPayloadSchema

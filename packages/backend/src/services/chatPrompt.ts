@@ -102,15 +102,16 @@ export interface ChatContext {
   /** Current Asia/Bangkok wall-clock time. */
   nowBangkok: string;
   /**
-   * Google Calendar events (PRIMARY schedule): today + upcoming (7-day),
-   * with start (RFC 3339), short title, all-day flag, and bucket.
+   * Google Calendar events (PRIMARY schedule): recent past + today + upcoming,
+   * with start (RFC 3339), short title, all-day flag, and bucket. The "past"
+   * bucket is read-only history for answering questions, not for new bookings.
    */
   googleEvents: {
     id: string;
     start: string;
     title: string;
     allDay: boolean;
-    bucket: "today" | "upcoming";
+    bucket: "past" | "today" | "upcoming";
     /** Event location (e.g. "หอประชุม"). Null when none. Redacted for unverified. */
     location?: string | null;
     /** Capped description/notes snippet. Null when none. Redacted for unverified. */
@@ -1260,15 +1261,18 @@ ${lineEvidenceSection}
 VERIFIER GUIDANCE (Step 22 — hard constraints for this turn; BLOCKED claims must NOT appear in reply):
 ${verifierSection}
 
-GOOGLE CALENDAR (the user's PRIMARY schedule; THIS IS ONLY A 7-DAY WINDOW: today +
-next 7 days, NOT the full calendar. Anything dated beyond this window is simply not
-shown — its absence here does NOT mean it is missing from the calendar. NEVER say a
-far-future event "ยังไม่มี" / is missing / "มีอยู่แล้ว" based on this list; see
-TRUTHFULNESS GROUP C. Use the shown id= value as the "id" for google_event.update /
-google_event.delete; do not invent ids. A line may carry the event's place after "@"
-and its notes after "— notes:" — when the user asks WHERE an event is or for its
-details, ANSWER from that location/notes. If a line has no "@"/notes, then none was
-set on the event — say it has no location/notes; do NOT claim you cannot see it):
+GOOGLE CALENDAR (the user's PRIMARY schedule; a BOUNDED WINDOW: recent past +
+today + the upcoming months, NOT the full calendar. Buckets: [past]=already
+happened (read-only history — answer questions about it, but do NOT propose
+creating/editing a past event unless the user explicitly asks), [today], and
+[upcoming]. Anything dated beyond this window is simply not shown — its absence
+here does NOT mean it is missing from the calendar. NEVER say a far-future event
+"ยังไม่มี" / is missing / "มีอยู่แล้ว" based on this list; see TRUTHFULNESS GROUP C.
+Use the shown id= value as the "id" for google_event.update / google_event.delete;
+do not invent ids. A line may carry the event's place after "@" and its notes
+after "— notes:" — when the user asks WHERE an event is or for its details, ANSWER
+from that location/notes. If a line has no "@"/notes, then none was set on the
+event — say it has no location/notes; do NOT claim you cannot see it):
 ${googleEvents}
 
 LOCAL EVENTS (secondary/local-only; today + next 7 days; do not invent ids):
@@ -1480,9 +1484,10 @@ CONTEXT (read-only):
 OPEN TASKS:
 ${tasks}
 
-GOOGLE CALENDAR (ONLY a 7-day window: today + next 7 days, NOT the full calendar;
-an item's absence here does NOT mean it is missing — never claim a far-future event
-"ยังไม่มี"/"มีอยู่แล้ว" from this list; use shown id= for update/delete):
+GOOGLE CALENDAR (a BOUNDED window: recent past + today + upcoming months, NOT the
+full calendar; [past] is read-only history. An item's absence here does NOT mean it
+is missing — never claim a far-future event "ยังไม่มี"/"มีอยู่แล้ว" from this list;
+use shown id= for update/delete):
 ${googleEvents}
 
 REMINDERS (overdue / today / upcoming):

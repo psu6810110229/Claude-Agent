@@ -223,9 +223,12 @@ export function getCalendarToday(): Promise<GoogleEventListResponse> {
   return request<GoogleEventListResponse>("/api/calendar/today");
 }
 
-/** Upcoming (next 7 days) Google Calendar events. */
-export function getCalendarUpcoming(): Promise<GoogleEventListResponse> {
-  return request<GoogleEventListResponse>("/api/calendar/upcoming");
+/** Upcoming Google Calendar events. `days` (7/14/30) selects the view range. */
+export function getCalendarUpcoming(
+  days?: 7 | 14 | 30,
+): Promise<GoogleEventListResponse> {
+  const qs = days ? `?days=${days}` : "";
+  return request<GoogleEventListResponse>(`/api/calendar/upcoming${qs}`);
 }
 
 /** Schedule-health findings over today+upcoming (read-only analysis). */

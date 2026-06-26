@@ -6,6 +6,7 @@ import {
   GOOGLE_CLIENT_SECRET_PATH,
   GOOGLE_TOKEN_PATH,
   GOOGLE_CALENDAR_MAX_RESULTS,
+  GOOGLE_CALENDAR_MAX_TOTAL,
 } from "../config.js";
 import { getConfigBool } from "../db/repositories/configRepo.js";
 import {
@@ -14,6 +15,7 @@ import {
   type UpdateGoogleEventPayload,
   type DeleteGoogleEventPayload,
   type GoogleEvent,
+  type RecurringScope,
 } from "../schemas/googleCalendar.js";
 
 /**
@@ -88,6 +90,8 @@ export interface GoogleEventSnapshot {
   end: { dateTime?: string | null; date?: string | null } | null;
   location: string | null;
   description: string | null;
+  /** Recurrence lines when the snapshot is of a recurring master (else null). */
+  recurrence: string[] | null;
 }
 
 export interface UpdatedGoogleEvent {
@@ -208,30 +212,44 @@ function normalizeEvent(item: {
 }
 
 /**
- * The real fetcher. Single `events.list` call with server-side time filtering
- * and ordering. Fails closed on disabled/config/auth/API errors.
+ * Paginated `events.list` over one window. Follows `nextPageToken` until the
+ * window is fully drained, so a dense window (e.g. a full semester read months
+ * out) is never silently capped at one page. Bounded by GOOGLE_CALENDAR_MAX_TOTAL
+ * to stay safe on a pathological calendar. Optional free-text `q` filters
+ * server-side across summary/description/location/attendees. Fails closed.
  */
-export const realGoogleEventsFetcher: GoogleEventsFetcher = async (
-  timeMinIso,
-  timeMaxIso,
-) => {
+async function listEventsPaginated(
+  timeMinIso: string,
+  timeMaxIso: string,
+  q?: string,
+): Promise<GoogleEvent[]> {
   if (!isGoogleCalendarEnabled()) {
     throw new GoogleCalendarError("disabled", "Google Calendar is disabled.");
   }
   const auth = buildOAuthClient();
   const calendar = google.calendar({ version: "v3", auth });
 
-  let items: Parameters<typeof normalizeEvent>[0][] = [];
+  const items: Parameters<typeof normalizeEvent>[0][] = [];
+  let pageToken: string | undefined;
   try {
-    const res = await calendar.events.list({
-      calendarId: GOOGLE_CALENDAR_ID,
-      timeMin: timeMinIso,
-      timeMax: timeMaxIso,
-      singleEvents: true,
-      orderBy: "startTime",
-      maxResults: GOOGLE_CALENDAR_MAX_RESULTS,
-    });
-    items = res.data.items ?? [];
+    do {
+      const res = await calendar.events.list({
+        calendarId: GOOGLE_CALENDAR_ID,
+        timeMin: timeMinIso,
+        timeMax: timeMaxIso,
+        singleEvents: true,
+        orderBy: "startTime",
+        maxResults: GOOGLE_CALENDAR_MAX_RESULTS,
+        pageToken,
+        ...(q ? { q } : {}),
+      });
+      const page = res.data.items ?? [];
+      for (const it of page) {
+        if (items.length >= GOOGLE_CALENDAR_MAX_TOTAL) break;
+        items.push(it);
+      }
+      pageToken = res.data.nextPageToken ?? undefined;
+    } while (pageToken && items.length < GOOGLE_CALENDAR_MAX_TOTAL);
   } catch {
     // Never surface the raw error (may carry request/token detail).
     throw new GoogleCalendarError(
@@ -240,10 +258,39 @@ export const realGoogleEventsFetcher: GoogleEventsFetcher = async (
     );
   }
 
+  if (pageToken && items.length >= GOOGLE_CALENDAR_MAX_TOTAL) {
+    // Truncated at the safety ceiling — visibility only, never bodies.
+    console.warn(
+      `[gcal] window truncated at GOOGLE_CALENDAR_MAX_TOTAL=${GOOGLE_CALENDAR_MAX_TOTAL} events`,
+    );
+  }
+
   return items
     .map((it) => normalizeEvent(it))
     .filter((e): e is GoogleEvent => e !== null);
-};
+}
+
+/**
+ * The real fetcher: all events in [timeMin, timeMax). Injectable so tests can
+ * stub it without touching the network or real auth.
+ */
+export const realGoogleEventsFetcher: GoogleEventsFetcher = (
+  timeMinIso,
+  timeMaxIso,
+) => listEventsPaginated(timeMinIso, timeMaxIso);
+
+/**
+ * Keyword search over the calendar window — same paginated read, with a
+ * server-side `q` filter so the user can find an event by name/place even when
+ * it is far out (e.g. "dentist"). Read-only and fail-closed.
+ */
+export async function searchGoogleCalendarEvents(
+  q: string,
+  timeMinIso: string,
+  timeMaxIso: string,
+): Promise<GoogleEvent[]> {
+  return listEventsPaginated(timeMinIso, timeMaxIso, q);
+}
 
 /**
  * Create one timed Google Calendar event. This is intentionally not exposed as
@@ -270,6 +317,8 @@ export async function createGoogleCalendarEvent(
         end: { dateTime: payload.ends_at },
         location: payload.location,
         description: payload.notes,
+        // Optional recurrence (RRULE/RDATE/EXDATE). Start/end are the 1st instance.
+        ...(payload.recurrence ? { recurrence: payload.recurrence } : {}),
       },
     });
 
@@ -290,31 +339,58 @@ export async function createGoogleCalendarEvent(
   }
 }
 
+/** Build an undo snapshot from a raw Google event body. */
+function buildSnapshot(e: {
+  summary?: string | null;
+  start?: { dateTime?: string | null; date?: string | null } | null;
+  end?: { dateTime?: string | null; date?: string | null } | null;
+  location?: string | null;
+  description?: string | null;
+  recurrence?: string[] | null;
+}): GoogleEventSnapshot {
+  return {
+    summary: e.summary ?? null,
+    start: e.start
+      ? { dateTime: e.start.dateTime ?? null, date: e.start.date ?? null }
+      : null,
+    end: e.end
+      ? { dateTime: e.end.dateTime ?? null, date: e.end.date ?? null }
+      : null,
+    location: e.location ?? null,
+    description: e.description ?? null,
+    recurrence: e.recurrence ?? null,
+  };
+}
+
 /**
- * Read one Google event's prior state for an undo snapshot. Generic error
- * message only (never the raw API body). Throws GoogleCalendarError on failure.
+ * Resolve the event a mutation should target, plus the undo snapshot.
+ *
+ * For scope "series" on a recurring INSTANCE (`id` like `<master>_<ts>`), the
+ * mutation is redirected to the recurring master so the whole series changes,
+ * and the snapshot is taken of the master (so undo restores the series). For
+ * "instance" (default) or a non-recurring event, the target is `id` itself.
+ * Generic errors only — never the raw API body.
  */
-async function fetchEventSnapshot(
+async function resolveMutationTarget(
   calendar: ReturnType<typeof google.calendar>,
   eventId: string,
-): Promise<GoogleEventSnapshot> {
+  scope: RecurringScope,
+): Promise<{ id: string; snapshot: GoogleEventSnapshot }> {
   try {
     const res = await calendar.events.get({
       calendarId: GOOGLE_CALENDAR_ID,
       eventId,
     });
-    const e = res.data;
-    return {
-      summary: e.summary ?? null,
-      start: e.start
-        ? { dateTime: e.start.dateTime ?? null, date: e.start.date ?? null }
-        : null,
-      end: e.end
-        ? { dateTime: e.end.dateTime ?? null, date: e.end.date ?? null }
-        : null,
-      location: e.location ?? null,
-      description: e.description ?? null,
-    };
+    const data = res.data;
+    if (scope === "series" && data.recurringEventId) {
+      const masterId = data.recurringEventId;
+      const master = await calendar.events.get({
+        calendarId: GOOGLE_CALENDAR_ID,
+        eventId: masterId,
+      });
+      return { id: masterId, snapshot: buildSnapshot(master.data) };
+    }
+    return { id: eventId, snapshot: buildSnapshot(data) };
   } catch (err) {
     if (err instanceof GoogleCalendarError) throw err;
     throw new GoogleCalendarError(
@@ -339,7 +415,12 @@ export async function updateGoogleCalendarEvent(
   const auth = buildOAuthClient();
   const calendar = google.calendar({ version: "v3", auth });
 
-  const undoSnapshot = await fetchEventSnapshot(calendar, payload.id);
+  const scope: RecurringScope = payload.scope ?? "instance";
+  const { id: targetId, snapshot: undoSnapshot } = await resolveMutationTarget(
+    calendar,
+    payload.id,
+    scope,
+  );
 
   const requestBody: Record<string, unknown> = {};
   if (payload.title !== undefined) requestBody.summary = payload.title;
@@ -356,12 +437,12 @@ export async function updateGoogleCalendarEvent(
   try {
     const res = await calendar.events.patch({
       calendarId: GOOGLE_CALENDAR_ID,
-      eventId: payload.id,
+      eventId: targetId,
       sendUpdates: "none",
       requestBody,
     });
     return {
-      id: res.data.id ?? payload.id,
+      id: res.data.id ?? targetId,
       htmlLink: res.data.htmlLink ?? null,
       undoSnapshot,
     };
@@ -389,15 +470,20 @@ export async function deleteGoogleCalendarEvent(
   const auth = buildOAuthClient();
   const calendar = google.calendar({ version: "v3", auth });
 
-  const undoSnapshot = await fetchEventSnapshot(calendar, payload.id);
+  const scope: RecurringScope = payload.scope ?? "instance";
+  const { id: targetId, snapshot: undoSnapshot } = await resolveMutationTarget(
+    calendar,
+    payload.id,
+    scope,
+  );
 
   try {
     await calendar.events.delete({
       calendarId: GOOGLE_CALENDAR_ID,
-      eventId: payload.id,
+      eventId: targetId,
       sendUpdates: "none",
     });
-    return { id: payload.id, undoSnapshot };
+    return { id: targetId, undoSnapshot };
   } catch (err) {
     if (err instanceof GoogleCalendarError) throw err;
     throw new GoogleCalendarError(
