@@ -27,6 +27,16 @@ import {
   isGuardEnabled,
   clearVerified,
 } from "../services/identityVerifier.js";
+import {
+  loadChatAttachment,
+  type ChatAttachment,
+} from "../services/attachmentService.js";
+import {
+  geminiVisionExtract,
+  isGeminiConfigured,
+  type VisionPart,
+} from "../services/geminiClient.js";
+import type { ChatContext } from "../services/chatPrompt.js";
 import { OWNER_SECRET_PHRASES, OWNER_PIN } from "../config.js";
 
 /** Plugin options. Both injectables let tests stub Claude / Google Calendar. */
@@ -272,7 +282,55 @@ async function handleChat(
         baseInvoke(prompt, { ...callOpts, model: useGeminiModel })
     : baseInvoke;
   const verified = isVerified(sessionId, true); // `true` updates the idle timeout
-  const result = await runChat(message, invoke, fetchGoogle, { verified, sessionId, originalMessage });
+
+  // Chat doc attachments. PRIVACY: only an OWNER-VERIFIED requester's attachments
+  // are read — a guest's file content (and its bytes) must never reach the model.
+  // Stale/expired ids are silently skipped. Any vision-mode doc (image / scanned
+  // PDF) forces the multimodal Gemini path; text-layer docs are injected as text
+  // and use the already-resolved provider.
+  const attachmentIds = verified ? (body.data.attachmentIds ?? []) : [];
+  let attachmentDescriptors: ChatContext["attachments"] = [];
+  const visionParts: VisionPart[] = [];
+  if (attachmentIds.length > 0) {
+    const loaded = (
+      await Promise.all(attachmentIds.map((id) => loadChatAttachment(id)))
+    ).filter((a): a is ChatAttachment => a !== null);
+    attachmentDescriptors = loaded.map((a, i) => {
+      if (a.source.mode === "vision") {
+        visionParts.push(...a.source.parts);
+        return { index: i + 1, mode: "vision" as const, source: a.kind, text: null };
+      }
+      return { index: i + 1, mode: "text" as const, source: a.kind, text: a.source.text };
+    });
+  }
+
+  // A vision doc needs Gemini multimodal; refuse cleanly if it is not configured
+  // rather than silently dropping the file the user is asking about.
+  if (visionParts.length > 0 && !isGeminiConfigured()) {
+    logActivity("chat.attachment.vision_unavailable", `parts=${visionParts.length}`);
+    return reply.code(503).send({
+      kind: "error",
+      error: "อ่านรูป/ไฟล์สแกนต้องเปิด Gemini ก่อนค่ะ",
+    });
+  }
+
+  // For a vision turn, bypass the resolved text provider and send the prompt +
+  // file bytes to Gemini vision (honoring a per-turn Gemini model override).
+  const finalInvoke: ClaudeInvoker =
+    visionParts.length > 0
+      ? (prompt, callOpts) =>
+          geminiVisionExtract(prompt, visionParts, {
+            timeoutMs: callOpts?.timeoutMs,
+            model: useGeminiModel ?? callOpts?.model,
+          })
+      : invoke;
+
+  const result = await runChat(message, finalInvoke, fetchGoogle, {
+    verified,
+    sessionId,
+    originalMessage,
+    attachments: attachmentDescriptors,
+  });
 
   // Spawn/timeout/disabled/empty: fail closed, no approvals, no history written.
   if (result.kind === "failed") {

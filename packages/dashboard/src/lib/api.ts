@@ -315,6 +315,7 @@ export function sendChat(
   choice?: ProviderChoice,
   sessionId?: string,
   geminiModel?: string,
+  attachmentIds?: string[],
 ): Promise<ChatResult> {
   const base =
     choice === "auto"
@@ -326,9 +327,15 @@ export function sendChat(
   // backend ignores it for other providers anyway.
   const withModel =
     choice === "gemini" && geminiModel ? { ...base, geminiModel } : base;
+  const withAttachments =
+    attachmentIds && attachmentIds.length > 0
+      ? { ...withModel, attachmentIds }
+      : withModel;
   return request<ChatResult>("/api/chat", {
     method: "POST",
-    body: JSON.stringify(sessionId ? { ...withModel, sessionId } : withModel),
+    body: JSON.stringify(
+      sessionId ? { ...withAttachments, sessionId } : withAttachments,
+    ),
   });
 }
 

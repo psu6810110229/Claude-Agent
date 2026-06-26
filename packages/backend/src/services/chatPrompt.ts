@@ -290,6 +290,24 @@ export interface ChatContext {
     date: string | null;
     slots: { startUtc: string; endUtc: string; minutes: number }[];
   } | null;
+  /**
+   * Chat doc attachments the user attached to THIS conversation (auto-routed
+   * non-timetable files). Text-layer docs carry their extracted `text`; image /
+   * scanned-PDF docs carry no text here (their bytes are sent to the vision model
+   * alongside this prompt) and are listed as vision placeholders so the model
+   * knows to read the attached image/PDF. Empty/omitted when none, or withheld
+   * for an unverified requester. The model answers questions about these and may
+   * propose calendar/reminder actions (e.g. due dates) from them.
+   */
+  attachments?: {
+    /** 1-based label index shown to the model ("เอกสารแนบ #1"). */
+    index: number;
+    mode: "text" | "vision";
+    /** Coarse kind for phrasing. */
+    source: "image" | "pdf";
+    /** Extracted text for a text-layer doc; null for a vision doc. */
+    text?: string | null;
+  }[];
   /** Live runtime: reversible actions execute immediately (no approval queue). */
   autoExecute: boolean;
   /** Live runtime: recoverable destructive Google delete also auto-executes. */
@@ -597,6 +615,21 @@ export function buildChatPrompt(ctx: ChatContext): string {
         const mins = s.minutes % 60;
         const dur = hrs > 0 ? `${hrs}h${mins > 0 ? ` ${mins}m` : ""}` : `${mins}m`;
         return `  - ${bangkokInstantLabel(s.startUtc)} → ${bangkokInstantLabel(s.endUtc)} (${dur} free)`;
+      })
+      .join("\n");
+  })();
+
+  const attachmentsSection = (() => {
+    if (ctx.restricted) return "  (withheld — requester not verified)";
+    const att = ctx.attachments ?? [];
+    if (att.length === 0) return "  (none attached this turn)";
+    return att
+      .map((a) => {
+        const label = a.source === "pdf" ? "PDF" : "รูปภาพ";
+        if (a.mode === "vision" || !a.text) {
+          return `  - เอกสารแนบ #${a.index} (${label}, รูป/สแกน): เนื้อหาส่งให้ดูเป็นภาพพร้อม prompt นี้ — อ่านจากไฟล์ที่แนบมาโดยตรง`;
+        }
+        return `  - เอกสารแนบ #${a.index} (${label}, ข้อความ):\n"""\n${a.text}\n"""`;
       })
       .join("\n");
   })();
@@ -1089,7 +1122,19 @@ FALLBACK & CLARIFICATION RULES:
 SOURCE ATTRIBUTION RULES (CRITICAL — do not mix data sources):
 - Each context section below is a SEPARATE source: UNREAD GMAIL = email only;
   LINE MESSAGES = LINE chat only; GOOGLE CALENDAR / LOCAL EVENTS = calendar;
-  REMINDERS = reminders. They are NOT interchangeable.
+  REMINDERS = reminders; ATTACHED DOCUMENTS = the user's uploaded file ONLY. They
+  are NOT interchangeable.
+- ATTACHED-FILE QUESTIONS ARE THE STRICTEST CASE. When the user says "ในไฟล์นี้ /
+  ในไฟล์ / in this file / จากเอกสารที่แนบ / ตามไฟล์", you may use ONLY the ATTACHED
+  DOCUMENTS section. A GOOGLE CALENDAR event, a REMINDER, a TASK, or a memory FACT
+  is NEVER "in the file" — even if its title looks like an assignment (e.g.
+  "Attendance", "RC Circuit", "เรียนชดเชย 240-219", a MOOC certificate). Do NOT
+  copy, merge, or relabel calendar/reminder/task items as if they came from the
+  document. If the attached document does not contain what they asked for (e.g. it
+  is a syllabus with a LECTURE schedule + exam dates but NO assignment due dates),
+  say exactly that and list what the file DOES contain — never fill the gap from
+  another source. Cross-source items belong only in answers that are explicitly
+  about the calendar/reminders, not the file.
 - When the user names a source (ไลน์/LINE, อีเมล/เมล/Gmail, ปฏิทิน/calendar),
   answer ONLY from that source's section. NEVER report a Gmail/email item as a
   LINE message, or a LINE message as email. Sender/subject like airlines,
@@ -1102,6 +1147,24 @@ SOURCE ATTRIBUTION RULES (CRITICAL — do not mix data sources):
 - If you cannot tell which source they mean, ask one short question first.
 
 LOCAL CONTEXT (read-only; recall this to ground your replies):
+
+ATTACHED DOCUMENTS (files the user attached to THIS conversation — a text doc's
+content is quoted verbatim between """ marks; an image / scanned PDF is sent to you
+as an image alongside this prompt). GROUNDING RULES (CRITICAL — violations are
+fabrication and destroy trust):
+- Answer ONLY from what the document ACTUALLY contains. Every name, date, time,
+  subject, or number you state MUST appear in the quoted text / the attached image.
+  Do NOT invent, guess, infer, or "fill in" plausible items.
+- If the user asks for something the document does NOT contain (e.g. asks for
+  "assignment due dates / กำหนดส่งงาน" but the file only has a lecture schedule and
+  exam dates), say plainly that the file does not contain it and tell them what it
+  DOES contain instead. NEVER manufacture a list to satisfy the question.
+- Quote the document's own wording for items; do not translate a topic into an
+  unrelated one (e.g. never turn a Thai-medicine syllabus into physics labs).
+- Only AFTER you have the real items from the document, and only if the user asks
+  to put them on the calendar, propose google_event.create / reminder.create per
+  the DATE & TIME RULES — one action per real item, dates exactly as written.
+${attachmentsSection}
 
 OPEN TASKS (for resolving task ids; do not invent ids):
 ${tasks}

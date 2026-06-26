@@ -4,14 +4,23 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   ArrowUp,
+  CalendarPlus,
   ChevronDown,
+  FileText,
+  Image as ImageIcon,
   Moon,
   Paperclip,
   Sun,
   Volume2,
   VolumeX,
+  X,
 } from "lucide-react";
-import { GEMINI_MODEL_OPTIONS, type ProviderChoice, type BriefType } from "@/lib/types";
+import {
+  GEMINI_MODEL_OPTIONS,
+  type ProviderChoice,
+  type BriefType,
+  type StagedAttachment,
+} from "@/lib/types";
 import { motion, AnimatePresence } from "framer-motion";
 
 const PROVIDER_OPTIONS: { id: ProviderChoice; label: string; title: string }[] = [
@@ -38,6 +47,9 @@ export function JarvisInput({
   muted = false,
   onToggleMute,
   onAttach,
+  attachments = [],
+  onRemoveAttachment,
+  onMakeTimetable,
   attachBusy = false,
 }: {
   onSubmit: (text: string) => void | Promise<void>;
@@ -51,8 +63,14 @@ export function JarvisInput({
   onGeminiModelChange?: (model: string) => void;
   muted?: boolean;
   onToggleMute?: () => void;
-  /** Called with a dropped/selected image or PDF (timetable upload). */
+  /** Called with a dropped/selected image or PDF — STAGES it (not sent until send). */
   onAttach?: (file: File) => void | Promise<void>;
+  /** Files staged in the composer, shown as removable chips above the textarea. */
+  attachments?: StagedAttachment[];
+  /** Remove a staged attachment by id. */
+  onRemoveAttachment?: (id: string) => void;
+  /** Turn a staged file into a class timetable (explicit, separate from send). */
+  onMakeTimetable?: (att: StagedAttachment) => void;
   /** True while an attachment is being uploaded/parsed (disables the button). */
   attachBusy?: boolean;
 }) {
@@ -182,6 +200,46 @@ export function JarvisInput({
           }}
         />
       )}
+      {attachments.length > 0 && (
+        <div className="ji-attachments" role="list" aria-label="ไฟล์ที่แนบ">
+          {attachments.map((att) => (
+            <div className="ji-attach-chip" role="listitem" key={att.id}>
+              {att.kind === "pdf" ? (
+                <FileText className="ji-attach-icon" aria-hidden="true" />
+              ) : (
+                <ImageIcon className="ji-attach-icon" aria-hidden="true" />
+              )}
+              <span className="ji-attach-name" title={att.name}>
+                {att.name}
+              </span>
+              {onMakeTimetable && (
+                <button
+                  type="button"
+                  className="ji-attach-action"
+                  onClick={() => onMakeTimetable(att)}
+                  disabled={disabled || attachBusy}
+                  title="ทำเป็นตารางเรียน"
+                >
+                  <CalendarPlus strokeWidth={1.8} aria-hidden="true" />
+                  <span>ตาราง</span>
+                </button>
+              )}
+              {onRemoveAttachment && (
+                <button
+                  type="button"
+                  className="ji-attach-remove"
+                  onClick={() => onRemoveAttachment(att.id)}
+                  disabled={attachBusy}
+                  title="เอาออก"
+                  aria-label={`เอา ${att.name} ออก`}
+                >
+                  <X strokeWidth={2} aria-hidden="true" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       <textarea
         ref={taRef}
         className="ji-textarea"
@@ -205,8 +263,8 @@ export function JarvisInput({
               className="ji-tool ji-attach"
               onClick={() => fileRef.current?.click()}
               disabled={disabled || attachBusy}
-              title="แนบรูป/ไฟล์ตารางเรียน"
-              aria-label="แนบรูปหรือ PDF ตารางเรียน"
+              title="แนบรูปหรือ PDF (ตารางเรียน หรือเอกสารให้ถามได้)"
+              aria-label="แนบรูปหรือ PDF"
             >
               <Paperclip strokeWidth={1.8} aria-hidden="true" />
             </button>

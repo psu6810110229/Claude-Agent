@@ -452,6 +452,7 @@ export async function buildChatContext(
   message: string,
   fetchGoogle: GoogleEventsFetcher,
   verified: boolean = true,
+  attachments: ChatContext["attachments"] = [],
 ): Promise<ChatContext> {
   const openTasks = listTasks()
     .filter((t) => t.status === "open")
@@ -922,6 +923,9 @@ export async function buildChatContext(
     scheduleVerifier,
     // Schedule Import — free-time windows (verified path only; null otherwise).
     freeSlots,
+    // Chat doc attachments for this turn (verified path only — restricted branch
+    // above never reaches here, so attachment content never leaks to a guest).
+    attachments,
     autoExecute: isAutoExecuteEnabled(),
     autoExecuteDestructive: isAutoExecuteDestructiveEnabled(),
     restricted: false,
@@ -932,13 +936,18 @@ export async function runChat(
   message: string,
   invoke: ClaudeInvoker,
   fetchGoogle: GoogleEventsFetcher = cachedGoogleEventsFetcher,
-  opts: { verified?: boolean; sessionId?: string; originalMessage?: string } = {},
+  opts: {
+    verified?: boolean;
+    sessionId?: string;
+    originalMessage?: string;
+    attachments?: ChatContext["attachments"];
+  } = {},
 ): Promise<ChatResult> {
   const verified = opts.verified ?? true;
   const kw = classifySensitivity(message);
 
   // 1. Build context (reads history BEFORE this turn, so history is prior turns).
-  const ctx = await buildChatContext(message, fetchGoogle, verified);
+  const ctx = await buildChatContext(message, fetchGoogle, verified, opts.attachments ?? []);
 
   // 2. Invoke Claude. Any spawn/timeout/disabled error fails closed.
   let raw: string;

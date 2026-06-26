@@ -26,6 +26,13 @@ export const chatRequestSchema = z.object({
   // Step 15 — opaque per-tab session id. Optional so guard-off and older clients
   // still work; the backend treats a missing id as unverified when the guard is on.
   sessionId: z.string().trim().min(8).max(128).optional(),
+  // Chat doc attachments — opaque upload ids (from POST /api/attachments, kind
+  // "doc") the user attached to this conversation. The backend re-reads + extracts
+  // each per turn and injects its content. Capped; unknown/expired ids are skipped.
+  attachmentIds: z
+    .array(z.string().trim().regex(/^[0-9a-f-]{36}$/i))
+    .max(4)
+    .optional(),
 });
 
 /**

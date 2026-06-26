@@ -1,4 +1,3 @@
-import { PDF_MAX_PAGES } from "../config.js";
 import type { VisionPart } from "./geminiClient.js";
 
 /**
@@ -75,17 +74,23 @@ export async function extractScheduleSource(
 /** Extract a PDF's text layer; returns "" on any parse failure (fail soft → vision). */
 async function tryPdfText(buf: Buffer): Promise<string> {
   try {
-    // Import the inner module directly: the package's index runs a debug routine
-    // that reads a bundled sample file when it thinks it is the main module, which
-    // throws under ESM/tsx. The inner module has no such side effect. A non-literal
-    // specifier keeps TS from demanding types for the untyped subpath.
-    const modName = "pdf-parse/lib/pdf-parse.js";
-    const mod = (await import(modName)) as {
-      default?: (b: Buffer, opts?: { max?: number }) => Promise<{ text: string }>;
-    } & ((b: Buffer, opts?: { max?: number }) => Promise<{ text: string }>);
-    const pdfParse = mod.default ?? mod;
-    const result = await pdfParse(buf, { max: PDF_MAX_PAGES });
-    return result.text ?? "";
+    // pdf-parse v2 exposes a PDFParse class (the old v1 default-function /
+    // `lib/pdf-parse.js` subpath was removed — importing it throws, which would
+    // silently push EVERY pdf to the vision fallback). getText() returns the
+    // full text layer; an empty/near-empty result means a scanned pdf → vision.
+    const { PDFParse } = (await import("pdf-parse")) as {
+      PDFParse: new (opts: { data: Uint8Array }) => {
+        getText(): Promise<{ text?: string }>;
+        destroy(): Promise<void>;
+      };
+    };
+    const parser = new PDFParse({ data: new Uint8Array(buf) });
+    try {
+      const result = await parser.getText();
+      return result.text ?? "";
+    } finally {
+      await parser.destroy();
+    }
   } catch {
     return "";
   }

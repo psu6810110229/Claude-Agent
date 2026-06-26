@@ -40,6 +40,7 @@ import type {
   ScheduleImportResult,
   ApproveImportResult,
   ClassBlock,
+  StagedAttachment,
 } from "@/lib/types";
 import {
   cancelAck,
@@ -340,6 +341,12 @@ export default function HomePage() {
   // Schedule import — attach a timetable image/PDF → inline review card.
   const [attachBusy, setAttachBusy] = useState(false);
   const [importCard, setImportCard] = useState<ScheduleImportResult | null>(null);
+  // Files STAGED in the composer but not yet sent — they wait for the user to
+  // type a prompt and hit send, then ride along with that chat turn.
+  const [pendingAttachments, setPendingAttachments] = useState<StagedAttachment[]>([]);
+  // Files already sent in THIS conversation: their ids ride along with every
+  // later chat turn so Friday can keep answering about them across follow-ups.
+  const [activeAttachmentIds, setActiveAttachmentIds] = useState<string[]>([]);
   // When the user asks to SEE their timetable, render the real class blocks as a
   // visual grid inline (deterministic, not the model's text formatting).
   const [timetableBlocks, setTimetableBlocks] = useState<ClassBlock[] | null>(null);
@@ -529,6 +536,14 @@ export default function HomePage() {
     setTimetableBlocks(null);
     setDayAgenda(null);
 
+    // Files STAGED in the composer ride along with THIS turn (plus any already
+    // sent earlier in the conversation). Snapshot now; kept staged through a
+    // verification re-run and only promoted to "active" once the turn succeeds.
+    const turnAttachmentIds = Array.from(
+      new Set([...activeAttachmentIds, ...pendingAttachments.map((a) => a.id)]),
+    );
+    const stagedThisTurn = pendingAttachments;
+
     const cleanText = text.trim().toLowerCase();
     const isVerificationKeyword = cleanText === "โอเค" || cleanText.startsWith("โอเค") || cleanText === "1234";
     if (isVerificationKeyword) {
@@ -596,10 +611,11 @@ export default function HomePage() {
     }
 
     if (!isRetry) {
+      const attachLines = stagedThisTurn.map((a) => `📎 ${a.name}`).join("\n");
       const optimisticUser: ChatMessage = {
         id: -Date.now(),
         role: "user",
-        content: text,
+        content: attachLines ? `${attachLines}\n${text}` : text,
         actions_json: null,
         status: "active",
         created_at: new Date().toISOString(),
@@ -614,7 +630,13 @@ export default function HomePage() {
     startAck(ackRequestId, text, muted);
 
     try {
-      const result = await sendChat(text, provider, sessionIdRef.current ?? undefined, geminiModel);
+      const result = await sendChat(
+        text,
+        provider,
+        sessionIdRef.current ?? undefined,
+        geminiModel,
+        turnAttachmentIds.length > 0 ? turnAttachmentIds : undefined,
+      );
       // The instant the reply lands, kick off BOTH the history refetch and TTS
       // buffering concurrently. We buffer the spoken line WITHOUT playing it,
       // then reveal the text and start the voice in the same tick so they land
@@ -652,6 +674,17 @@ export default function HomePage() {
         setSending(false);
         setOrbState("idle");
         return;
+      }
+      // Turn succeeded: promote staged files to conversation-active so follow-ups
+      // keep referencing them, and clear the composer chips.
+      if (stagedThisTurn.length > 0) {
+        const stagedIds = stagedThisTurn.map((a) => a.id);
+        setActiveAttachmentIds((prev) =>
+          Array.from(new Set([...prev, ...stagedIds])),
+        );
+        setPendingAttachments((prev) =>
+          prev.filter((a) => !stagedIds.includes(a.id)),
+        );
       }
       const historyP = getChatHistory(100);
       const speech = !muted ? prepareSpeech(result.spoken ?? result.reply) : null;
@@ -743,9 +776,38 @@ export default function HomePage() {
     }
   }
 
-  // Attach a timetable image/PDF: upload → parse → show the inline review card.
-  // A failure surfaces as an assistant message, never silently.
+  // Attach an image/PDF: STAGE it in the composer — it is NOT sent yet. The user
+  // types a prompt and hits send; the file then rides along with that chat turn
+  // (see doSend). Turning a file into a class timetable is a separate explicit
+  // action (onMakeTimetable). A failure surfaces as a toast, never silently.
   async function onAttach(file: File) {
+    if (attachBusy || sending) return;
+    clearFollowup();
+    setAttachBusy(true);
+    setSendError(null);
+    try {
+      const uploaded = await uploadScheduleFile(file);
+      setPendingAttachments((prev) => [
+        ...prev,
+        { id: uploaded.id, name: file.name, kind: uploaded.kind },
+      ]);
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : String(err);
+      notify({ kind: "error", title: "แนบไฟล์ไม่สำเร็จ", description: message });
+    } finally {
+      setAttachBusy(false);
+    }
+  }
+
+  /** Remove a staged (not-yet-sent) attachment from the composer. */
+  function onRemoveAttachment(id: string) {
+    setPendingAttachments((prev) => prev.filter((a) => a.id !== id));
+  }
+
+  // Explicit "make a class timetable from this file" — the ONLY path into the
+  // schedule-import review card now. Consumes the staged file (the import owns the
+  // upload). A non-timetable file yields zero items and a gentle note instead.
+  async function onMakeTimetable(att: StagedAttachment) {
     if (attachBusy || sending) return;
     clearFollowup();
     setAttachBusy(true);
@@ -753,20 +815,10 @@ export default function HomePage() {
     setTimetableBlocks(null);
     setDayAgenda(null);
     setSendError(null);
+    setPendingAttachments((prev) => prev.filter((a) => a.id !== att.id));
     stickToBottomRef.current = true;
-    const fileBubble: ChatMessage = {
-      id: -Date.now(),
-      role: "user",
-      content: `📎 ${file.name}`,
-      actions_json: null,
-      status: "active",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, fileBubble]);
     try {
-      const uploaded = await uploadScheduleFile(file);
-      const result = await createScheduleImport(uploaded.id);
+      const result = await createScheduleImport(att.id);
       if (result.items.length === 0) {
         setMessages((prev) => [
           ...prev,
@@ -779,8 +831,8 @@ export default function HomePage() {
       setImportCard(result);
     } catch (err) {
       const message = err instanceof ApiError ? err.message : String(err);
-      setMessages((prev) => [...prev, fallbackAssistantMessage(`อ่านไฟล์ไม่สำเร็จ: ${message}`)]);
-      notify({ kind: "error", title: "อ่านไฟล์ไม่สำเร็จ", description: message });
+      setMessages((prev) => [...prev, fallbackAssistantMessage(`อ่านตารางไม่สำเร็จ: ${message}`)]);
+      notify({ kind: "error", title: "อ่านตารางไม่สำเร็จ", description: message });
     } finally {
       setAttachBusy(false);
     }
@@ -903,6 +955,9 @@ export default function HomePage() {
     try {
       await resetChat(sessionIdRef.current ?? undefined);
       setMessages([]);
+      setActiveAttachmentIds([]);
+      setPendingAttachments([]);
+      setImportCard(null);
       setSendError(null);
       setChatErrorRendered(false);
       setActiveClarification(null);
@@ -992,7 +1047,7 @@ export default function HomePage() {
                 </div>
                 <div className="chat-bubble assistant typing">
                   <span className="chat-role-label">Friday</span>
-                  <ThinkingContent status="กำลังอ่านตารางเรียนจากไฟล์" />
+                  <ThinkingContent status="กำลังเตรียมไฟล์" />
                 </div>
               </div>
             )}
@@ -1108,6 +1163,9 @@ export default function HomePage() {
           onSubmit={doSend}
           onBrief={runBrief}
           onAttach={onAttach}
+          attachments={pendingAttachments}
+          onRemoveAttachment={onRemoveAttachment}
+          onMakeTimetable={onMakeTimetable}
           attachBusy={attachBusy}
           disabled={sending || briefBusy !== null}
           briefBusy={briefBusy}

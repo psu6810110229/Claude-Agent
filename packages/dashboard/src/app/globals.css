@@ -4442,6 +4442,79 @@ pre.payload {
    ========================================================================== */
 
 .ji-attach { display: inline-flex; }
+
+/* Staged composer attachments — removable chips above the textarea. */
+.ji-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 4px 8px;
+}
+.ji-attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 260px;
+  padding: 5px 8px 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 999px;
+  background: var(--glass);
+  font-size: 0.8rem;
+  color: var(--text);
+}
+.ji-attach-icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: var(--text-dim);
+}
+.ji-attach-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ji-attach-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(10, 132, 255, 0.16);
+  color: var(--accent);
+  font-size: 0.75rem;
+  transition: background-color 200ms var(--spring);
+}
+.ji-attach-action svg {
+  width: 13px;
+  height: 13px;
+}
+.ji-attach-action:hover:not(:disabled) {
+  background: rgba(10, 132, 255, 0.26);
+}
+.ji-attach-action:disabled {
+  opacity: 0.5;
+}
+.ji-attach-remove {
+  display: inline-flex;
+  flex: none;
+  padding: 3px;
+  border-radius: 50%;
+  color: var(--text-dim);
+  transition:
+    background-color 200ms var(--spring),
+    color 200ms var(--spring);
+}
+.ji-attach-remove svg {
+  width: 14px;
+  height: 14px;
+}
+.ji-attach-remove:hover:not(:disabled) {
+  background: var(--glass-strong);
+  color: var(--text);
+}
+
 .jarvis-input.dragging {
   outline: 2px dashed var(--accent);
   outline-offset: 3px;

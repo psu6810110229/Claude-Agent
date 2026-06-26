@@ -299,6 +299,15 @@ export interface ScheduleImportResult {
   items: ScheduleImportItem[];
 }
 
+/** A composer attachment staged before send (chat doc by default). */
+export interface StagedAttachment {
+  /** Opaque upload id from POST /api/uploads. */
+  id: string;
+  /** Original filename, for the chip label. */
+  name: string;
+  kind: "image" | "pdf";
+}
+
 /** POST /api/schedule-imports/:id/approve response. */
 export interface ApproveImportResult {
   created: ClassBlock[];
