@@ -148,10 +148,12 @@ LOCAL CONTEXT (read-only; this is all you have — do not assume anything else):
 OPEN TASKS (for resolving task ids; do not invent ids):
 ${tasks}
 
-GOOGLE CALENDAR (the user's PRIMARY schedule; today + next 7 days; read this
+GOOGLE CALENDAR (the user's PRIMARY schedule; ONLY a 7-day window: today + next 7
+days, NOT the full calendar — an item's absence here does NOT mean it is missing,
+so never claim a far-future event "ยังไม่มี"/"มีอยู่แล้ว" from this list. Read this
 context for awareness. Only propose "google_event.create" if the brief context
-clearly requires adding a missing future event; there are no Google update/delete
-action types):
+clearly requires adding a missing future event AND it is within this window; there
+are no Google update/delete action types):
 ${googleEvents}
 
 LOCAL EVENTS (secondary/local-only; today + next 7 days; do not invent ids):

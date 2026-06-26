@@ -14,7 +14,7 @@ import type {
 
 const PLAN_COLS = "id, status, note, created_at, updated_at";
 const ITEM_COLS =
-  "id, plan_id, title, starts_at, ends_at, location, notes, selected, override_conflict, conflict_with, conflict_detail, status, created_at, updated_at";
+  "id, plan_id, title, starts_at, ends_at, location, notes, selected, override_conflict, conflict_with, conflict_detail, category, conflict_starts_at, conflict_ends_at, status, created_at, updated_at";
 
 export interface CreateCalendarPlanItemInput {
   title: string;
@@ -24,6 +24,11 @@ export interface CreateCalendarPlanItemInput {
   notes: string | null;
   conflict_with: string | null;
   conflict_detail: string | null;
+  /** 'clean' | 'duplicate' | 'overlap' — triage bucket for the review card. */
+  category: string;
+  /** Existing clashing event's time (UTC ISO) for the "already on calendar" line. */
+  conflict_starts_at: string | null;
+  conflict_ends_at: string | null;
   /** 'ready' | 'conflict' — drives the default selection in the review card. */
   status: string;
 }
@@ -71,11 +76,18 @@ export function createCalendarPlan(
     const planId = Number(info.lastInsertRowid);
     const itemStmt = db.prepare(
       `INSERT INTO calendar_plan_item
-         (plan_id, title, starts_at, ends_at, location, notes, selected, override_conflict, conflict_with, conflict_detail, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+         (plan_id, title, starts_at, ends_at, location, notes, selected, override_conflict, conflict_with, conflict_detail, category, conflict_starts_at, conflict_ends_at, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const it of items) {
-      const selected = it.status === "conflict" ? 0 : 1;
+      // Defaults match the simplified review card: a DUPLICATE (already on the
+      // calendar) is unselected so it is skipped; everything else — including an
+      // item that merely OVERLAPS another subject — defaults selected, since a
+      // fixed timetable is added regardless. A selected overlap carries
+      // override_conflict=1 so the approve-time clash recheck still creates it.
+      const isDuplicate = it.category === "duplicate";
+      const selected = isDuplicate ? 0 : 1;
+      const override = !isDuplicate && it.status === "conflict" ? 1 : 0;
       itemStmt.run(
         planId,
         it.title,
@@ -84,8 +96,12 @@ export function createCalendarPlan(
         it.location,
         it.notes,
         selected,
+        override,
         it.conflict_with,
         it.conflict_detail,
+        it.category,
+        it.conflict_starts_at,
+        it.conflict_ends_at,
         it.status,
         ts,
         ts,

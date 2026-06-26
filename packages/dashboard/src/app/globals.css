@@ -4802,6 +4802,87 @@ pre.payload {
 }
 .si-hint { font-size: 11.5px; color: var(--muted); margin: 0; text-align: center; }
 
+/* ---- Calendar bulk-add plan (simple checklist) ---- */
+.si-pl-sub { font-size: 12.5px; color: var(--muted-strong); }
+.si-pl-bulk { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.si-pl-bulk button {
+  border: 0;
+  background: transparent;
+  color: var(--accent-hover);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 2px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.si-pl-bulk button:hover { color: var(--accent); }
+.si-pl-bulk span { color: var(--border-strong); }
+
+.si-pl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.si-pl-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 9px 11px;
+  border-radius: 12px;
+  background: var(--glass);
+}
+.si-pl-row.off { opacity: 0.5; }
+.si-pl-check {
+  width: 18px; height: 18px;
+  margin-top: 1px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.si-pl-check:disabled { cursor: not-allowed; }
+.si-pl-info { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+.si-pl-title { font-size: 13.5px; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.si-pl-time {
+  font-size: 12px;
+  color: var(--muted-strong);
+  font-variant-numeric: tabular-nums;
+}
+.si-pl-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--amber);
+  overflow-wrap: anywhere;
+}
+.si-pl-note svg { width: 13px; height: 13px; flex-shrink: 0; }
+
+.si-pl-existing { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
+.si-pl-extoggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--muted-strong);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 4px 0;
+}
+.si-pl-extoggle:hover { color: var(--text); }
+.si-pl-chev {
+  width: 15px; height: 15px;
+  color: var(--muted);
+  transition: transform 0.18s var(--ease-out-quart, ease);
+}
+.si-pl-chev.open { transform: rotate(180deg); }
+
+@media (max-width: 560px) {
+  .si-pl > .si-head { flex-wrap: wrap; gap: 6px; }
+  .si-pl-sub { flex-basis: 100%; }
+  .si-pl-row { padding: 10px; }
+  .si-pl-check { width: 20px; height: 20px; }
+}
+
 /* ---- /schedule page ---- */
 .sch-free-strip { display: flex; flex-wrap: wrap; gap: 8px; }
 .sch-free-chip {

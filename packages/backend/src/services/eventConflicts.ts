@@ -33,6 +33,10 @@ export interface EventConflict {
   detail: string;
   startUtc: string;
   endUtc: string;
+  /** Start/end of the EXISTING clashing event (UTC ISO) — drives the "already on
+   *  calendar at HH:MM" line and the duplicate same-start check. Null if unknown. */
+  existingStart: string | null;
+  existingEnd: string | null;
 }
 
 /** The fields of a create payload we need to build the synthetic event. */
@@ -58,14 +62,21 @@ function synthEvent(payload: CreateConflictInput): GoogleEvent {
   };
 }
 
+/** Only a TRUE time overlap — no adjacency/buffer/travel. Used by the bulk plan
+ *  so a timetable import isn't drowned in "ห่าง 5 นาที" / different-room noise. */
+export const HARD_OVERLAP_ONLY: ReadonlySet<string> = new Set(["overlap"]);
+
 /**
  * Pure conflict detection: inject the proposed event among `existingEvents` and
  * return the clashes that involve it. Order-independent; deterministic.
+ * `allowedKinds` selects which finding kinds count (default: all three clash
+ * kinds; pass HARD_OVERLAP_ONLY to keep only real time overlaps).
  */
 export function findCreateConflicts(
   payload: CreateConflictInput,
   existingEvents: GoogleEvent[],
   options: ScheduleHealthOptions,
+  allowedKinds: ReadonlySet<string> = CONFLICT_KINDS,
 ): EventConflict[] {
   // Drop any stale synthetic id and the same event id to avoid self-conflicts.
   const others = existingEvents.filter((e) => e.id !== NEW_ID);
@@ -73,12 +84,14 @@ export function findCreateConflicts(
 
   const out: EventConflict[] = [];
   for (const f of findings) {
-    if (!CONFLICT_KINDS.has(f.kind)) continue;
+    if (!allowedKinds.has(f.kind)) continue;
     if (!f.eventIds.includes(NEW_ID)) continue;
     // Pairwise findings carry eventIds/titles aligned by index; the OTHER event
     // is the one that is not the synthetic new event.
     const otherIdx = f.eventIds.findIndex((id) => id !== NEW_ID);
+    const otherId = otherIdx >= 0 ? f.eventIds[otherIdx] : null;
     const withTitle = otherIdx >= 0 ? f.titles[otherIdx] ?? "" : "";
+    const existing = otherId ? others.find((e) => e.id === otherId) ?? null : null;
     out.push({
       kind: f.kind as EventConflict["kind"],
       severity: f.severity,
@@ -86,9 +99,91 @@ export function findCreateConflicts(
       detail: f.detail,
       startUtc: f.startUtc,
       endUtc: f.endUtc,
+      existingStart: existing?.start ?? null,
+      existingEnd: existing?.end ?? null,
     });
   }
   return out;
+}
+
+/** Triage category for a proposed item given its detected clashes. */
+export type ConflictCategory = "clean" | "duplicate" | "overlap";
+
+const DUP_START_TOLERANCE_MS = 15 * 60 * 1000;
+
+/**
+ * Normalise a title for a "same assignment" comparison: drop parenthetical
+ * qualifiers ("(5%)", "(Stage 1: Insight)"), separators, and collapse space.
+ * Two imports of the same deliverable under different naming collapse to equal.
+ */
+function normTitle(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/[[\](){}.,:;|/–—-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Whitespace token set of a normalised title (drops empties). */
+function tokenSet(norm: string): Set<string> {
+  return new Set(norm.split(" ").filter((t) => t.length > 0));
+}
+
+/** Jaccard overlap of two token sets (0..1); 0 when either is empty. */
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let inter = 0;
+  for (const t of a) if (b.has(t)) inter++;
+  return inter / (a.size + b.size - inter);
+}
+
+/**
+ * Is this clash the SAME event already on the calendar (a re-import), not a
+ * clash with a different subject? True when the titles match (equal after
+ * normalising, or strong token overlap) AND — when the existing time is known —
+ * the start lines up (re-imports keep the same start). Title-only match still
+ * counts a duplicate when the existing start is unknown.
+ */
+function isLikelyDuplicate(
+  item: { title: string; starts_at: string },
+  c: EventConflict,
+): boolean {
+  const a = normTitle(item.title);
+  const b = normTitle(c.withTitle);
+  if (a.length === 0 || b.length === 0) return false;
+  const titleMatch = a === b || jaccard(tokenSet(a), tokenSet(b)) >= 0.8;
+  if (!titleMatch) return false;
+  if (!c.existingStart) return true;
+  const itemMs = Date.parse(item.starts_at);
+  const existMs = Date.parse(c.existingStart);
+  if (Number.isNaN(itemMs) || Number.isNaN(existMs)) return true;
+  return Math.abs(itemMs - existMs) <= DUP_START_TOLERANCE_MS;
+}
+
+/**
+ * Classify a proposed item: `clean` (no clash), `duplicate` (re-import of an
+ * event already on the calendar — recommend skip), or `overlap` (clashes a
+ * DIFFERENT event — user decides). A self-duplicate wins over a co-incident
+ * overlap so a re-import is never mistaken for a fresh clash.
+ */
+export function classifyConflict(
+  item: { title: string; starts_at: string },
+  conflicts: EventConflict[],
+): ConflictCategory {
+  if (conflicts.length === 0) return "clean";
+  return conflicts.some((c) => isLikelyDuplicate(item, c))
+    ? "duplicate"
+    : "overlap";
+}
+
+/** The one clash to surface for an item (the duplicate if any, else the first). */
+export function primaryConflict(
+  item: { title: string; starts_at: string },
+  conflicts: EventConflict[],
+): EventConflict | null {
+  if (conflicts.length === 0) return null;
+  return conflicts.find((c) => isLikelyDuplicate(item, c)) ?? conflicts[0];
 }
 
 /** A create-payload → conflicts checker (async; reads the live calendar). */

@@ -79,6 +79,11 @@ export const calendarPlanItemSchema = z.object({
   override_conflict: z.number().int(),
   conflict_with: z.string().nullable(),
   conflict_detail: z.string().nullable(),
+  /** Triage bucket: 'clean' | 'duplicate' | 'overlap'. */
+  category: z.string(),
+  /** Existing clashing event's start/end (UTC ISO), for the "already on calendar" line. */
+  conflict_starts_at: z.string().nullable(),
+  conflict_ends_at: z.string().nullable(),
   status: z.string(),
   created_at: z.string(),
   updated_at: z.string(),

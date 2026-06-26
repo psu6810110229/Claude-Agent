@@ -21,8 +21,11 @@ process.env.CLAUDE_AGENT_AI_ENABLED = "";
  * skip/reject paths, which never call the executor).
  *
  * Anchor: 2026-06-29 is a Monday, Bangkok = UTC+7 (no DST).
- *   Item A (ready):    Bangkok 15:00–16:00 → UTC 08:00–09:00 (no existing event).
- *   Item B (conflict): Bangkok 09:00–10:30 → UTC 02:00–03:30 (overlaps existing).
+ *   Item A (clean):     Bangkok 15:00–16:00 → UTC 08:00–09:00 (no existing event).
+ *   Item B (overlap):   Bangkok 09:00–10:30 → UTC 02:00–03:30 (overlaps a DIFFERENT
+ *                       existing event) → defaults SELECTED + override (a fixed
+ *                       timetable is added regardless; the clash is just a note).
+ *   Item C (duplicate): same title + time as the existing event → defaults SKIP.
  */
 
 function assert(cond: unknown, msg: string): void {
@@ -78,31 +81,48 @@ async function main(): Promise<void> {
           starts_at: "2026-06-29T02:00:00.000Z",
           ends_at: "2026-06-29T03:30:00.000Z",
         },
+        {
+          // Same title + time as EXISTING → a re-import duplicate.
+          title: "Existing meeting",
+          starts_at: "2026-06-29T02:00:00.000Z",
+          ends_at: "2026-06-29T03:30:00.000Z",
+        },
       ],
     },
     stubFetcher,
   );
 
-  assert(items.length === 2, "plan stages both items");
+  assert(items.length === 3, "plan stages all items");
   const a = items.find((i) => i.title === "Item A ready")!;
   const b = items.find((i) => i.title === "Item B conflict")!;
+  const c = items.find((i) => i.title === "Existing meeting")!;
   assert(a.status === "ready", "non-clashing item is 'ready'");
-  assert(a.selected === 1, "ready item defaults to selected");
-  assert(b.status === "conflict", "clashing item is flagged 'conflict'");
-  assert(b.selected === 0, "conflict item defaults to UNSELECTED (opt-in)");
+  assert(a.category === "clean", "non-clashing item is category 'clean'");
+  assert(a.selected === 1, "clean item defaults to selected");
+  // Overlap with a DIFFERENT subject → add by default (timetable is fixed), with
+  // override set so the approve-time recheck still creates it.
+  assert(b.status === "conflict", "overlapping item is flagged 'conflict'");
+  assert(b.category === "overlap", "different-subject clash is category 'overlap'");
+  assert(b.selected === 1, "overlap item defaults to SELECTED (add anyway)");
+  assert(b.override_conflict === 1, "overlap item defaults to override on");
   assert(
     typeof b.conflict_with === "string" && b.conflict_with.includes("Existing"),
     "conflict snapshot names the existing event",
   );
+  // Duplicate (already on the calendar) → skipped by default.
+  assert(c.category === "duplicate", "same title+time is category 'duplicate'");
+  assert(c.selected === 0, "duplicate item defaults to UNSELECTED (skip)");
+  assert(c.override_conflict === 0, "duplicate item has no override");
 
-  // ── Block B: approve with B selected (no override) + A deselected ──────────
-  // No item is eligible to CREATE, so the executor (real Google) is never hit.
-  updateCalendarPlanItem(a.id, { selected: false }); // user drops the ready one
-  updateCalendarPlanItem(b.id, { selected: true }); // user wants B but no override
+  // ── Block B: the skip-path still protects a clash when override is OFF ──────
+  // Drop A, clear B's override (simulating the user un-confirming the clash), and
+  // leave C skipped. Nothing is eligible to CREATE, so the executor is never hit.
+  updateCalendarPlanItem(a.id, { selected: false }); // user drops the clean one
+  updateCalendarPlanItem(b.id, { selected: true, override_conflict: false }); // B kept but clash NOT confirmed
 
   const res = await approveCalendarPlan(plan.id, stubFetcher);
   assert(res.created.length === 0, "nothing created (no eligible item)");
-  assert(res.rejected === 1, "deselected ready item is rejected");
+  assert(res.rejected === 2, "deselected clean + unselected duplicate are rejected");
   assert(
     res.skippedConflict.length === 1 && res.skippedConflict[0].id === b.id,
     "selected clashing item without override is SKIPPED (never silently lost)",

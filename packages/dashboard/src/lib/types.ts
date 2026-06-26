@@ -337,6 +337,9 @@ export interface CalendarPlanItem {
   override_conflict: number; // 0 | 1
   conflict_with: string | null;
   conflict_detail: string | null;
+  category: string; // clean | duplicate | overlap
+  conflict_starts_at: string | null; // existing clashing event's time (UTC ISO)
+  conflict_ends_at: string | null;
   status: string; // ready | conflict | created | rejected | skipped
   created_at: string;
   updated_at: string;

@@ -14,6 +14,9 @@ import {
 import { executeAction, ExecutorError } from "./executor.js";
 import {
   findCreateConflicts,
+  classifyConflict,
+  primaryConflict,
+  HARD_OVERLAP_ONLY,
   type CreateConflictInput,
   type EventConflict,
 } from "./eventConflicts.js";
@@ -84,13 +87,19 @@ async function fetchWindowFor(
   }
 }
 
-/** Conflicts for one proposed item against the prefetched calendar window. */
+/**
+ * Conflicts for one proposed item against the prefetched calendar window. For a
+ * bulk timetable add we count ONLY a true time overlap (HARD_OVERLAP_ONLY) — a
+ * 5-minute gap or a different-room adjacency is not a clash worth surfacing here,
+ * and the calendar is dense with academic markers. Build and approve both call
+ * this, so the default selection and the approve-time recheck stay consistent.
+ */
 function conflictsFor(
   item: CreateConflictInput,
   windowEvents: GoogleEvent[],
 ): EventConflict[] {
   try {
-    return findCreateConflicts(item, windowEvents, getSchedulePrefs());
+    return findCreateConflicts(item, windowEvents, getSchedulePrefs(), HARD_OVERLAP_ONLY);
   } catch {
     return [];
   }
@@ -109,6 +118,8 @@ export async function buildCalendarPlan(
   const itemInputs: CreateCalendarPlanItemInput[] = payload.items.map((it) => {
     const conflicts = conflictsFor(it, windowEvents);
     const snap = snapshotConflict(conflicts);
+    const category = classifyConflict(it, conflicts);
+    const primary = primaryConflict(it, conflicts);
     return {
       title: it.title,
       starts_at: it.starts_at,
@@ -117,6 +128,9 @@ export async function buildCalendarPlan(
       notes: it.notes ?? null,
       conflict_with: snap?.with ?? null,
       conflict_detail: snap?.detail ?? null,
+      category,
+      conflict_starts_at: primary?.existingStart ?? null,
+      conflict_ends_at: primary?.existingEnd ?? null,
       status: snap ? "conflict" : "ready",
     };
   });
