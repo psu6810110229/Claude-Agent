@@ -2417,7 +2417,7 @@ pre.payload {
 }
 
 .home-chat {
-  width: min(860px, 100%);
+  width: min(1180px, 100%);
   margin: 0 auto;
 }
 
@@ -2482,7 +2482,7 @@ pre.payload {
 .chat-group {
   display: grid;
   width: 100%;
-  max-width: 800px;
+  max-width: 1120px;
   margin: 0 auto;
   gap: 10px;
 }
@@ -2605,7 +2605,15 @@ pre.payload {
 .chat-bubble-frame {
   position: relative;
   width: fit-content;
-  max-width: 85%;
+  max-width: 92%;
+}
+
+.chat-bubble-frame.assistant {
+  max-width: min(100%, 1080px);
+}
+
+.chat-bubble-frame.user {
+  max-width: min(92%, 920px);
 }
 
 .chat-bubble-footer {
@@ -2638,7 +2646,7 @@ pre.payload {
 .chat-bubble.assistant {
   align-self: flex-start;
   width: fit-content;
-  max-width: min(100%, 88%);
+  max-width: 100%;
   border-bottom-left-radius: 8px;
   background: rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(22px) saturate(140%);
@@ -2671,8 +2679,8 @@ pre.payload {
 .chat-bubble.typing {
   position: relative;
   overflow: hidden;
-  min-width: min(360px, 88%);
-  padding: 12px 14px 13px !important;
+  min-width: 0;
+  padding: 14px 20px 15px !important;
   animation: thinking-bubble 2.4s ease-in-out infinite;
 }
 
@@ -2801,25 +2809,21 @@ pre.payload {
 }
 
 .chat-bubble-tools {
-  position: absolute;
-  top: 10px;
-  right: 0;
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  align-self: flex-start;
   gap: 5px;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(calc(100% - 28px)) translateY(0px);
+  margin: 7px 0 0 8px;
+  opacity: 0.58;
   transition:
     opacity 180ms var(--ease-out-quart),
     transform 180ms var(--ease-out-quart);
 }
 
-.chat-bubble-frame.assistant:hover .chat-bubble-tools,
-.chat-bubble-frame.assistant:focus-within .chat-bubble-tools {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(calc(100% - 22px)) translateY(0);
+.chat-bubble-column.assistant:hover .chat-bubble-tools,
+.chat-bubble-column.assistant:focus-within .chat-bubble-tools {
+  opacity: 0.95;
+  transform: translateY(-1px);
 }
 
 .message-meta-badge,
@@ -2931,6 +2935,8 @@ pre.payload {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: max-content;
+  max-width: min(72vw, 520px);
   min-height: 1.5em;
   line-height: 1.6;
 }

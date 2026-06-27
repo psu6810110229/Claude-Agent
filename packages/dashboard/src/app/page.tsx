@@ -2043,6 +2043,36 @@ function ChatBubble({
     onRegenerate(msg.id);
   }
 
+  const assistantTools =
+    !isUser && !isCoarsePointer ? (
+      <div className="chat-bubble-tools" aria-label="เครื่องมือข้อความ">
+        <IconButton
+          className="chat-tool-btn"
+          variant="ghost"
+          size="sm"
+          onClick={() => onRegenerate(msg.id)}
+          aria-label="สร้างคำตอบใหม่"
+          title="สร้างคำตอบใหม่"
+        >
+          <RotateCcw aria-hidden="true" strokeWidth={1.8} />
+        </IconButton>
+        <IconButton
+          className="chat-tool-btn"
+          variant="ghost"
+          size="sm"
+          onClick={() => void copyMessage()}
+          aria-label={copied ? "คัดลอกแล้ว" : "คัดลอกข้อความ"}
+          title={copied ? "คัดลอกแล้ว" : "คัดลอกข้อความ"}
+        >
+          {copied ? (
+            <Check aria-hidden="true" strokeWidth={1.9} />
+          ) : (
+            <Copy aria-hidden="true" strokeWidth={1.8} />
+          )}
+        </IconButton>
+      </div>
+    ) : null;
+
   const bubbleLayout = (
     <>
       <motion.div
@@ -2117,35 +2147,8 @@ function ChatBubble({
                 />
               )}
             </div>
-            {!isUser && !isCoarsePointer && (
-              <div className="chat-bubble-tools" aria-label="เครื่องมือข้อความ">
-                <IconButton
-                  className="chat-tool-btn"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onRegenerate(msg.id)}
-                  aria-label="สร้างคำตอบใหม่"
-                  title="สร้างคำตอบใหม่"
-                >
-                  <RotateCcw aria-hidden="true" strokeWidth={1.8} />
-                </IconButton>
-                <IconButton
-                  className="chat-tool-btn"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => void copyMessage()}
-                  aria-label={copied ? "คัดลอกแล้ว" : "คัดลอกข้อความ"}
-                  title={copied ? "คัดลอกแล้ว" : "คัดลอกข้อความ"}
-                >
-                  {copied ? (
-                    <Check aria-hidden="true" strokeWidth={1.9} />
-                  ) : (
-                    <Copy aria-hidden="true" strokeWidth={1.8} />
-                  )}
-                </IconButton>
-              </div>
-            )}
           </div>
+          {assistantTools}
           {!isUser && meta && (
             <div className="chat-bubble-footer">
               <MessageMetaBadge meta={meta} />
