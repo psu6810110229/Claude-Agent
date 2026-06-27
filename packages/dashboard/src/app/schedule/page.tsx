@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Trash2, Clock, Bike } from "lucide-react";
 import { listClassBlocks, getFreeSlots, deleteClassBlock, ApiError } from "@/lib/api";
 import { useData } from "@/lib/useData";
 import { ErrorBanner } from "@/components/States";
 import { WeekHourGrid, type GridBlock } from "@/components/WeekHourGrid";
+import { Modal } from "@/components/ui/Modal";
+import { Button } from "@/components/ui/Button";
+import { Cluster } from "@/components/ui/Layout";
 import type { ClassBlock, FreeSlotsResult } from "@/lib/types";
 
 async function loadSchedule(): Promise<{
@@ -41,6 +44,7 @@ export default function SchedulePage() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: number; title: string } | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const cancelRef = useRef<HTMLButtonElement | null>(null);
 
   async function confirmRemove() {
     if (!pendingDelete || busyId) return;
@@ -136,50 +140,41 @@ export default function SchedulePage() {
         )}
       </div>
 
-      {pendingDelete && (
-        <div
-          className="jarvis-dialog-backdrop"
-          role="presentation"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget && !busyId) setPendingDelete(null);
-          }}
-        >
-          <section
-            className="jarvis-dialog"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="del-title"
-          >
-            <div className="jarvis-dialog-copy">
-              <p className="page-kicker">ตารางเรียน</p>
-              <h3 id="del-title">ลบคาบเรียนนี้?</h3>
-              <p>
-                ลบ “{pendingDelete.title}” ออกจากตารางในเครื่อง — Friday จะไม่ใช้คาบนี้
-                เทียบเวลาว่างอีก (เพิ่มกลับได้ด้วยการนำเข้าใหม่)
-              </p>
-              {deleteError && <p className="si-error">{deleteError}</p>}
-            </div>
-            <div className="jarvis-dialog-actions">
-              <button
-                type="button"
-                onClick={() => setPendingDelete(null)}
-                disabled={busyId !== null}
-                autoFocus
-              >
-                ยกเลิก
-              </button>
-              <button
-                type="button"
-                className="primary danger"
-                onClick={confirmRemove}
-                disabled={busyId !== null}
-              >
-                {busyId !== null ? "กำลังลบ..." : "ลบ"}
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
+      <Modal
+        open={pendingDelete !== null}
+        onClose={() => setPendingDelete(null)}
+        size="sm"
+        closeOnEsc={busyId === null}
+        closeOnBackdrop={busyId === null}
+        initialFocusRef={cancelRef}
+        title="ลบคาบเรียนนี้?"
+        description={
+          pendingDelete
+            ? `ลบ “${pendingDelete.title}” ออกจากตารางในเครื่อง — Friday จะไม่ใช้คาบนี้ เทียบเวลาว่างอีก (เพิ่มกลับได้ด้วยการนำเข้าใหม่)`
+            : undefined
+        }
+        footer={
+          <Cluster justify="end" gap={2}>
+            <Button
+              ref={cancelRef}
+              variant="secondary"
+              onClick={() => setPendingDelete(null)}
+              disabled={busyId !== null}
+            >
+              ยกเลิก
+            </Button>
+            <Button
+              variant="danger"
+              onClick={confirmRemove}
+              loading={busyId !== null}
+            >
+              {busyId !== null ? "กำลังลบ..." : "ลบ"}
+            </Button>
+          </Cluster>
+        }
+      >
+        {deleteError && <p className="si-error">{deleteError}</p>}
+      </Modal>
     </>
   );
 }
