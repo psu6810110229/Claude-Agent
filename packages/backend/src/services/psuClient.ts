@@ -55,6 +55,48 @@ interface ChatCompletionResponse {
 }
 
 /**
+ * PSU models (qwen / glm / gpt-4o-mini) don't reliably honor the strict
+ * "output JSON only" contract that the Claude/Gemini invokers obey — casual
+ * prompts in particular come back as plain prose, or as a JSON object wrapped
+ * in reasoning text. We ask the gateway for `response_format: json_object`
+ * (see request bodies below); this is the fallback for upstream models that
+ * ignore that hint.
+ *
+ * PSU-only on purpose: the shared downstream pipeline
+ * (unwrapJsonOutput → JSON.parse → Zod) stays strict for every other provider.
+ *
+ * Strategy:
+ * 1. If the whole text already parses as JSON, return it unchanged.
+ * 2. Otherwise extract the first `{` … last `}` slice and return that if IT
+ *    parses (strips reasoning prose / a wrapping code fence).
+ * 3. Otherwise return the text untouched so downstream still fails closed.
+ */
+export function coercePsuJson(text: string): string {
+  const trimmed = text.trim();
+  try {
+    JSON.parse(trimmed);
+    return trimmed;
+  } catch {
+    // not bare JSON — try to extract an object below
+  }
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    const candidate = trimmed.slice(start, end + 1);
+    try {
+      JSON.parse(candidate);
+      return candidate;
+    } catch {
+      // extracted slice still isn't valid — give up, fail closed downstream
+    }
+  }
+  return trimmed;
+}
+
+/** OpenAI-compat hint asking the gateway to return a single JSON object. */
+const PSU_JSON_RESPONSE_FORMAT = { type: "json_object" } as const;
+
+/**
  * Build a `ClaudeInvoker` bound to a default PSU model. A per-call `opts.model`
  * overrides it, but only if on the allowlist (otherwise fail closed — never
  * trust an arbitrary id). The single `prompt` string becomes one user message,
@@ -95,6 +137,7 @@ export function makePsuInvoker(defaultModel: string): ClaudeInvoker {
         body: JSON.stringify({
           model,
           stream: false,
+          response_format: PSU_JSON_RESPONSE_FORMAT,
           messages: [{ role: "user", content: prompt }],
         }),
         signal: controller.signal,
@@ -131,7 +174,7 @@ export function makePsuInvoker(defaultModel: string): ClaudeInvoker {
     if (text.trim() === "") {
       throw new PsuError("empty", "PSU returned empty response.");
     }
-    return text;
+    return coercePsuJson(text);
   };
 }
 
@@ -178,6 +221,7 @@ export function makePsuStreamInvoker(defaultModel: string): StreamInvoker {
         body: JSON.stringify({
           model,
           stream: true,
+          response_format: PSU_JSON_RESPONSE_FORMAT,
           messages: [{ role: "user", content: prompt }],
         }),
         signal: controller.signal,
@@ -246,6 +290,6 @@ export function makePsuStreamInvoker(defaultModel: string): StreamInvoker {
     if (answer.trim() === "") {
       throw new PsuError("empty", "PSU stream returned empty answer.");
     }
-    return answer;
+    return coercePsuJson(answer);
   };
 }

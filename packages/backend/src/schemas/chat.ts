@@ -98,11 +98,14 @@ export const chatOutputSchema = z
       .transform((v) => v ?? "normal"),
     actions: z.array(chatActionSchema).max(CLAUDE_MAX_ACTIONS).default([]),
     clarification: z
-      .string()
-      .trim()
-      .min(1)
-      .max(500)
-      .nullish()
+      .preprocess(
+        // gpt-4o-mini (and occasionally other models) emit "clarification": ""
+        // instead of omitting the key. An empty/whitespace value means "no
+        // clarification" — coerce it to undefined so the strict min(1) below
+        // only rejects genuinely malformed non-empty input.
+        (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+        z.string().trim().min(1).max(500).nullish(),
+      )
       .transform((v) => v ?? undefined),
     clarification_choices: z
       .array(z.string().trim().min(1).max(120))
@@ -152,11 +155,14 @@ export const followupOutputSchema = z
       .transform((v) => v ?? undefined),
     actions: z.array(aiActionSchema).max(CLAUDE_MAX_ACTIONS).default([]),
     clarification: z
-      .string()
-      .trim()
-      .min(1)
-      .max(500)
-      .nullish()
+      .preprocess(
+        // gpt-4o-mini (and occasionally other models) emit "clarification": ""
+        // instead of omitting the key. An empty/whitespace value means "no
+        // clarification" — coerce it to undefined so the strict min(1) below
+        // only rejects genuinely malformed non-empty input.
+        (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+        z.string().trim().min(1).max(500).nullish(),
+      )
       .transform((v) => v ?? undefined),
     clarification_choices: z
       .array(z.string().trim().min(1).max(120))

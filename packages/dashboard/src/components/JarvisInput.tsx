@@ -9,6 +9,7 @@ import {
   FileText,
   Image as ImageIcon,
   Paperclip,
+  Square,
   Volume2,
   VolumeX,
   X,
@@ -22,9 +23,12 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
 const PROVIDER_OPTIONS: { id: ProviderChoice; label: string; title: string }[] = [
-  { id: "auto", label: "อัตโนมัติ", title: "ให้ระบบเลือกผู้ให้บริการที่เหมาะกับงาน" },
+  { id: "auto", label: "อัตโนมัติ", title: "ให้ระบบเลือกโมเดลที่เหมาะกับงาน" },
   { id: "claude", label: "Claude", title: "ใช้ Claude เสมอ" },
   { id: "gemini", label: "Gemini", title: "ใช้ Gemini เสมอ" },
+  { id: "qwen", label: "Qwen", title: "ใช้ Qwen สำหรับงานคิดลึก" },
+  { id: "glm", label: "GLM", title: "ใช้ GLM เป็นตัวเลือกสำรอง" },
+  { id: "gpt4o", label: "GPT-4o", title: "ใช้ GPT-4o สำหรับคุยเล่น ไม่ใช้กับงานตารางหรืองานสำคัญ" },
 ];
 
 /**
@@ -49,6 +53,8 @@ export function JarvisInput({
   onRemoveAttachment,
   onMakeTimetable,
   attachBusy = false,
+  sending = false,
+  onStop,
 }: {
   onSubmit: (text: string) => void | Promise<void>;
   onBrief?: (type: BriefType) => void | Promise<void>;
@@ -71,6 +77,10 @@ export function JarvisInput({
   onMakeTimetable?: (att: StagedAttachment) => void;
   /** True while an attachment is being uploaded/parsed (disables the button). */
   attachBusy?: boolean;
+  /** True while Friday is generating — send button becomes a one-tap pause. */
+  sending?: boolean;
+  /** Stop the in-flight generation (wired to the pause button). */
+  onStop?: () => void;
 }) {
   const [text, setText] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -163,7 +173,8 @@ export function JarvisInput({
 
   function submit() {
     const trimmed = text.trim();
-    if (!trimmed || disabled) return;
+    // Allow sending with just a staged attachment (no typed text).
+    if (disabled || (trimmed === "" && attachments.length === 0)) return;
     setText("");
     void onSubmit(trimmed);
   }
@@ -195,6 +206,9 @@ export function JarvisInput({
   return (
     <form
       className={`jarvis-input${dragging ? " dragging" : ""}`}
+      data-gramm="false"
+      data-gramm_editor="false"
+      data-enable-grammarly="false"
       onSubmit={handleSubmit}
       onDragOver={(e) => {
         if (!onAttach) return;
@@ -274,6 +288,10 @@ export function JarvisInput({
         onBlur={() => onFocusChange?.(false)}
         placeholder="ถาม Friday"
         aria-label="ถาม Friday"
+        data-gramm="false"
+        data-gramm_editor="false"
+        data-enable-grammarly="false"
+        spellCheck={false}
         disabled={disabled}
         rows={1}
         autoFocus
@@ -357,7 +375,7 @@ export function JarvisInput({
                       })}
                     </div>
 
-                    <AnimatePresence mode="popLayout">
+                    <AnimatePresence initial={false}>
                       {provider === "gemini" && onGeminiModelChange && (
                         <motion.div
                           initial={reduceMotion ? false : { opacity: 0, height: 0 }}
@@ -411,29 +429,47 @@ export function JarvisInput({
           )}
         </div>
 
-        <motion.button
-          type="submit"
-          className="ji-send"
-          disabled={disabled || text.trim() === ""}
-          aria-label="ส่ง"
-          whileHover={
-            reduceMotion || disabled || text.trim() === ""
-              ? {}
-              : { scale: 1.05 }
-          }
-          whileTap={
-            reduceMotion || disabled || text.trim() === ""
-              ? {}
-              : { scale: 0.94 }
-          }
-          transition={
-            reduceMotion
-              ? { duration: 0 }
-              : { type: "spring", bounce: 0.4, duration: 0.4 }
-          }
-        >
-          <ArrowUp strokeWidth={2} />
-        </motion.button>
+        {sending ? (
+          // While generating, the send button turns into a one-tap pause.
+          <motion.button
+            type="button"
+            className="ji-send pausing"
+            onClick={onStop}
+            aria-label="หยุด"
+            whileHover={reduceMotion ? {} : { scale: 1.05 }}
+            whileTap={reduceMotion ? {} : { scale: 0.94 }}
+            transition={
+              reduceMotion
+                ? { duration: 0 }
+                : { type: "spring", bounce: 0.4, duration: 0.4 }
+            }
+          >
+            <Square strokeWidth={2} fill="currentColor" />
+          </motion.button>
+        ) : (
+          (() => {
+            // Send is allowed once there's text OR a staged attachment.
+            const canSend =
+              !disabled && (text.trim() !== "" || attachments.length > 0);
+            return (
+              <motion.button
+                type="submit"
+                className="ji-send"
+                disabled={!canSend}
+                aria-label="ส่ง"
+                whileHover={reduceMotion || !canSend ? {} : { scale: 1.05 }}
+                whileTap={reduceMotion || !canSend ? {} : { scale: 0.94 }}
+                transition={
+                  reduceMotion
+                    ? { duration: 0 }
+                    : { type: "spring", bounce: 0.4, duration: 0.4 }
+                }
+              >
+                <ArrowUp strokeWidth={2} />
+              </motion.button>
+            );
+          })()
+        )}
       </div>
     </form>
   );

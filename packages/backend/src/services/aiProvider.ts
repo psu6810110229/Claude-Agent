@@ -433,13 +433,24 @@ export function selectProvider(opts?: {
 
   // Safety: gpt4o is casual-only. Refuse it for schedule/deep work even when the
   // user picks it manually — never let the casual model touch the calendar.
+  //
+  // Block ONLY on a positive schedule/deep signal in a real message. The user
+  // explicitly chose the casual model, so an empty/whitespace message must not
+  // be blocked: classifyIntent(undefined|"") defaults to "schedule" as a safety
+  // fallback for the AUTO router, which would otherwise wrongly forbid a manual
+  // casual pick (and a blank turn carries no schedule intent anyway).
   if (targetId === "gpt4o") {
-    const intent = classifyIntent(opts?.message);
-    if (intent === "schedule" || intent === "deep") {
-      throw new ProviderError(
-        "schedule-forbidden",
-        "gpt4o is casual-only and cannot handle schedule/critical requests.",
-      );
+    const msg = opts?.message?.trim();
+    if (msg) {
+      const intent = classifyIntent(msg);
+      if (intent === "schedule" || intent === "deep") {
+        // Diagnostic (intent + length only — never the body, per privacy rules)
+        // so a wrongly-blocked casual turn can be traced without logging content.
+        throw new ProviderError(
+          "schedule-forbidden",
+          `gpt4o is casual-only and cannot handle schedule/critical requests. [intent=${intent} len=${msg.length}]`,
+        );
+      }
     }
   }
 

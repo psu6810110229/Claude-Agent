@@ -15,7 +15,17 @@ export function TopBar() {
   const wrapRef = useRef<HTMLDivElement>(null);
   const chipRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const { drawerOpen, setDrawerOpen, newSession } = useShell();
+  const { drawerOpen, setDrawerOpen, collapsed, setCollapsed, newSession } = useShell();
+
+  // One button, two behaviors: open the slide-in drawer on mobile, collapse the
+  // sticky sidebar on desktop.
+  const onMenuClick = () => {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 980px)").matches) {
+      setDrawerOpen(true);
+    } else {
+      setCollapsed(!collapsed);
+    }
+  };
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -45,13 +55,13 @@ export function TopBar() {
 
   return (
     <header className="topbar" ref={wrapRef}>
-      <button 
-        type="button" 
-        className="icon-btn mobile-menu-btn" 
-        onClick={() => setDrawerOpen(true)}
+      <button
+        type="button"
+        className="icon-btn menu-btn"
+        onClick={onMenuClick}
         aria-label="เปิดเมนู"
         aria-controls="app-sidebar"
-        aria-expanded={drawerOpen}
+        aria-expanded={drawerOpen || !collapsed}
       >
         <Menu aria-hidden="true" strokeWidth={1.8} />
       </button>

@@ -288,7 +288,7 @@ async function prepareChat(
         : selectProvider({ mode, requestedProvider, message });
   } catch (err) {
     if (err instanceof ProviderError) {
-      logActivity("ai.provider.unavailable", `requested '${requestedProvider}': ${err.reason}`);
+      logActivity("ai.provider.unavailable", `requested '${requestedProvider}': ${err.reason} — ${err.message}`);
       const forbidden = err.reason === "schedule-forbidden";
       return {
         ok: false,

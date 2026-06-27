@@ -317,6 +317,128 @@ export interface ChatContext {
   restricted?: boolean;
 }
 
+const SCHEDULE_WEEKDAY_EN = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+] as const;
+
+const SCHEDULE_WEEKDAY_TH = [
+  "อาทิตย์",
+  "จันทร์",
+  "อังคาร",
+  "พุธ",
+  "พฤหัสบดี",
+  "ศุกร์",
+  "เสาร์",
+] as const;
+
+function schedulePad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function bangkokNowParts(nowUtc: string): {
+  y: number;
+  m: number;
+  d: number;
+  weekday: number;
+  minutes: number;
+} {
+  const bkk = new Date(new Date(nowUtc).getTime() + 7 * 60 * 60 * 1000);
+  return {
+    y: bkk.getUTCFullYear(),
+    m: bkk.getUTCMonth() + 1,
+    d: bkk.getUTCDate(),
+    weekday: bkk.getUTCDay(),
+    minutes: bkk.getUTCHours() * 60 + bkk.getUTCMinutes(),
+  };
+}
+
+function addBangkokDateDays(
+  base: { y: number; m: number; d: number },
+  days: number,
+): { y: number; m: number; d: number } {
+  const utcNoon = Date.UTC(base.y, base.m - 1, base.d, 12, 0, 0);
+  const next = new Date(utcNoon + days * 24 * 60 * 60 * 1000);
+  return {
+    y: next.getUTCFullYear(),
+    m: next.getUTCMonth() + 1,
+    d: next.getUTCDate(),
+  };
+}
+
+function scheduleYmd(y: number, m: number, d: number): string {
+  return `${y}-${schedulePad2(m)}-${schedulePad2(d)}`;
+}
+
+function scheduleMin(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function nextClassOccurrence(
+  c: ScheduleConstraint,
+  nowUtc: string,
+): {
+  date: string;
+  weekdayEn: string;
+  weekdayTh: string;
+  startLocal: string;
+  endLocal: string;
+  label: string;
+  sortKey: string;
+} | null {
+  if (c.kind !== "recurring_block" || c.weekdays.length === 0) return null;
+  const now = bangkokNowParts(nowUtc);
+  const base = { y: now.y, m: now.m, d: now.d };
+  const startMin = scheduleMin(c.startLocal);
+
+  for (let delta = 0; delta < 21; delta += 1) {
+    const candidate = addBangkokDateDays(base, delta);
+    const date = scheduleYmd(candidate.y, candidate.m, candidate.d);
+    const weekday = (now.weekday + delta) % 7;
+    if (!c.weekdays.includes(weekday)) continue;
+    if (c.activeFrom && date < c.activeFrom) continue;
+    if (c.activeUntil && date > c.activeUntil) continue;
+    if (delta === 0 && startMin <= now.minutes) continue;
+    return {
+      date,
+      weekdayEn: SCHEDULE_WEEKDAY_EN[weekday],
+      weekdayTh: SCHEDULE_WEEKDAY_TH[weekday],
+      startLocal: c.startLocal,
+      endLocal: c.endLocal,
+      label: c.label,
+      sortKey: `${date}T${c.startLocal}|${c.label}`,
+    };
+  }
+  return null;
+}
+
+function buildUpcomingClassOccurrences(
+  constraints: ScheduleConstraint[] | undefined,
+  nowUtc: string,
+  limit = 8,
+): string {
+  const rows = (constraints ?? [])
+    .map((c) => nextClassOccurrence(c, nowUtc))
+    .filter((v): v is NonNullable<typeof v> => Boolean(v))
+    .sort((a, b) => a.sortKey.localeCompare(b.sortKey))
+    .slice(0, limit);
+
+  return rows.length > 0
+    ? rows
+        .map(
+          (o) =>
+            `  - ${o.date} ${o.weekdayEn}/${o.weekdayTh} ${o.startLocal}–${o.endLocal}: ${o.label}`,
+        )
+        .join("\n")
+    : "  (no upcoming class occurrence found from active schedule blocks)";
+}
+
 export function buildChatPrompt(ctx: ChatContext): string {
   const allowedActions = buildAllowedActionsPrompt();
 
@@ -358,6 +480,10 @@ export function buildChatPrompt(ctx: ChatContext): string {
     ctx.openTasks.length > 0
       ? ctx.openTasks.map((t) => `  - #${t.id}: ${t.title}`).join("\n")
       : "  (none)";
+  const upcomingClassOccurrences = buildUpcomingClassOccurrences(
+    ctx.constraints,
+    ctx.nowUtc,
+  );
 
   const memory =
     ctx.memorySummaries.length > 0
@@ -1297,6 +1423,12 @@ ${
       : "  (none active for this turn)";
   })()
 }
+
+NEXT CLASS OCCURRENCES (deterministic from CURRENT TIME + active recurring class
+blocks above. This is the SOURCE OF TRUTH for "คาบถัดไป / ครั้งถัดไป / next class /
+next session". Use these dates directly; do NOT count weeks or derive dates
+yourself):
+${upcomingClassOccurrences}
 
 PROTECTED WINDOWS / WRITE-GUARDS (STICKY guard rails — tank light/CO2/no-disturb
 and other quiet windows. These are NOT appointments and NOT part of the user's

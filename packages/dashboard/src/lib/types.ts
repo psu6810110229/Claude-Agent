@@ -584,7 +584,7 @@ export interface ChatMessage {
  * empty). Failures arrive as 4xx/5xx via ApiError.
  */
 /** Manual AI provider choice carried per chat request (Roadmap 11 Phase 2). */
-export type AiProviderId = "claude" | "gemini";
+export type AiProviderId = "claude" | "gemini" | "qwen" | "glm" | "gpt4o";
 
 /** Provider routing mode (Roadmap 11 Phase 4). */
 export type AiProviderMode = "manual" | "auto";
