@@ -2953,22 +2953,11 @@ pre.payload {
   }
 }
 
-/* Answer bubble grows in as it replaces the live thinking bubble — a calm
-   scale + lift so CoT → answer feels like one bubble expanding, not a swap. */
+/* Framer Motion handles the answer bubble spring reveal; CSS only hints the
+   compositor and keeps transform origin stable. */
 .chat-bubble.assistant.revealing {
-  animation: chat-bubble-grow 560ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
   transform-origin: left top;
-}
-
-@keyframes chat-bubble-grow {
-  from {
-    opacity: 0.5;
-    transform: scale(0.965);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+  will-change: transform, opacity, filter;
 }
 
 .chat-approval-stack {

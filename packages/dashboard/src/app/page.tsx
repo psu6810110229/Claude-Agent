@@ -9,7 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion, type Transition } from "framer-motion";
 import {
   ArrowDown,
   CalendarDays,
@@ -94,6 +94,28 @@ const PROVIDER_LABELS: Record<AiProviderId, string> = {
   qwen: "Qwen",
   glm: "GLM",
   gpt4o: "GPT-4o",
+};
+
+const CHAT_BUBBLE_REVEAL_INITIAL = {
+  opacity: 0,
+  y: 18,
+  scale: 0.982,
+  filter: "blur(10px)",
+};
+
+const CHAT_BUBBLE_REVEAL_ANIMATE = {
+  opacity: 1,
+  y: 0,
+  scale: 1,
+  filter: "blur(0px)",
+};
+
+const CHAT_BUBBLE_PHYSICS: Transition = {
+  layout: { type: "spring", stiffness: 156, damping: 23, mass: 0.82 },
+  y: { type: "spring", stiffness: 142, damping: 19, mass: 0.9 },
+  scale: { type: "spring", stiffness: 190, damping: 22, mass: 0.72 },
+  opacity: { duration: 0.22, ease: [0.25, 1, 0.5, 1] },
+  filter: { duration: 0.34, ease: [0.25, 1, 0.5, 1] },
 };
 
 /** Idle delay before Jarvis offers a proactive follow-up after its last turn. */
@@ -2023,7 +2045,18 @@ function ChatBubble({
 
   const bubbleLayout = (
     <>
-      <div className={`chat-bubble-wrapper ${isUser ? "user" : "assistant"}`}>
+      <motion.div
+        layout={reduceMotion ? false : "position"}
+        className={`chat-bubble-wrapper ${isUser ? "user" : "assistant"}`}
+        initial={
+          revealing && !isUser && !reduceMotion
+            ? CHAT_BUBBLE_REVEAL_INITIAL
+            : false
+        }
+        animate={CHAT_BUBBLE_REVEAL_ANIMATE}
+        transition={reduceMotion ? { duration: 0 } : CHAT_BUBBLE_PHYSICS}
+        style={{ transformOrigin: isUser ? "right top" : "left top" }}
+      >
         {!isUser && groupedIndex === 0 && (
           <div className="chat-avatar assistant-avatar" aria-hidden="true">
             <span className="avatar-text">F</span>
@@ -2119,7 +2152,7 @@ function ChatBubble({
             </div>
           )}
         </div>
-      </div>
+      </motion.div>
       {!isUser && isCoarsePointer && (
         <Sheet
           open={mobileActionsOpen}
