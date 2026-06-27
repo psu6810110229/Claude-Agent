@@ -310,7 +310,7 @@ export function markNotificationRead(id: number): Promise<Notification> {
 /**
  * Send a chat message. `choice` is the user's provider pick:
  * - `"auto"` -> backend routes transparently (`mode: "auto"`).
- * - `"claude" | "gemini"` -> manual provider (`provider: <id>`).
+ * - any provider id -> manual provider (`provider: <id>`).
  * Omitted uses the backend default (Claude, manual). Returns the assistant
  * reply + any queued approvals. AI failures throw ApiError (503 disabled/
  * provider-unconfigured, 504 timeout, 502 failure, 400 invalid output);
@@ -343,6 +343,146 @@ export function sendChat(
       sessionId ? { ...withAttachments, sessionId } : withAttachments,
     ),
   });
+}
+
+export interface ChatStreamCallbacks {
+  onThinking?: (delta: string) => void;
+  onDone: (result: ChatResult) => void;
+  onError?: (message: string) => void;
+}
+
+function chatRequestBody(
+  message: string,
+  choice?: ProviderChoice,
+  sessionId?: string,
+  geminiModel?: string,
+  attachmentIds?: string[],
+): Record<string, unknown> {
+  const base =
+    choice === "auto"
+      ? { message, mode: "auto" }
+      : choice
+        ? { message, provider: choice }
+        : { message };
+  const withModel =
+    choice === "gemini" && geminiModel ? { ...base, geminiModel } : base;
+  const withAttachments =
+    attachmentIds && attachmentIds.length > 0
+      ? { ...withModel, attachmentIds }
+      : withModel;
+  return sessionId ? { ...withAttachments, sessionId } : withAttachments;
+}
+
+function parseSseFrame(frame: string): { event: string; data: string } | null {
+  let event = "message";
+  const data: string[] = [];
+  for (const line of frame.split(/\r?\n/)) {
+    if (!line || line.startsWith(":")) continue;
+    if (line.startsWith("event:")) {
+      event = line.slice("event:".length).trim();
+    } else if (line.startsWith("data:")) {
+      data.push(line.slice("data:".length).trimStart());
+    }
+  }
+  if (data.length === 0) return null;
+  return { event, data: data.join("\n") };
+}
+
+/**
+ * Streaming chat client. Success is SSE: live `thinking` chunks followed by one
+ * final `done` payload matching `sendChat`. Prep failures are plain JSON, so
+ * the caller must see them as ordinary ApiError failures rather than stream
+ * parse errors.
+ */
+export async function sendChatStream(
+  message: string,
+  choice: ProviderChoice | undefined,
+  sessionId: string | undefined,
+  geminiModel: string | undefined,
+  attachmentIds: string[] | undefined,
+  callbacks: ChatStreamCallbacks,
+  signal?: AbortSignal,
+): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch("/api/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        chatRequestBody(message, choice, sessionId, geminiModel, attachmentIds),
+      ),
+      signal,
+    });
+  } catch (err) {
+    if (signal?.aborted) throw err;
+    const message = "Cannot reach the backend (is it running on :8787?)";
+    callbacks.onError?.(message);
+    throw new ApiError(message, 0);
+  }
+
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!contentType.includes("text/event-stream")) {
+    let errorMessage = `Request failed (${res.status})`;
+    let details: Record<string, unknown> | undefined;
+    try {
+      const body = (await res.json()) as { error?: string } & Record<
+        string,
+        unknown
+      >;
+      if (body?.error) errorMessage = body.error;
+      details = body;
+    } catch {
+      // Non-JSON fallback from an intermediary: keep generic error.
+    }
+    callbacks.onError?.(errorMessage);
+    throw new ApiError(errorMessage, res.status, details);
+  }
+
+  if (!res.ok || !res.body) {
+    const errorMessage = `Request failed (${res.status})`;
+    callbacks.onError?.(errorMessage);
+    throw new ApiError(errorMessage, res.status);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const handleFrame = (frame: string): void => {
+    const parsed = parseSseFrame(frame);
+    if (!parsed) return;
+    if (parsed.event === "thinking") {
+      const payload = JSON.parse(parsed.data) as { delta?: string };
+      if (payload.delta) callbacks.onThinking?.(payload.delta);
+      return;
+    }
+    if (parsed.event === "done") {
+      callbacks.onDone(JSON.parse(parsed.data) as ChatResult);
+      return;
+    }
+    if (parsed.event === "error") {
+      const payload = JSON.parse(parsed.data) as { error?: string };
+      const errorMessage = payload.error ?? "Chat stream failed";
+      callbacks.onError?.(errorMessage);
+      throw new ApiError(errorMessage, 502, payload);
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    let splitAt = buffer.search(/\r?\n\r?\n/);
+    while (splitAt >= 0) {
+      const frame = buffer.slice(0, splitAt);
+      const match = buffer.slice(splitAt).match(/^\r?\n\r?\n/);
+      buffer = buffer.slice(splitAt + (match?.[0].length ?? 2));
+      handleFrame(frame);
+      splitAt = buffer.search(/\r?\n\r?\n/);
+    }
+    if (done) break;
+  }
+
+  if (buffer.trim()) handleFrame(buffer.trim());
 }
 
 /** Archive the current chat thread. Passes sessionId so the backend clears verified state too. */

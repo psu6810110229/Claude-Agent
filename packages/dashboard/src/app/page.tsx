@@ -3,11 +3,15 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import {
+  ArrowDown,
   CalendarDays,
+  Check,
   CheckSquare,
   Clock3,
+  Copy,
   Database,
   MessageCircle,
+  RotateCcw,
 } from "lucide-react";
 import {
   ApiError,
@@ -21,6 +25,7 @@ import {
   requestChatFollowup,
   resetChat,
   sendChat,
+  sendChatStream,
   prepareSpeech,
   speak,
   unlockAudioPlayback,
@@ -58,6 +63,7 @@ import { actionQuestion, isActionType } from "@/lib/actionDisplay";
 import { ErrorBanner } from "@/components/States";
 import { Orb, type OrbState } from "@/components/Orb";
 import { JarvisInput } from "@/components/JarvisInput";
+import { ThinkingPanel } from "@/components/ThinkingPanel";
 import { Button, ConfirmDialog } from "@/components/ui";
 import { WelcomeAgenda } from "@/components/WelcomeAgenda";
 import { useShell } from "@/components/Shell";
@@ -71,12 +77,16 @@ import {
   type BriefResult,
   type BriefType,
   type ChatMessage,
+  type ChatResult,
   type VerifyResult,
 } from "@/lib/types";
 
 const PROVIDER_LABELS: Record<AiProviderId, string> = {
   claude: "Claude",
   gemini: "Gemini",
+  qwen: "Qwen",
+  glm: "GLM",
+  gpt4o: "GPT-4o",
 };
 
 /** Idle delay before Jarvis offers a proactive follow-up after its last turn. */
@@ -308,6 +318,11 @@ function distanceFromBottom(scroller: HTMLElement | Window): number {
 }
 
 type ApprovalMap = Record<number, Approval>;
+interface MessageMeta {
+  provider: AiProviderId;
+  selectedModel?: string | null;
+  latencyMs?: number;
+}
 interface ClarificationPrompt {
   messageId: number;
   question: string;
@@ -332,6 +347,7 @@ export default function HomePage() {
   const [messageProvider, setMessageProvider] = useState<
     Record<number, AiProviderId>
   >({});
+  const [messageMeta, setMessageMeta] = useState<Record<number, MessageMeta>>({});
   const [approvalMap, setApprovalMap] = useState<ApprovalMap>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -375,7 +391,11 @@ export default function HomePage() {
   const [guardEnabled, setGuardEnabled] = useState(false);
   const [pendingVerificationPrompt, setPendingVerificationPrompt] = useState<string | null>(null);
   const [thinkingStatus, setThinkingStatus] = useState<string | null>(null);
+  const [streamThinking, setStreamThinking] = useState("");
+  const [thinkingDone, setThinkingDone] = useState(false);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   // True while the user is at/near the bottom (or just sent a message). When
   // they scroll up to read history this flips false and auto-scroll is paused.
@@ -429,6 +449,7 @@ export default function HomePage() {
       if (followupTimerRef.current !== null) {
         window.clearTimeout(followupTimerRef.current);
       }
+      abortControllerRef.current?.abort();
     },
     [],
   );
@@ -477,7 +498,9 @@ export default function HomePage() {
     const scroller = getScrollParent(bottomRef.current);
     const NEAR_BOTTOM_PX = 120;
     const onScroll = () => {
-      stickToBottomRef.current = distanceFromBottom(scroller) < NEAR_BOTTOM_PX;
+      const away = distanceFromBottom(scroller) >= NEAR_BOTTOM_PX;
+      stickToBottomRef.current = !away;
+      setShowScrollBottom(away);
     };
     const target: Window | HTMLElement = scroller;
     target.addEventListener("scroll", onScroll, { passive: true });
@@ -489,7 +512,8 @@ export default function HomePage() {
   useEffect(() => {
     if (!stickToBottomRef.current) return;
     bottomRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth" });
-  }, [messages, sending, briefBusy, reduceMotion]);
+    setShowScrollBottom(false);
+  }, [messages, sending, briefBusy, streamThinking, reduceMotion]);
 
   function clearFollowup() {
     if (followupTimerRef.current !== null) {
@@ -535,6 +559,95 @@ export default function HomePage() {
     }
   }
 
+  async function requestChatResult(
+    text: string,
+    turnAttachmentIds: string[],
+    controller: AbortController,
+  ): Promise<{ result: ChatResult; latencyMs: number }> {
+    const startedAt = performance.now();
+    if (typeof ReadableStream === "undefined") {
+      const result = await sendChat(
+        text,
+        provider,
+        sessionIdRef.current ?? undefined,
+        geminiModel,
+        turnAttachmentIds.length > 0 ? turnAttachmentIds : undefined,
+      );
+      return { result, latencyMs: Math.round(performance.now() - startedAt) };
+    }
+
+    let finalResult: ChatResult | null = null;
+    let streamError: string | null = null;
+    await sendChatStream(
+      text,
+      provider,
+      sessionIdRef.current ?? undefined,
+      geminiModel,
+      turnAttachmentIds.length > 0 ? turnAttachmentIds : undefined,
+      {
+        onThinking: (delta) => {
+          setStreamThinking((prev) => `${prev}${delta}`);
+        },
+        onDone: (result) => {
+          finalResult = result;
+          setThinkingDone(true);
+          setThinkingStatus("กำลังเรียบเรียงคำตอบ");
+        },
+        onError: (message) => {
+          streamError = message;
+        },
+      },
+      controller.signal,
+    );
+
+    if (!finalResult) {
+      throw new ApiError(streamError ?? "Chat stream ended before the final answer", 502);
+    }
+    return { result: finalResult, latencyMs: Math.round(performance.now() - startedAt) };
+  }
+
+  function stopStreaming() {
+    const controller = abortControllerRef.current;
+    if (!controller || controller.signal.aborted) return;
+    controller.abort();
+    cancelAck();
+    setSending(false);
+    setOrbState("idle");
+    setThinkingStatus(null);
+    setThinkingDone(true);
+    notify({
+      kind: "info",
+      title: "หยุดแล้ว",
+      description: "หยุดการสร้างคำตอบแล้ว",
+    });
+  }
+
+  function scrollToLatest() {
+    stickToBottomRef.current = true;
+    setShowScrollBottom(false);
+    bottomRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth" });
+  }
+
+  function promptForRegenerate(content: string): string {
+    const cleaned = content
+      .split("\n")
+      .filter((line) => !line.startsWith("\uD83D\uDCCE "))
+      .join("\n")
+      .trim();
+    return cleaned || content;
+  }
+
+  async function regenerateFromAssistant(assistantId: number) {
+    if (sending || briefBusy || resetting) return;
+    const index = messages.findIndex((message) => message.id === assistantId);
+    const previousUser = messages
+      .slice(0, index >= 0 ? index : messages.length)
+      .reverse()
+      .find((message) => message.role === "user");
+    if (!previousUser) return;
+    await doSend(promptForRegenerate(previousUser.content));
+  }
+
   async function doSend(text: string, isRetry = false) {
     if (briefBusy) return;
     // Unlock TTS playback while still inside the user's send gesture, so the
@@ -568,6 +681,9 @@ export default function HomePage() {
     } else {
       setThinkingStatus(null);
     }
+    setStreamThinking("");
+    setThinkingDone(false);
+    abortControllerRef.current?.abort();
 
     let shouldFallThrough = false;
     
@@ -646,14 +762,17 @@ export default function HomePage() {
     const ackRequestId = nextAckRequestId();
     startAck(ackRequestId, text, muted);
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
-      const result = await sendChat(
+      const { result, latencyMs } = await requestChatResult(
         text,
-        provider,
-        sessionIdRef.current ?? undefined,
-        geminiModel,
-        turnAttachmentIds.length > 0 ? turnAttachmentIds : undefined,
+        turnAttachmentIds,
+        controller,
       );
+      if (controller.signal.aborted) return false;
+      setThinkingDone(true);
       // The instant the reply lands, kick off BOTH the history refetch and TTS
       // buffering concurrently. We buffer the spoken line WITHOUT playing it,
       // then reveal the text and start the voice in the same tick so they land
@@ -674,6 +793,14 @@ export default function HomePage() {
           setMessageProvider((prev) => ({
             ...prev,
             [freshAssistant.id]: result.provider,
+          }));
+          setMessageMeta((prev) => ({
+            ...prev,
+            [freshAssistant.id]: {
+              provider: result.provider,
+              selectedModel: result.selectedModel ?? null,
+              latencyMs,
+            },
           }));
         }
 
@@ -726,6 +853,14 @@ export default function HomePage() {
           ...prev,
           [freshAssistant.id]: result.provider,
         }));
+        setMessageMeta((prev) => ({
+          ...prev,
+          [freshAssistant.id]: {
+            provider: result.provider,
+            selectedModel: result.selectedModel ?? null,
+            latencyMs,
+          },
+        }));
       }
       // Text is already revealed above; gate only the VOICE behind any playing
       // ack so the final answer never overlaps it (and cancel a pending long ack).
@@ -763,6 +898,7 @@ export default function HomePage() {
       // remain available but are no longer auto-fired here.
       return true;
     } catch (err) {
+      if (controller.signal.aborted) return false;
       // No final answer → stop any pending/playing acknowledgement immediately.
       cancelAck();
       let message = err instanceof ApiError ? err.message : String(err);
@@ -791,6 +927,9 @@ export default function HomePage() {
       });
       return false;
     } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
       setSending(false);
       setOrbState("idle");
       setThinkingStatus(null);
@@ -1010,14 +1149,19 @@ export default function HomePage() {
   async function confirmNewSession() {
     if (sending || briefBusy || resetting) return;
     clearFollowup();
+    abortControllerRef.current?.abort();
     setResetting(true);
     try {
       await resetChat(sessionIdRef.current ?? undefined);
       setMessages([]);
+      setMessageProvider({});
+      setMessageMeta({});
       setActiveAttachmentIds([]);
       setPendingAttachments([]);
       setImportCard(null);
       setPlanCard(null);
+      setStreamThinking("");
+      setThinkingDone(false);
       setSendError(null);
       setChatErrorRendered(false);
       setActiveClarification(null);
@@ -1085,6 +1229,7 @@ export default function HomePage() {
                 group={group}
                 reduceMotion={reduceMotion}
                 messageProvider={messageProvider}
+                messageMeta={messageMeta}
                 approvalMap={approvalMap}
                 approvalBusy={approvalBusy}
                 revealingMessageIds={revealingMessageIds}
@@ -1103,6 +1248,7 @@ export default function HomePage() {
                 activeClarification={activeClarification}
                 onClarificationChoice={doSend}
                 onClarificationSkip={() => setActiveClarification(null)}
+                onRegenerate={regenerateFromAssistant}
               />
             ))}
 
@@ -1197,6 +1343,21 @@ export default function HomePage() {
               </div>
             )}
 
+            {sending && streamThinking.trim().length > 0 && (
+              <div className="chat-bubble-wrapper assistant">
+                <div className="chat-avatar assistant-avatar" aria-hidden="true">
+                  <span className="avatar-text">F</span>
+                </div>
+                <div className="chat-thinking-slot">
+                  <ThinkingPanel
+                    text={streamThinking}
+                    active={sending}
+                    done={thinkingDone}
+                  />
+                </div>
+              </div>
+            )}
+
             {sending && (
               <div className="chat-bubble-wrapper assistant">
                 <div className="chat-avatar assistant-avatar" aria-hidden="true">
@@ -1205,6 +1366,15 @@ export default function HomePage() {
                 <div className="chat-bubble assistant typing">
                   <span className="chat-role-label">Friday</span>
                   <ThinkingContent status={thinkingStatus} />
+                  <TypingSkeleton />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="typing-stop"
+                    onClick={stopStreaming}
+                  >
+                    หยุด
+                  </Button>
                 </div>
               </div>
             )}
@@ -1228,6 +1398,17 @@ export default function HomePage() {
 
           {sendError && !chatErrorRendered && (
             <ErrorBanner message={sendError} onRetry={onRetry} />
+          )}
+          {showScrollBottom && (
+            <button
+              type="button"
+              className="scroll-bottom-btn"
+              onClick={scrollToLatest}
+              aria-label="เลื่อนไปข้อความล่าสุด"
+            >
+              <ArrowDown aria-hidden="true" strokeWidth={2} />
+              <span>ล่าสุด</span>
+            </button>
           )}
         </div>
       </div>
@@ -1473,6 +1654,15 @@ function ThinkingContent({
   );
 }
 
+function TypingSkeleton() {
+  return (
+    <div className="typing-skeleton" aria-hidden="true">
+      <span />
+      <span />
+    </div>
+  );
+}
+
 interface ChatGroup {
   key: string;
   role: ChatMessage["role"];
@@ -1508,6 +1698,7 @@ function ChatMessageGroup({
   group,
   reduceMotion,
   messageProvider,
+  messageMeta,
   approvalMap,
   approvalBusy,
   revealingMessageIds,
@@ -1517,10 +1708,12 @@ function ChatMessageGroup({
   activeClarification,
   onClarificationChoice,
   onClarificationSkip,
+  onRegenerate,
 }: {
   group: ChatGroup;
   reduceMotion: boolean;
   messageProvider: Record<number, AiProviderId>;
+  messageMeta: Record<number, MessageMeta>;
   approvalMap: ApprovalMap;
   approvalBusy: number | null;
   revealingMessageIds: Set<number>;
@@ -1534,6 +1727,7 @@ function ChatMessageGroup({
   activeClarification: ClarificationPrompt | null;
   onClarificationChoice: (text: string) => void;
   onClarificationSkip: () => void;
+  onRegenerate: (assistantId: number) => void;
 }) {
   const isUser = group.role === "user";
   const first = group.messages[0];
@@ -1568,6 +1762,7 @@ function ChatMessageGroup({
             groupedIndex={index}
             reduceMotion={reduceMotion}
             approvalMap={approvalMap}
+            meta={messageMeta[msg.id]}
             approvalBusy={approvalBusy}
             revealing={revealingMessageIds.has(msg.id)}
             onRevealDone={onRevealDone}
@@ -1580,6 +1775,7 @@ function ChatMessageGroup({
             }
             onClarificationChoice={onClarificationChoice}
             onClarificationSkip={onClarificationSkip}
+            onRegenerate={onRegenerate}
           />
         ))}
       </div>
@@ -1591,6 +1787,7 @@ function ChatBubble({
   msg,
   groupedIndex,
   reduceMotion,
+  meta,
   approvalMap,
   approvalBusy,
   revealing,
@@ -1600,10 +1797,12 @@ function ChatBubble({
   clarification,
   onClarificationChoice,
   onClarificationSkip,
+  onRegenerate,
 }: {
   msg: ChatMessage;
   groupedIndex: number;
   reduceMotion: boolean;
+  meta?: MessageMeta;
   approvalMap: ApprovalMap;
   approvalBusy: number | null;
   revealing: boolean;
@@ -1617,8 +1816,10 @@ function ChatBubble({
   clarification: ClarificationPrompt | null;
   onClarificationChoice: (text: string) => void;
   onClarificationSkip: () => void;
+  onRegenerate: (assistantId: number) => void;
 }) {
   const isUser = msg.role === "user";
+  const [copied, setCopied] = useState(false);
   // Show approval cards ONLY for items still awaiting the user's explicit
   // confirmation. Anything Jarvis already handled itself (auto-executed →
   // approved, or rejected) is hidden — no noisy "done" cards. A failed
@@ -1627,6 +1828,16 @@ function ChatBubble({
     const approval = approvalMap[action.id];
     return !approval || approval.status === "pending";
   });
+
+  async function copyMessage() {
+    try {
+      await navigator.clipboard.writeText(msg.content);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch {
+      setCopied(false);
+    }
+  }
 
   return (
     <div className={`chat-bubble-wrapper ${isUser ? "user" : "assistant"}`}>
@@ -1652,6 +1863,33 @@ function ChatBubble({
           reveal={revealing && !isUser}
           onRevealDone={() => onRevealDone(msg.id)}
         />
+        <div className="chat-bubble-tools">
+          {!isUser && meta && <MessageMetaBadge meta={meta} />}
+          {!isUser && (
+            <button
+              type="button"
+              className="chat-tool-btn"
+              onClick={() => onRegenerate(msg.id)}
+              aria-label="สร้างคำตอบใหม่"
+              title="สร้างคำตอบใหม่"
+            >
+              <RotateCcw aria-hidden="true" strokeWidth={1.8} />
+            </button>
+          )}
+          <button
+            type="button"
+            className="chat-tool-btn"
+            onClick={copyMessage}
+            aria-label={copied ? "คัดลอกแล้ว" : "คัดลอกข้อความ"}
+            title={copied ? "คัดลอกแล้ว" : "คัดลอกข้อความ"}
+          >
+            {copied ? (
+              <Check aria-hidden="true" strokeWidth={1.9} />
+            ) : (
+              <Copy aria-hidden="true" strokeWidth={1.8} />
+            )}
+          </button>
+        </div>
         {actions.length > 0 && (
           <div className="chat-approval-stack">
             {actions.map((action) => (
@@ -1676,6 +1914,28 @@ function ChatBubble({
       </div>
     </div>
   );
+}
+
+function MessageMetaBadge({ meta }: { meta: MessageMeta }) {
+  const parts = [
+    PROVIDER_LABELS[meta.provider],
+    meta.selectedModel ? compactModelName(meta.selectedModel) : null,
+    typeof meta.latencyMs === "number" ? formatLatency(meta.latencyMs) : null,
+  ].filter((part): part is string => Boolean(part));
+  return <span className="message-meta-badge">{parts.join(" · ")}</span>;
+}
+
+function compactModelName(model: string): string {
+  return model
+    .replace(/^models\//, "")
+    .replace(/^openai\//, "")
+    .replace(/^qwen\//, "")
+    .replace(/^z-ai\//, "");
+}
+
+function formatLatency(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
 }
 
 function ClarificationPanel({
@@ -1858,6 +2118,7 @@ function RichText({
 type MarkdownBlock =
   | { kind: "paragraph"; lines: string[] }
   | { kind: "list"; ordered: boolean; items: string[] }
+  | { kind: "table"; headers: string[]; rows: string[][] }
   | { kind: "code"; text: string };
 
 function parseMarkdownBlocks(text: string): MarkdownBlock[] {
@@ -1881,7 +2142,8 @@ function parseMarkdownBlocks(text: string): MarkdownBlock[] {
     }
   }
 
-  for (const line of lines) {
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex];
     if (line.trim().startsWith("```")) {
       if (code) {
         blocks.push({ kind: "code", text: code.join("\n") });
@@ -1902,6 +2164,25 @@ function parseMarkdownBlocks(text: string): MarkdownBlock[] {
     if (!line.trim()) {
       flushParagraph();
       flushList();
+      continue;
+    }
+
+    if (
+      isTableRow(line) &&
+      lineIndex + 1 < lines.length &&
+      isTableSeparator(lines[lineIndex + 1])
+    ) {
+      flushParagraph();
+      flushList();
+      const headers = splitTableRow(line);
+      const rows: string[][] = [];
+      lineIndex += 2;
+      while (lineIndex < lines.length && isTableRow(lines[lineIndex])) {
+        rows.push(splitTableRow(lines[lineIndex]));
+        lineIndex++;
+      }
+      lineIndex--;
+      blocks.push({ kind: "table", headers, rows });
       continue;
     }
 
@@ -1926,6 +2207,24 @@ function parseMarkdownBlocks(text: string): MarkdownBlock[] {
   return blocks;
 }
 
+function isTableRow(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.includes("|", 1);
+}
+
+function isTableSeparator(line: string): boolean {
+  return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+}
+
+function splitTableRow(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
 function renderBlock(block: MarkdownBlock, index: number) {
   if (block.kind === "code") {
     return (
@@ -1943,6 +2242,33 @@ function renderBlock(block: MarkdownBlock, index: number) {
           <li key={`${index}-${itemIndex}`}>{renderInline(item)}</li>
         ))}
       </Tag>
+    );
+  }
+
+  if (block.kind === "table") {
+    return (
+      <div className="rt-table-wrap" key={index}>
+        <table className="rt-table">
+          <thead>
+            <tr>
+              {block.headers.map((header, headerIndex) => (
+                <th key={`${index}-h-${headerIndex}`}>{renderInline(header)}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {block.rows.map((row, rowIndex) => (
+              <tr key={`${index}-r-${rowIndex}`}>
+                {block.headers.map((_, cellIndex) => (
+                  <td key={`${index}-r-${rowIndex}-${cellIndex}`}>
+                    {renderInline(row[cellIndex] ?? "")}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     );
   }
 

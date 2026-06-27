@@ -22,9 +22,12 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
 const PROVIDER_OPTIONS: { id: ProviderChoice; label: string; title: string }[] = [
-  { id: "auto", label: "อัตโนมัติ", title: "ให้ระบบเลือกผู้ให้บริการที่เหมาะกับงาน" },
+  { id: "auto", label: "อัตโนมัติ", title: "ให้ระบบเลือกโมเดลที่เหมาะกับงาน" },
   { id: "claude", label: "Claude", title: "ใช้ Claude เสมอ" },
   { id: "gemini", label: "Gemini", title: "ใช้ Gemini เสมอ" },
+  { id: "qwen", label: "Qwen", title: "ใช้ Qwen สำหรับงานคิดลึก" },
+  { id: "glm", label: "GLM", title: "ใช้ GLM เป็นตัวเลือกสำรอง" },
+  { id: "gpt4o", label: "GPT-4o", title: "ใช้ GPT-4o สำหรับคุยเล่น ไม่ใช้กับงานตารางหรืองานสำคัญ" },
 ];
 
 /**
