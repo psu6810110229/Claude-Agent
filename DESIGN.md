@@ -308,6 +308,18 @@ text field, provider toggle, brief menu, and an Arc Blue→Halo Violet circular
 send. It is the primary way Fran talks to Friday — it stays docked, sized for
 touch, and clears the mobile keyboard.
 
+### The Reply Reveal (signature motion)
+How Friday's answer arrives. The full reply renders at once, then each line
+fades in on a fast, staggered cadence — `opacity 0→1`, a 7px rise, and a
+`blur(7px)→0` clear, per line. Feels "typed by light," not a mechanical
+character ticker. Tokens: stagger 60ms/line, fade 440ms, delay capped at
+1400ms so long replies never crawl; ease `cubic-bezier(0.22, 0.61, 0.36, 1)`.
+Lists, table rows, and code blocks each count as one line. Implemented as
+`.rt-reveal .rt-line` + `@keyframes rt-line-in` (`globals.css`), staggered via
+inline `animationDelay`. Under reduced-motion it collapses to an instant,
+no-animation render. This is the *only* sanctioned text-entrance effect — do
+not reintroduce the character-by-character typewriter.
+
 ## 6. Do's and Don'ts
 
 ### Do:
@@ -318,7 +330,7 @@ touch, and clears the mobile keyboard.
 - **Do** verify text contrast against the *glass surface*, not the void; body and
   placeholder on panels use Muted Strong (`#ebebf5c7`) or Ink.
 - **Do** give every animation a real `prefers-reduced-motion` path — including
-  framer-motion / JS timers (the orb, greeting, reveal typewriter), not just CSS.
+  framer-motion / JS timers (the orb, greeting, line reveal), not just CSS.
 - **Do** keep touch targets ≥44px and never disable user zoom.
 - **Do** drive depth/motion with the easing tokens (`--ease-out-expo`,
   `--ease-out-quart`); ease-out only, 150–250ms on state transitions.

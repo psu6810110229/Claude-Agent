@@ -73,7 +73,21 @@ export function ThinkingPanel({
             transition={reduceMotion ? { duration: 0 } : { duration: 0.18 }}
           >
             <div className="thinking-panel-scroll" aria-live="polite">
-              {hasText ? text : "กำลังรอโมเดลเริ่มส่งความคิด"}
+              {hasText ? (
+                reduceMotion ? (
+                  text
+                ) : (
+                  text.split(/\r?\n/).map((line, i) => (
+                    // Keyed by index so already-shown lines stay put while each
+                    // newly-streamed line fades in once on mount.
+                    <span key={i} className="rt-line rt-pline">
+                      {line.length > 0 ? line : " "}
+                    </span>
+                  ))
+                )
+              ) : (
+                "กำลังรอโมเดลเริ่มส่งความคิด"
+              )}
             </div>
           </motion.div>
         )}

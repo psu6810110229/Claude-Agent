@@ -5,10 +5,11 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   ArrowDown,
   CalendarDays,
@@ -70,7 +71,6 @@ import { actionQuestion, isActionType } from "@/lib/actionDisplay";
 import { ErrorBanner } from "@/components/States";
 import { Orb, type OrbState } from "@/components/Orb";
 import { JarvisInput } from "@/components/JarvisInput";
-import { ThinkingPanel } from "@/components/ThinkingPanel";
 import { Button, ConfirmDialog, IconButton, Sheet } from "@/components/ui";
 import { WelcomeAgenda } from "@/components/WelcomeAgenda";
 import { useShell } from "@/components/Shell";
@@ -1210,10 +1210,15 @@ export default function HomePage() {
                   : { type: "spring", stiffness: 70, damping: 18, delay: 0.15 }
               }
             >
-              <h1 className={greeting ? "" : "pending"}>
+              <h1
+                className={`rt-line${greeting ? "" : " pending"}`}
+                style={{ animationDelay: "150ms" }}
+              >
                 {greeting ?? "สวัสดี"} คุณ Fran
               </h1>
-              <p>วันนี้ให้ Friday ช่วยอะไรดีคะ</p>
+              <p className="rt-line" style={{ animationDelay: "230ms" }}>
+                วันนี้ให้ Friday ช่วยอะไรดีคะ
+              </p>
               <WelcomeAgenda
                 onPrompt={(text) => {
                   void doSend(text);
@@ -1352,41 +1357,30 @@ export default function HomePage() {
               </div>
             )}
 
-            {sending && streamThinking.trim().length > 0 && (
-              <div className="chat-bubble-wrapper assistant">
-                <div className="chat-avatar assistant-avatar" aria-hidden="true">
-                  <span className="avatar-text">F</span>
-                </div>
-                <div className="chat-thinking-slot">
-                  <ThinkingPanel
-                    text={streamThinking}
-                    active={sending}
+            {/* One live bubble for the whole "thinking" phase — same chrome as
+                the answer. It fades out as the final answer reveals in its
+                place, so CoT → answer reads as a single morphing bubble. */}
+            <AnimatePresence>
+              {sending && (
+                <motion.div
+                  key="live-think"
+                  initial={false}
+                  exit={
+                    reduceMotion
+                      ? undefined
+                      : { opacity: 0, y: -6, filter: "blur(8px)" }
+                  }
+                  transition={{ duration: 0.5, ease: [0.22, 0.61, 0.36, 1] }}
+                >
+                  <LiveThinkingBubble
+                    thinking={streamThinking}
+                    status={thinkingStatus}
                     done={thinkingDone}
-                    onStop={stopStreaming}
+                    reduceMotion={reduceMotion}
                   />
-                </div>
-              </div>
-            )}
-
-            {sending && streamThinking.trim().length === 0 && (
-              <div className="chat-bubble-wrapper assistant">
-                <div className="chat-avatar assistant-avatar" aria-hidden="true">
-                  <span className="avatar-text">F</span>
-                </div>
-                <div className="chat-bubble assistant typing">
-                  <ThinkingContent status={thinkingStatus} />
-                  <TypingSkeleton />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="typing-stop"
-                    onClick={stopStreaming}
-                  >
-                    หยุด
-                  </Button>
-                </div>
-              </div>
-            )}
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {briefBusy && (
               <div className="chat-bubble-wrapper assistant">
@@ -1442,6 +1436,8 @@ export default function HomePage() {
           onMakeTimetable={onMakeTimetable}
           attachBusy={attachBusy}
           disabled={sending || briefBusy !== null}
+          sending={sending}
+          onStop={stopStreaming}
           briefBusy={briefBusy}
           provider={provider}
           onProviderChange={setProvider}
@@ -1630,6 +1626,141 @@ function ChatSkeleton() {
  * specifics like "checking your calendar" that may not be happening.
  */
 const THINKING_PHASES = ["สักครู่ค่ะ"];
+
+/**
+ * Lifecycle-ordered status lines for the no-CoT case. Honest about the *reasoning*
+ * lifecycle (understand → think → weigh → draft → refine → wrap up) — never a
+ * fabricated tool action ("reading your calendar"). Shown in order so it reads
+ * like real progress, each held for its own dwell time (see LIVE_DWELL_MS).
+ */
+const LIVE_PHASES = [
+  "รับคำถามแล้วค่ะ",
+  "กำลังอ่านคำถาม…",
+  "ทำความเข้าใจสิ่งที่ถาม…",
+  "กำลังคิด…",
+  "ตั้งหลักความคิด…",
+  "ชั่งน้ำหนักตัวเลือก…",
+  "กำลังเชื่อมโยงเหตุผล…",
+  "ประมวลผลในใจ…",
+  "กำลังเรียบเรียงความคิด…",
+  "จัดลำดับคำตอบ…",
+  "กำลังร่างคำตอบ…",
+  "เลือกถ้อยคำให้เหมาะ…",
+  "ขัดเกลาคำตอบ…",
+  "ตรวจทานอีกครั้ง…",
+  "ใกล้เรียบร้อยแล้ว…",
+  "อีกสักครู่ค่ะ…",
+];
+
+/** Dwell pool (ms) — long and uneven so each line lingers and the cadence feels
+ *  human, not metronomic. A fresh value is drawn per shown line. */
+const LIVE_DWELL_POOL = [2800, 3600, 4400, 3200, 5000, 4000];
+
+/**
+ * Build one thinking session's script: up to 3 distinct lines, kept in lifecycle
+ * order, each paired with an uneven dwell. Picking a small ordered subset means
+ * a single think shows ≤3 different lines, but they vary across requests.
+ */
+function buildLiveScript(): { line: string; dwell: number }[] {
+  const count = 2 + Math.floor(Math.random() * 2); // 2–3 lines
+  const picked = new Set<number>([0]); // always open with "รับคำถามแล้วค่ะ"
+  while (picked.size < count) {
+    picked.add(1 + Math.floor(Math.random() * (LIVE_PHASES.length - 1)));
+  }
+  return [...picked]
+    .sort((a, b) => a - b)
+    .map((i) => ({
+      line: LIVE_PHASES[i],
+      dwell: LIVE_DWELL_POOL[Math.floor(Math.random() * LIVE_DWELL_POOL.length)],
+    }));
+}
+
+/** Latest meaningful CoT line, stripped of markdown and capped — a rolling
+ *  one-liner, never a multi-line dump. */
+function summarizeCot(text: string): string {
+  const line = text
+    .split(/\r?\n/)
+    .map((l) =>
+      l
+        .replace(/[`*_>#~-]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
+    .filter((l) => l.length > 0)
+    .at(-1);
+  if (!line) return "";
+  return line.length > 80 ? `${line.slice(0, 79).trimEnd()}…` : line;
+}
+
+/**
+ * Unified live "thinking" bubble. Same chrome as an answer bubble so that, when
+ * the real answer lands and this fades out in its place, the whole CoT → answer
+ * sequence reads as one morphing bubble. While thinking it shows either a
+ * rolling one-line CoT summary (if the model streamed reasoning) or a rotating
+ * generic status (if it did not). Each line swap fades out/in.
+ */
+function LiveThinkingBubble({
+  thinking,
+  status,
+  done,
+  reduceMotion,
+}: {
+  thinking: string;
+  status?: string | null;
+  done: boolean;
+  reduceMotion: boolean;
+}) {
+  const hasCot = thinking.trim().length > 0;
+  // One fixed ≤3-line script per mount (per thinking session).
+  const [script] = useState(buildLiveScript);
+  const [phase, setPhase] = useState(0);
+
+  // Step through this session's script, each line held for its own dwell, then
+  // settle on the last until the answer arrives.
+  useEffect(() => {
+    if (hasCot || status || done) return;
+    if (phase >= script.length - 1) return;
+    const timer = window.setTimeout(
+      () => setPhase((current) => current + 1),
+      script[phase].dwell,
+    );
+    return () => window.clearTimeout(timer);
+  }, [hasCot, status, done, phase, script]);
+
+  const line = hasCot
+    ? summarizeCot(thinking)
+    : (status ?? script[Math.min(phase, script.length - 1)].line);
+
+  return (
+    <div className="chat-bubble-wrapper assistant">
+      <div className="chat-avatar assistant-avatar" aria-hidden="true">
+        <span className="avatar-text">F</span>
+      </div>
+      <div className="chat-bubble assistant typing">
+        <span className="chat-role-label">Friday</span>
+        <div className="chat-live-think" aria-live="polite">
+          <span className="thinking-orb" aria-hidden="true" />
+          {reduceMotion ? (
+            <span className="chat-live-think-text">{line}</span>
+          ) : (
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.span
+                key={line}
+                className="chat-live-think-text"
+                initial={{ opacity: 0, y: 8, filter: "blur(7px)" }}
+                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                exit={{ opacity: 0, y: -8, filter: "blur(7px)" }}
+                transition={{ duration: 0.46, ease: [0.22, 0.61, 0.36, 1] }}
+              >
+                {line}
+              </motion.span>
+            </AnimatePresence>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ThinkingContent({
   status,
@@ -1909,7 +2040,7 @@ function ChatBubble({
             <div
               className={`chat-bubble ${isUser ? "user" : "assistant"} ${
                 groupedIndex > 0 ? "grouped" : ""
-              }`}
+              } ${revealing && !isUser ? "revealing" : ""}`}
             >
               <RichText
                 text={msg.content}
@@ -1919,15 +2050,24 @@ function ChatBubble({
               />
               {actions.length > 0 && (
                 <div className="chat-approval-stack">
-                  {actions.map((action) => (
-                    <InlineApproval
+                  {actions.map((action, i) => (
+                    <div
                       key={action.id}
-                      action={action}
-                      approval={approvalMap[action.id]}
-                      busy={approvalBusy === action.id}
-                      onApproval={onApproval}
-                      onRequestReject={onRequestReject}
-                    />
+                      className={revealing && !isUser ? "rt-line" : undefined}
+                      style={
+                        revealing && !isUser
+                          ? { animationDelay: `${Math.min(i * 90, 1400)}ms` }
+                          : undefined
+                      }
+                    >
+                      <InlineApproval
+                        action={action}
+                        approval={approvalMap[action.id]}
+                        busy={approvalBusy === action.id}
+                        onApproval={onApproval}
+                        onRequestReject={onRequestReject}
+                      />
+                    </div>
                   ))}
                 </div>
               )}
@@ -2027,7 +2167,7 @@ function ChatBubble({
       <div
         className={`chat-bubble ${isUser ? "user" : "assistant"} ${
           groupedIndex > 0 ? "grouped" : ""
-        }`}
+        } ${revealing && !isUser ? "revealing" : ""}`}
       >
         <RichText
           text={msg.content}
@@ -2064,15 +2204,24 @@ function ChatBubble({
         )}
         {actions.length > 0 && (
           <div className="chat-approval-stack">
-            {actions.map((action) => (
-              <InlineApproval
+            {actions.map((action, i) => (
+              <div
                 key={action.id}
-                action={action}
-                approval={approvalMap[action.id]}
-                busy={approvalBusy === action.id}
-                onApproval={onApproval}
-                onRequestReject={onRequestReject}
-              />
+                className={revealing && !isUser ? "rt-line" : undefined}
+                style={
+                  revealing && !isUser
+                    ? { animationDelay: `${Math.min(i * 90, 1400)}ms` }
+                    : undefined
+                }
+              >
+                <InlineApproval
+                  action={action}
+                  approval={approvalMap[action.id]}
+                  busy={approvalBusy === action.id}
+                  onApproval={onApproval}
+                  onRequestReject={onRequestReject}
+                />
+              </div>
             ))}
           </div>
         )}
@@ -2269,52 +2418,36 @@ function RichText({
   reveal?: boolean;
   onRevealDone?: () => void;
 }) {
-  const [visibleCount, setVisibleCount] = useState(reveal ? 0 : text.length);
-  const displayText = reveal ? text.slice(0, visibleCount) : text;
+  // Premium reveal: render the whole reply at once, then fade each line in
+  // with a short, fast stagger (fade + slight rise + blur clear). Feels silky
+  // and "typed by light" rather than a mechanical character ticker.
+  const animate = reveal && !reduceMotion;
+  const STAGGER_MS = 85;
+  const FADE_MS = 620;
+  const CAP_MS = 1900; // never delay a line past this, even in long replies
+  const blocks = parseMarkdownBlocks(text);
+
+  let seq = 0;
+  const nextDelay = () => Math.min(seq++ * STAGGER_MS, CAP_MS);
+  const rendered = blocks.map((block, blockIndex) =>
+    renderBlock(block, blockIndex, animate, nextDelay),
+  );
+  const totalMs = animate
+    ? Math.min(Math.max(seq - 1, 0) * STAGGER_MS, CAP_MS) + FADE_MS + 80
+    : 0;
 
   useEffect(() => {
-    if (!reveal || reduceMotion) {
-      setVisibleCount(text.length);
-      if (reveal && reduceMotion) {
-        const raf = window.requestAnimationFrame(() => onRevealDone?.());
-        return () => window.cancelAnimationFrame(raf);
-      }
-      return;
+    if (!reveal) return;
+    if (!animate) {
+      const raf = window.requestAnimationFrame(() => onRevealDone?.());
+      return () => window.cancelAnimationFrame(raf);
     }
-    setVisibleCount(0);
-    // Premium reveal: a smooth, unhurried cadence. Short replies stream
-    // character-by-character; long ones reveal a few chars per frame so the
-    // whole thing still finishes within a calm, bounded window (never abrupt,
-    // never tediously slow). ~24ms/frame keeps motion silky on 60Hz+ displays.
-    const FRAME_MS = 24;
-    const MAX_DURATION_MS = 3200;
-    const frames = Math.max(1, Math.round(MAX_DURATION_MS / FRAME_MS));
-    const step = Math.max(1, Math.ceil(text.length / frames));
-    let doneTimer = 0;
-    const timer = window.setInterval(() => {
-      setVisibleCount((current) => {
-        const next = Math.min(text.length, current + step);
-        if (next >= text.length) {
-          window.clearInterval(timer);
-          doneTimer = window.setTimeout(() => onRevealDone?.(), 140);
-        }
-        return next;
-      });
-    }, FRAME_MS);
-    return () => {
-      window.clearInterval(timer);
-      window.clearTimeout(doneTimer);
-    };
-  }, [onRevealDone, reveal, text]);
+    const timer = window.setTimeout(() => onRevealDone?.(), totalMs);
+    return () => window.clearTimeout(timer);
+  }, [animate, onRevealDone, reveal, text, totalMs]);
 
-  const blocks = parseMarkdownBlocks(displayText);
   return (
-    <div className="chat-content">
-      {blocks.map((block, blockIndex) => renderBlock(block, blockIndex))}
-      {reveal && visibleCount < text.length && (
-        <span className="stream-caret" aria-hidden="true" />
-      )}
-    </div>
+    <div className={`chat-content${animate ? " rt-reveal" : ""}`}>{rendered}</div>
   );
 }
 
@@ -2428,10 +2561,27 @@ function splitTableRow(line: string): string[] {
     .map((cell) => cell.trim());
 }
 
-function renderBlock(block: MarkdownBlock, index: number) {
+function renderBlock(
+  block: MarkdownBlock,
+  index: number,
+  reveal = false,
+  nextDelay?: () => number,
+) {
+  // When revealing, each animatable line gets `.rt-line` + a staggered delay
+  // so the reply fades in line-by-line. Off-reveal, layout is untouched.
+  const lineProps = (): { className?: string; style?: CSSProperties } =>
+    reveal && nextDelay
+      ? { className: "rt-line", style: { animationDelay: `${nextDelay()}ms` } }
+      : {};
+
   if (block.kind === "code") {
+    const { className, style } = lineProps();
     return (
-      <pre className="rt-code-block" key={index}>
+      <pre
+        className={`rt-code-block${className ? ` ${className}` : ""}`}
+        style={style}
+        key={index}
+      >
         <code>{block.text}</code>
       </pre>
     );
@@ -2442,7 +2592,9 @@ function renderBlock(block: MarkdownBlock, index: number) {
     return (
       <Tag className="rt-list" key={index}>
         {block.items.map((item, itemIndex) => (
-          <li key={`${index}-${itemIndex}`}>{renderInline(item)}</li>
+          <li key={`${index}-${itemIndex}`} {...lineProps()}>
+            {renderInline(item)}
+          </li>
         ))}
       </Tag>
     );
@@ -2453,7 +2605,7 @@ function renderBlock(block: MarkdownBlock, index: number) {
       <div className="rt-table-wrap" key={index}>
         <table className="rt-table">
           <thead>
-            <tr>
+            <tr {...lineProps()}>
               {block.headers.map((header, headerIndex) => (
                 <th key={`${index}-h-${headerIndex}`}>{renderInline(header)}</th>
               ))}
@@ -2461,7 +2613,7 @@ function renderBlock(block: MarkdownBlock, index: number) {
           </thead>
           <tbody>
             {block.rows.map((row, rowIndex) => (
-              <tr key={`${index}-r-${rowIndex}`}>
+              <tr key={`${index}-r-${rowIndex}`} {...lineProps()}>
                 {block.headers.map((_, cellIndex) => (
                   <td key={`${index}-r-${rowIndex}-${cellIndex}`}>
                     {renderInline(row[cellIndex] ?? "")}
@@ -2472,6 +2624,24 @@ function renderBlock(block: MarkdownBlock, index: number) {
           </tbody>
         </table>
       </div>
+    );
+  }
+
+  if (reveal && nextDelay) {
+    // Each source line becomes its own block-level span so it can rise+fade
+    // independently (no <br> — the spans stack and animate per line).
+    return (
+      <p className="rt-block" key={index}>
+        {block.lines.map((line, lineIndex) => (
+          <span
+            key={`${index}-${lineIndex}`}
+            className="rt-line rt-pline"
+            style={{ animationDelay: `${nextDelay()}ms` }}
+          >
+            {renderInline(line)}
+          </span>
+        ))}
+      </p>
     );
   }
 
