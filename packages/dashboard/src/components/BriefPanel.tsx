@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ApiError, generateDailyBrief, generateEveningBrief, speak } from "@/lib/api";
+import { Button } from "@/components/ui/Button";
 import type { BriefResult, BriefType } from "@/lib/types";
 
 /**
@@ -55,21 +56,22 @@ export function BriefPanel({ onProposed }: { onProposed?: () => void }) {
 
       <div className="panel-body">
         <div className="form-row">
-          <button
-            type="button"
-            className="primary"
+          <Button
+            variant="primary"
+            loading={busy === "daily"}
             disabled={busy !== null}
             onClick={() => run("daily")}
           >
-            {busy === "daily" ? "Generating..." : "Daily Brief"}
-          </button>
-          <button
-            type="button"
+            Daily Brief
+          </Button>
+          <Button
+            variant="secondary"
+            loading={busy === "evening"}
             disabled={busy !== null}
             onClick={() => run("evening")}
           >
-            {busy === "evening" ? "Generating..." : "Evening Review"}
-          </button>
+            Evening Review
+          </Button>
         </div>
 
         <p className="muted">

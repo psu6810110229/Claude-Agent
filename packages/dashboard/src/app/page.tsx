@@ -53,6 +53,7 @@ import { actionQuestion, isActionType } from "@/lib/actionDisplay";
 import { ErrorBanner } from "@/components/States";
 import { Orb, type OrbState } from "@/components/Orb";
 import { JarvisInput } from "@/components/JarvisInput";
+import { Button } from "@/components/ui/Button";
 import { WelcomeAgenda } from "@/components/WelcomeAgenda";
 import { useShell } from "@/components/Shell";
 import { useToast } from "@/components/ToastProvider";
@@ -1216,17 +1217,12 @@ function SessionConfirmDialog({
           </p>
         </div>
         <div className="jarvis-dialog-actions">
-          <button type="button" onClick={onCancel} disabled={busy} autoFocus>
+          <Button variant="secondary" onClick={onCancel} disabled={busy} autoFocus>
             ยกเลิก
-          </button>
-          <button
-            type="button"
-            className="primary"
-            onClick={onConfirm}
-            disabled={busy}
-          >
-            {busy ? "กำลังเริ่ม..." : "เริ่มใหม่"}
-          </button>
+          </Button>
+          <Button variant="primary" onClick={onConfirm} disabled={busy} loading={busy}>
+            เริ่มใหม่
+          </Button>
         </div>
       </section>
     </div>
@@ -1513,18 +1509,13 @@ function ClarificationPanel({
       <span>{prompt.question}</span>
       <div className="chat-clarification-actions">
         {prompt.choices.map((choice) => (
-          <button
-            type="button"
-            className="primary"
-            key={choice}
-            onClick={() => onChoice(choice)}
-          >
+          <Button variant="primary" size="sm" key={choice} onClick={() => onChoice(choice)}>
             {choice}
-          </button>
+          </Button>
         ))}
-        <button type="button" onClick={onSkip}>
+        <Button variant="ghost" size="sm" onClick={onSkip}>
           ข้าม
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -1569,21 +1560,23 @@ function InlineApproval({
       {status === "pending" ? (
         <div className="chat-approval-actions">
           {failed && <span className="badge failed">ไม่สำเร็จ</span>}
-          <button
-            type="button"
-            className="primary"
+          <Button
+            variant="primary"
+            size="sm"
+            loading={busy}
             disabled={disabled}
             onClick={() => onApproval(action.id, "approve")}
           >
-            {busy ? "..." : copy.approve}
-          </button>
-          <button
-            type="button"
+            {copy.approve}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
             disabled={disabled}
             onClick={() => onApproval(action.id, "reject")}
           >
             {copy.reject}
-          </button>
+          </Button>
         </div>
       ) : (
         <span className={`badge ${executionStatus === "succeeded" ? "succeeded" : status}`}>
