@@ -53,7 +53,7 @@ import { actionQuestion, isActionType } from "@/lib/actionDisplay";
 import { ErrorBanner } from "@/components/States";
 import { Orb, type OrbState } from "@/components/Orb";
 import { JarvisInput } from "@/components/JarvisInput";
-import { Button } from "@/components/ui/Button";
+import { Button, ConfirmDialog } from "@/components/ui";
 import { WelcomeAgenda } from "@/components/WelcomeAgenda";
 import { useShell } from "@/components/Shell";
 import { useToast } from "@/components/ToastProvider";
@@ -309,6 +309,12 @@ interface ClarificationPrompt {
   choices: string[];
 }
 
+interface PendingApprovalRejection {
+  id: number;
+  question: string;
+  rejectLabel: string;
+}
+
 export default function HomePage() {
   const { notify } = useToast();
   const { setNewSession } = useShell();
@@ -329,6 +335,8 @@ export default function HomePage() {
   const [sendError, setSendError] = useState<string | null>(null);
   const [chatErrorRendered, setChatErrorRendered] = useState(false);
   const [approvalBusy, setApprovalBusy] = useState<number | null>(null);
+  const [pendingRejectAction, setPendingRejectAction] =
+    useState<PendingApprovalRejection | null>(null);
   const [resetting, setResetting] = useState(false);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
@@ -710,6 +718,7 @@ export default function HomePage() {
       // off-topic and interruptive. Inline follow-up now lives in the reply
       // itself (prompt rules). The /api/chat/followup route + scheduleFollowup()
       // remain available but are no longer auto-fired here.
+      return true;
     } catch (err) {
       // No final answer → stop any pending/playing acknowledgement immediately.
       cancelAck();
@@ -737,6 +746,7 @@ export default function HomePage() {
         title: "ส่งข้อความไม่สำเร็จ",
         description: message,
       });
+      return false;
     } finally {
       setSending(false);
       setOrbState("idle");
@@ -850,8 +860,11 @@ export default function HomePage() {
     });
   }
 
-  async function runApproval(id: number, decision: "approve" | "reject") {
-    if (approvalBusy) return;
+  async function runApproval(
+    id: number,
+    decision: "approve" | "reject",
+  ): Promise<boolean> {
+    if (approvalBusy) return false;
     clearFollowup();
     setApprovalBusy(id);
     setSendError(null);
@@ -870,6 +883,7 @@ export default function HomePage() {
             ? "ดำเนินการที่อนุมัติแล้ว"
             : "ยกเลิกงานที่รออนุมัติแล้ว",
       });
+      return true;
     } catch (err) {
       try {
         mergeApprovals(await listApprovals());
@@ -882,6 +896,7 @@ export default function HomePage() {
         title: "ทำรายการไม่สำเร็จ",
         description: err instanceof ApiError ? err.message : String(err),
       });
+      return false;
     } finally {
       setApprovalBusy(null);
     }
@@ -949,7 +964,9 @@ export default function HomePage() {
               </h1>
               <p>วันนี้ให้ Friday ช่วยอะไรดีคะ</p>
               <WelcomeAgenda
-                onPrompt={doSend}
+                onPrompt={(text) => {
+                  void doSend(text);
+                }}
                 disabled={sending || briefBusy !== null}
               />
             </motion.div>
@@ -981,6 +998,9 @@ export default function HomePage() {
                   })
                 }
                 onApproval={runApproval}
+                onRequestReject={(id, question, rejectLabel) =>
+                  setPendingRejectAction({ id, question, rejectLabel })
+                }
                 activeClarification={activeClarification}
                 onClarificationChoice={doSend}
                 onClarificationSkip={() => setActiveClarification(null)}
@@ -1107,7 +1127,9 @@ export default function HomePage() {
         }
       >
         <JarvisInput
-          onSubmit={doSend}
+          onSubmit={(text) => {
+            void doSend(text);
+          }}
           onBrief={runBrief}
           onAttach={onAttach}
           attachBusy={attachBusy}
@@ -1143,6 +1165,27 @@ export default function HomePage() {
           onConfirm={confirmNewSession}
         />
       )}
+      <ConfirmDialog
+        open={pendingRejectAction !== null}
+        onCancel={() => setPendingRejectAction(null)}
+        onConfirm={async () => {
+          if (!pendingRejectAction) return;
+          const ok = await runApproval(pendingRejectAction.id, "reject");
+          if (ok) setPendingRejectAction(null);
+        }}
+        busy={
+          pendingRejectAction !== null &&
+          approvalBusy === pendingRejectAction.id
+        }
+        title="ไม่อนุมัติรายการนี้?"
+        description={pendingRejectAction?.question}
+        confirmLabel={pendingRejectAction?.rejectLabel ?? "ปฏิเสธ"}
+        confirmVariant="danger"
+      >
+        <p className="muted u-text-sm">
+          Friday จะไม่ดำเนินการรายการนี้จนกว่าจะมีการเสนอใหม่
+        </p>
+      </ConfirmDialog>
     </div>
   );
 }
@@ -1351,6 +1394,7 @@ function ChatMessageGroup({
   revealingMessageIds,
   onRevealDone,
   onApproval,
+  onRequestReject,
   activeClarification,
   onClarificationChoice,
   onClarificationSkip,
@@ -1363,6 +1407,11 @@ function ChatMessageGroup({
   revealingMessageIds: Set<number>;
   onRevealDone: (id: number) => void;
   onApproval: (id: number, decision: "approve" | "reject") => void;
+  onRequestReject: (
+    id: number,
+    question: string,
+    rejectLabel: string,
+  ) => void;
   activeClarification: ClarificationPrompt | null;
   onClarificationChoice: (text: string) => void;
   onClarificationSkip: () => void;
@@ -1404,6 +1453,7 @@ function ChatMessageGroup({
             revealing={revealingMessageIds.has(msg.id)}
             onRevealDone={onRevealDone}
             onApproval={onApproval}
+            onRequestReject={onRequestReject}
             clarification={
               activeClarification?.messageId === msg.id
                 ? activeClarification
@@ -1427,6 +1477,7 @@ function ChatBubble({
   revealing,
   onRevealDone,
   onApproval,
+  onRequestReject,
   clarification,
   onClarificationChoice,
   onClarificationSkip,
@@ -1439,6 +1490,11 @@ function ChatBubble({
   revealing: boolean;
   onRevealDone: (id: number) => void;
   onApproval: (id: number, decision: "approve" | "reject") => void;
+  onRequestReject: (
+    id: number,
+    question: string,
+    rejectLabel: string,
+  ) => void;
   clarification: ClarificationPrompt | null;
   onClarificationChoice: (text: string) => void;
   onClarificationSkip: () => void;
@@ -1486,6 +1542,7 @@ function ChatBubble({
                 approval={approvalMap[action.id]}
                 busy={approvalBusy === action.id}
                 onApproval={onApproval}
+                onRequestReject={onRequestReject}
               />
             ))}
           </div>
@@ -1541,17 +1598,24 @@ function InlineApproval({
   approval,
   busy,
   onApproval,
+  onRequestReject,
 }: {
   action: ActionRef;
   approval: Approval | undefined;
   busy: boolean;
   onApproval: (id: number, decision: "approve" | "reject") => void;
+  onRequestReject: (
+    id: number,
+    question: string,
+    rejectLabel: string,
+  ) => void;
 }) {
   const status = approval?.status ?? "pending";
   const executionStatus = approval?.execution_status ?? "not_started";
   const copy = actionQuestion(approval ?? action);
   const disabled = status !== "pending" || busy;
   const failed = status === "pending" && executionStatus === "failed";
+  const approveLabel = failed ? "ลองใหม่" : copy.approve;
   const executionMessage = approval
     ? approvalExecutionMessage(approval)
     : null;
@@ -1565,7 +1629,8 @@ function InlineApproval({
         )}
       </span>
       {status === "pending" ? (
-        <div className="chat-approval-actions">
+        <div className="chat-approval-decision">
+          <div className="chat-approval-actions">
           {failed && <span className="badge failed">ไม่สำเร็จ</span>}
           <Button
             variant="primary"
@@ -1574,16 +1639,21 @@ function InlineApproval({
             disabled={disabled}
             onClick={() => onApproval(action.id, "approve")}
           >
-            {copy.approve}
+            {approveLabel}
           </Button>
+          </div>
+          <div className="chat-approval-danger">
           <Button
-            variant="secondary"
+            variant="link"
             size="sm"
             disabled={disabled}
-            onClick={() => onApproval(action.id, "reject")}
+            onClick={() =>
+              onRequestReject(action.id, copy.question, copy.reject)
+            }
           >
             {copy.reject}
           </Button>
+          </div>
         </div>
       ) : (
         <span className={`badge ${executionStatus === "succeeded" ? "succeeded" : status}`}>
