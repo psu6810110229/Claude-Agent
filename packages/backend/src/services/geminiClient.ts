@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import type { ClaudeInvoker } from "./claudeClient.js";
+import type { StreamInvoker } from "./aiStreaming.js";
 import {
   GEMINI_ENABLED,
   GEMINI_API_KEY,
@@ -128,6 +129,80 @@ export const realGeminiInvoker: ClaudeInvoker = async (prompt, opts) => {
     },
     timeoutMs,
   );
+};
+
+/**
+ * Streaming thinkingConfig: for the live-thinking UI we DO want thought parts,
+ * so includeThoughts is on unless thinking is explicitly disabled (budget 0).
+ */
+function streamThinkingConfig(
+  budget?: number,
+): { thinkingBudget?: number; includeThoughts: boolean } {
+  if (budget === 0) return { thinkingBudget: 0, includeThoughts: false };
+  if (budget === undefined) return { includeThoughts: true };
+  return { thinkingBudget: budget, includeThoughts: true };
+}
+
+/**
+ * Streaming invoker: emits live thinking (thought parts) + answer deltas, and
+ * resolves with the full accumulated answer text for the JSON pipeline. Hard
+ * timeout via AbortController on the genai stream.
+ */
+export const geminiStreamInvoker: StreamInvoker = async (prompt, sink, opts) => {
+  if (!isGeminiConfigured()) {
+    throw new GeminiError(
+      "disabled",
+      GEMINI_ENABLED
+        ? "Gemini is enabled but GEMINI_API_KEY is not set."
+        : "Gemini AI is disabled. Set GEMINI_ENABLED=1 and GEMINI_API_KEY.",
+    );
+  }
+
+  const timeoutMs = opts?.timeoutMs ?? GEMINI_TIMEOUT_MS;
+  const model = resolveModel(opts?.model);
+  const client = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let answer = "";
+  try {
+    const stream = await client.models.generateContentStream({
+      model,
+      contents: prompt,
+      config: {
+        thinkingConfig: streamThinkingConfig(opts?.thinkingBudget),
+        abortSignal: controller.signal,
+      },
+    });
+    for await (const chunk of stream) {
+      const parts = chunk.candidates?.[0]?.content?.parts ?? [];
+      for (const p of parts) {
+        const text = p.text ?? "";
+        if (!text) continue;
+        if (p.thought) {
+          sink({ type: "thinking", delta: text });
+        } else {
+          answer += text;
+          sink({ type: "content", delta: text });
+        }
+      }
+    }
+  } catch (err) {
+    clearTimeout(timer);
+    if (controller.signal.aborted) {
+      throw new GeminiError("timeout", `Gemini stream timed out after ${timeoutMs}ms`);
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    if (isRateLimitErrorMessage(msg)) {
+      throw new GeminiError("rate-limit", "Gemini API rate limit or quota was exceeded.");
+    }
+    throw new GeminiError("api-error", "Gemini stream request failed.");
+  }
+  clearTimeout(timer);
+  if (!answer.trim()) {
+    throw new GeminiError("empty", "Gemini stream returned empty answer.");
+  }
+  return answer;
 };
 
 /** One inline binary part for a multimodal request (image or PDF). */

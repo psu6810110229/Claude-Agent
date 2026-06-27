@@ -2,9 +2,18 @@ import { z } from "zod";
 import { realClaudeInvoker, type ClaudeInvoker } from "./claudeClient.js";
 import {
   realGeminiInvoker,
+  geminiStreamInvoker,
   isGeminiConfigured,
 } from "./geminiClient.js";
-import { makePsuInvoker, isPsuConfigured } from "./psuClient.js";
+import {
+  makePsuInvoker,
+  makePsuStreamInvoker,
+  isPsuConfigured,
+} from "./psuClient.js";
+import {
+  type StreamInvoker,
+  invokerToStream,
+} from "./aiStreaming.js";
 import {
   CLAUDE_MODEL,
   GEMINI_MODEL,
@@ -55,6 +64,12 @@ export interface AiProvider {
   isAvailable(): boolean;
   /** Invoke the provider for a single proposal turn. */
   invoke: ClaudeInvoker;
+  /**
+   * Native streaming invoke (live thinking + answer deltas), when the provider
+   * supports it. Providers without one (e.g. Claude) are adapted via
+   * `invokerToStream` in `resolveStreamInvoker`.
+   */
+  streamInvoke?: StreamInvoker;
 }
 
 /** Transparent record of which provider was chosen and why. */
@@ -122,6 +137,7 @@ export const geminiProvider: AiProvider = {
   model: GEMINI_MODEL,
   isAvailable: isGeminiConfigured,
   invoke: realGeminiInvoker,
+  streamInvoke: geminiStreamInvoker,
 };
 
 /**
@@ -134,6 +150,7 @@ export const qwenProvider: AiProvider = {
   model: PSU_QWEN_MODEL,
   isAvailable: isPsuConfigured,
   invoke: makePsuInvoker(PSU_QWEN_MODEL),
+  streamInvoke: makePsuStreamInvoker(PSU_QWEN_MODEL),
 };
 
 export const glmProvider: AiProvider = {
@@ -141,6 +158,7 @@ export const glmProvider: AiProvider = {
   model: PSU_GLM_MODEL,
   isAvailable: isPsuConfigured,
   invoke: makePsuInvoker(PSU_GLM_MODEL),
+  streamInvoke: makePsuStreamInvoker(PSU_GLM_MODEL),
 };
 
 export const gpt4oProvider: AiProvider = {
@@ -148,6 +166,7 @@ export const gpt4oProvider: AiProvider = {
   model: PSU_GPT4O_MODEL,
   isAvailable: isPsuConfigured,
   invoke: makePsuInvoker(PSU_GPT4O_MODEL),
+  streamInvoke: makePsuStreamInvoker(PSU_GPT4O_MODEL),
 };
 
 /** Provider registry. All providers registered; availability gates access. */
@@ -442,4 +461,13 @@ export function selectProvider(opts?: {
  */
 export function defaultInvoker(): ClaudeInvoker {
   return selectProvider().provider.invoke;
+}
+
+/**
+ * Streaming invoker for a resolved provider: its native streaming invoke if it
+ * has one, otherwise the plain invoke adapted into a (thinking-less) stream so
+ * every provider flows through the streaming endpoint uniformly.
+ */
+export function resolveStreamInvoker(provider: AiProvider): StreamInvoker {
+  return provider.streamInvoke ?? invokerToStream(provider.invoke);
 }

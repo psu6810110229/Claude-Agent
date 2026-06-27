@@ -1,4 +1,5 @@
 import type { ClaudeInvoker } from "./claudeClient.js";
+import type { StreamInvoker } from "./aiStreaming.js";
 import {
   PSU_ENABLED,
   PSU_API_KEY,
@@ -131,5 +132,120 @@ export function makePsuInvoker(defaultModel: string): ClaudeInvoker {
       throw new PsuError("empty", "PSU returned empty response.");
     }
     return text;
+  };
+}
+
+interface StreamChunk {
+  choices?: Array<{
+    delta?: { reasoning?: string | null; content?: string | null };
+  }>;
+}
+
+/**
+ * Streaming variant: `stream:true` SSE. Maps `delta.reasoning` → live thinking
+ * and `delta.content` → answer text (accumulated + emitted). Resolves with the
+ * full answer for the JSON pipeline. Same model allowlist + timeout + fail-closed
+ * discipline as the non-streaming invoker; the key is never logged.
+ */
+export function makePsuStreamInvoker(defaultModel: string): StreamInvoker {
+  return async (prompt, sink, opts) => {
+    if (!isPsuConfigured()) {
+      throw new PsuError(
+        "disabled",
+        PSU_ENABLED
+          ? "PSU is enabled but PSU_API_KEY is not set."
+          : "PSU gateway is disabled. Set PSU_ENABLED=1 and PSU_API_KEY.",
+      );
+    }
+    const requested = opts?.model;
+    if (requested && !isAllowedPsuModel(requested)) {
+      throw new PsuError("bad-model", `PSU model '${requested}' is not on the allowlist.`);
+    }
+    const model = requested ?? defaultModel;
+    const timeoutMs = opts?.timeoutMs ?? PSU_TIMEOUT_MS;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    let res: Response;
+    try {
+      res = await fetch(`${PSU_BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${PSU_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          stream: true,
+          messages: [{ role: "user", content: prompt }],
+        }),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      clearTimeout(timer);
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new PsuError("timeout", `PSU stream timed out after ${timeoutMs}ms`);
+      }
+      throw new PsuError("api-error", "PSU stream request failed.");
+    }
+
+    if (!res.ok) {
+      clearTimeout(timer);
+      if (res.status === 429) {
+        throw new PsuError("rate-limit", "PSU rate limit or quota was exceeded.");
+      }
+      throw new PsuError("api-error", `PSU returned HTTP ${res.status}.`);
+    }
+    if (!res.body) {
+      clearTimeout(timer);
+      throw new PsuError("api-error", "PSU stream had no response body.");
+    }
+
+    let answer = "";
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line.startsWith("data:")) continue;
+          const data = line.slice(5).trim();
+          if (data === "" || data === "[DONE]") continue;
+          let chunk: StreamChunk;
+          try {
+            chunk = JSON.parse(data) as StreamChunk;
+          } catch {
+            continue; // ignore keep-alive / partial frames
+          }
+          const delta = chunk.choices?.[0]?.delta;
+          if (!delta) continue;
+          if (typeof delta.reasoning === "string" && delta.reasoning) {
+            sink({ type: "thinking", delta: delta.reasoning });
+          }
+          if (typeof delta.content === "string" && delta.content) {
+            answer += delta.content;
+            sink({ type: "content", delta: delta.content });
+          }
+        }
+      }
+    } catch (err) {
+      clearTimeout(timer);
+      if (controller.signal.aborted) {
+        throw new PsuError("timeout", `PSU stream timed out after ${timeoutMs}ms`);
+      }
+      throw new PsuError("api-error", "PSU stream read failed.");
+    }
+    clearTimeout(timer);
+    if (answer.trim() === "") {
+      throw new PsuError("empty", "PSU stream returned empty answer.");
+    }
+    return answer;
   };
 }
