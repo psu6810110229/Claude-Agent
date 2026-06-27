@@ -155,6 +155,9 @@ export function NotificationCenter() {
   // anchored to the bell as the page scrolls or the viewport resizes.
   useEffect(() => {
     if (!open) return;
+    const raf = window.requestAnimationFrame(() => {
+      dropRef.current?.focus();
+    });
 
     const onPointerDown = (e: PointerEvent) => {
       const target = e.target as Node;
@@ -176,6 +179,7 @@ export function NotificationCenter() {
     window.addEventListener("resize", reposition);
 
     return () => {
+      window.cancelAnimationFrame(raf);
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("scroll", reposition, true);
@@ -207,6 +211,7 @@ export function NotificationCenter() {
         }}
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-controls={open ? "notification-center-dialog" : undefined}
         aria-label={
           unreadCount > 0
             ? `การแจ้งเตือน ยังไม่อ่าน ${unreadCount} รายการ`
@@ -219,9 +224,11 @@ export function NotificationCenter() {
 
       {open && (
         <div
+          id="notification-center-dialog"
           ref={dropRef}
           role="dialog"
-          aria-label="การแจ้งเตือน"
+          aria-labelledby="notification-center-title"
+          tabIndex={-1}
           className="notif-pop"
           style={{
             top: dropPos?.top ?? 0,
@@ -229,7 +236,7 @@ export function NotificationCenter() {
           }}
         >
           <div className="notif-head">
-            <strong>การแจ้งเตือน</strong>
+            <strong id="notification-center-title">การแจ้งเตือน</strong>
             {unreadCount > 0 && (
               <span className="notif-head-count">ยังไม่อ่าน {unreadCount}</span>
             )}

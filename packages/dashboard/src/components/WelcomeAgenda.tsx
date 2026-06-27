@@ -18,7 +18,6 @@
  * desktop; modals are centered overlays.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   CalendarDays,
   Check,
@@ -37,6 +36,7 @@ import {
 import { useToast } from "@/components/ToastProvider";
 import { Button } from "@/components/ui/Button";
 import { IconButton } from "@/components/ui/IconButton";
+import { Modal as OverlayModal } from "@/components/ui/Modal";
 import type { CalendarEvent, GoogleEvent, Reminder, Task } from "@/lib/types";
 
 const PREVIEW_CAP = 4;
@@ -341,7 +341,13 @@ export function WelcomeAgenda({
       )}
 
       {pickerOpen && (
-        <Modal onClose={() => setPickerOpen(false)} labelledBy="wa-picker-title">
+        <OverlayModal
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          size="sm"
+          ariaLabel="เลือกวันที่"
+          hideClose
+        >
           <DatePicker
             value={selectedKey}
             marked={markedDates}
@@ -352,11 +358,17 @@ export function WelcomeAgenda({
               setAllOpen(false);
             }}
           />
-        </Modal>
+        </OverlayModal>
       )}
 
       {allOpen && (
-        <Modal onClose={() => setAllOpen(false)} labelledBy="wa-all-title">
+        <OverlayModal
+          open={allOpen}
+          onClose={() => setAllOpen(false)}
+          size="sm"
+          ariaLabel={dateLabel(selectedKey)}
+          hideClose
+        >
           <div className="wa-modal-head">
             <h3 id="wa-all-title">{dateLabel(selectedKey)}</h3>
             <IconButton
@@ -379,7 +391,7 @@ export function WelcomeAgenda({
               />
             ))}
           </div>
-        </Modal>
+        </OverlayModal>
       )}
     </div>
   );
@@ -425,54 +437,6 @@ function AgendaRow({
         </span>
       ) : null}
     </div>
-  );
-}
-
-/** Centered overlay; closes on backdrop click and Escape. */
-function Modal({
-  children,
-  onClose,
-  labelledBy,
-}: {
-  children: React.ReactNode;
-  onClose: () => void;
-  labelledBy: string;
-}) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
-
-  if (!mounted) return null;
-
-  // Portal to <body>: the agenda lives inside a framer-motion div whose
-  // transform creates a containing block, which would otherwise anchor this
-  // position:fixed overlay to that box (off-center, clipped at the screen
-  // edge on mobile) instead of the viewport.
-  return createPortal(
-    <div
-      className="jarvis-dialog-backdrop"
-      role="presentation"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <section
-        className="wa-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={labelledBy}
-      >
-        {children}
-      </section>
-    </div>,
-    document.body,
   );
 }
 

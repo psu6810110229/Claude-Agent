@@ -332,7 +332,7 @@ export function Modal({
             <button
               type="button"
               className="ui-modal-close"
-              aria-label="Close"
+              aria-label="ปิด"
               onClick={onClose}
             >
               <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
@@ -420,7 +420,7 @@ export function Sheet({
             <button
               type="button"
               className="ui-modal-close"
-              aria-label="Close"
+              aria-label="ปิด"
               onClick={onClose}
             >
               <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">

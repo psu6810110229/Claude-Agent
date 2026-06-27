@@ -1,18 +1,16 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   ArrowUp,
   ChevronDown,
-  Moon,
   Paperclip,
-  Sun,
   Volume2,
   VolumeX,
 } from "lucide-react";
 import { GEMINI_MODEL_OPTIONS, type ProviderChoice, type BriefType } from "@/lib/types";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
 const PROVIDER_OPTIONS: { id: ProviderChoice; label: string; title: string }[] = [
   { id: "auto", label: "อัตโนมัติ", title: "ให้ระบบเลือกผู้ให้บริการที่เหมาะกับงาน" },
@@ -62,10 +60,13 @@ export function JarvisInput({
   const [dragging, setDragging] = useState(false);
 
   const [unifiedPos, setUnifiedPos] = useState<{ left: number; bottom: number } | null>(null);
+  const reduceMotion = useReducedMotion();
+  const unifiedMenuId = useId();
 
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const menuWrapRef = useRef<HTMLDivElement>(null);
+  const unifiedButtonRef = useRef<HTMLButtonElement>(null);
   const unifiedMenuWrapRef = useRef<HTMLDivElement>(null);
   const unifiedMenuRef = useRef<HTMLDivElement>(null);
 
@@ -115,9 +116,32 @@ export function JarvisInput({
         setUnifiedMenuOpen(false);
       }
     }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (unifiedMenuOpen) {
+        setUnifiedMenuOpen(false);
+        unifiedButtonRef.current?.focus();
+      }
+    }
     document.addEventListener("mousedown", handleOuterClick);
-    return () => document.removeEventListener("mousedown", handleOuterClick);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleOuterClick);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, [menuOpen, unifiedMenuOpen]);
+
+  useEffect(() => {
+    if (!unifiedMenuOpen) return;
+    const raf = requestAnimationFrame(() => {
+      const target =
+        unifiedMenuRef.current?.querySelector<HTMLElement>(
+          '[aria-pressed="true"], [role="menuitem"], button:not(:disabled)',
+        ) ?? unifiedMenuRef.current;
+      target?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [unifiedMenuOpen]);
 
   function submit() {
     const trimmed = text.trim();
@@ -214,10 +238,13 @@ export function JarvisInput({
           {onProviderChange && (
             <div className="ji-unified-wrap" ref={unifiedMenuWrapRef}>
               <button
+                ref={unifiedButtonRef}
                 type="button"
                 className="ji-unified-btn"
                 disabled={disabled}
                 onClick={() => setUnifiedMenuOpen((o) => !o)}
+                aria-haspopup="menu"
+                aria-controls={unifiedMenuOpen ? unifiedMenuId : undefined}
                 aria-expanded={unifiedMenuOpen}
               >
                 <span className="ji-unified-label">
@@ -232,6 +259,7 @@ export function JarvisInput({
                 <AnimatePresence>
                   {unifiedMenuOpen && (
                   <motion.div
+                    id={unifiedMenuId}
                     ref={unifiedMenuRef}
                     className="ji-custom-menu unified-menu"
                     style={{
@@ -239,11 +267,13 @@ export function JarvisInput({
                       left: unifiedPos?.left ?? 0,
                       bottom: unifiedPos?.bottom ?? 0,
                     }}
-                    initial={{ opacity: 0 }}
+                    tabIndex={-1}
+                    initial={reduceMotion ? false : { opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.15 }}
+                    exit={reduceMotion ? { opacity: 1 } : { opacity: 0 }}
+                    transition={reduceMotion ? { duration: 0 } : { duration: 0.15 }}
                     role="menu"
+                    aria-label="ตัวเลือก AI"
                   >
                     <div className="ji-menu-section-title">AI Provider</div>
                     <div
@@ -272,10 +302,10 @@ export function JarvisInput({
                     <AnimatePresence mode="popLayout">
                       {provider === "gemini" && onGeminiModelChange && (
                         <motion.div
-                          initial={{ opacity: 0, height: 0 }}
+                          initial={reduceMotion ? false : { opacity: 0, height: 0 }}
                           animate={{ opacity: 1, height: "auto" }}
-                          exit={{ opacity: 0, height: 0 }}
-                          transition={{ duration: 0.2 }}
+                          exit={reduceMotion ? { opacity: 1, height: "auto" } : { opacity: 0, height: 0 }}
+                          transition={reduceMotion ? { duration: 0 } : { duration: 0.2 }}
                           style={{ overflow: "hidden" }}
                         >
                           <div className="ji-menu-divider" />
@@ -328,9 +358,21 @@ export function JarvisInput({
           className="ji-send"
           disabled={disabled || text.trim() === ""}
           aria-label="ส่ง"
-          whileHover={disabled || text.trim() === "" ? {} : { scale: 1.05 }}
-          whileTap={disabled || text.trim() === "" ? {} : { scale: 0.94 }}
-          transition={{ type: "spring", bounce: 0.4, duration: 0.4 }}
+          whileHover={
+            reduceMotion || disabled || text.trim() === ""
+              ? {}
+              : { scale: 1.05 }
+          }
+          whileTap={
+            reduceMotion || disabled || text.trim() === ""
+              ? {}
+              : { scale: 0.94 }
+          }
+          transition={
+            reduceMotion
+              ? { duration: 0 }
+              : { type: "spring", bounce: 0.4, duration: 0.4 }
+          }
         >
           <ArrowUp strokeWidth={2} />
         </motion.button>

@@ -313,7 +313,7 @@ export default function HomePage() {
   const { notify } = useToast();
   const { setNewSession } = useShell();
   const [greeting, setGreeting] = useState<string | null>(null);
-  const reduceMotion = useReducedMotion();
+  const reduceMotion = useReducedMotion() ?? false;
   const [orbState, setOrbState] = useState<OrbState>("idle");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [provider, setProvider] = useState<ProviderChoice>("gemini");
@@ -967,6 +967,7 @@ export default function HomePage() {
               <ChatMessageGroup
                 key={group.key}
                 group={group}
+                reduceMotion={reduceMotion}
                 messageProvider={messageProvider}
                 approvalMap={approvalMap}
                 approvalBusy={approvalBusy}
@@ -1343,6 +1344,7 @@ function groupMessages(messages: ChatMessage[]): ChatGroup[] {
 
 function ChatMessageGroup({
   group,
+  reduceMotion,
   messageProvider,
   approvalMap,
   approvalBusy,
@@ -1354,6 +1356,7 @@ function ChatMessageGroup({
   onClarificationSkip,
 }: {
   group: ChatGroup;
+  reduceMotion: boolean;
   messageProvider: Record<number, AiProviderId>;
   approvalMap: ApprovalMap;
   approvalBusy: number | null;
@@ -1395,6 +1398,7 @@ function ChatMessageGroup({
             key={msg.id}
             msg={msg}
             groupedIndex={index}
+            reduceMotion={reduceMotion}
             approvalMap={approvalMap}
             approvalBusy={approvalBusy}
             revealing={revealingMessageIds.has(msg.id)}
@@ -1417,6 +1421,7 @@ function ChatMessageGroup({
 function ChatBubble({
   msg,
   groupedIndex,
+  reduceMotion,
   approvalMap,
   approvalBusy,
   revealing,
@@ -1428,6 +1433,7 @@ function ChatBubble({
 }: {
   msg: ChatMessage;
   groupedIndex: number;
+  reduceMotion: boolean;
   approvalMap: ApprovalMap;
   approvalBusy: number | null;
   revealing: boolean;
@@ -1467,6 +1473,7 @@ function ChatBubble({
         )}
         <RichText
           text={msg.content}
+          reduceMotion={reduceMotion}
           reveal={revealing && !isUser}
           onRevealDone={() => onRevealDone(msg.id)}
         />
@@ -1601,10 +1608,12 @@ function approvalExecutionMessage(approval: Approval): string | null {
 
 function RichText({
   text,
+  reduceMotion = false,
   reveal = false,
   onRevealDone,
 }: {
   text: string;
+  reduceMotion?: boolean;
   reveal?: boolean;
   onRevealDone?: () => void;
 }) {
@@ -1612,8 +1621,12 @@ function RichText({
   const displayText = reveal ? text.slice(0, visibleCount) : text;
 
   useEffect(() => {
-    if (!reveal) {
+    if (!reveal || reduceMotion) {
       setVisibleCount(text.length);
+      if (reveal && reduceMotion) {
+        const raf = window.requestAnimationFrame(() => onRevealDone?.());
+        return () => window.cancelAnimationFrame(raf);
+      }
       return;
     }
     setVisibleCount(0);
