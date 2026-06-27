@@ -2271,6 +2271,77 @@ pre.payload {
   padding-top: 1px;
 }
 
+/* --- Drive page ---------------------------------------------------------- */
+
+.drive-page {
+  min-width: 0;
+}
+
+.drive-title {
+  margin: 0 0 var(--space-1);
+  color: var(--text);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-tight);
+}
+
+.drive-lede {
+  margin: 0 0 var(--space-4);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.drive-search {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.drive-search .field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.drive-file-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  padding: var(--space-2) 0;
+}
+
+.drive-file-actions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.drive-upload {
+  margin-top: var(--space-6);
+}
+
+.drive-upload-actions,
+.drive-upload-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.drive-upload-result {
+  color: var(--muted-strong);
+  font-size: var(--text-xs);
+}
+
+.drive-upload-result.error {
+  color: var(--rose);
+}
+
+.drive-link {
+  color: var(--accent);
+}
+
 /* ---------------------------------------------------------------------- */
 /* Chat                                                                    */
 /* ---------------------------------------------------------------------- */
@@ -4009,8 +4080,19 @@ pre.payload {
     font-size: 24px;
   }
 
+  .main-inner {
+    min-width: 0;
+  }
+
   .page-header {
     display: block;
+    margin-bottom: var(--space-5);
+  }
+
+  .lede {
+    max-width: none;
+    color: var(--muted-strong);
+    overflow-wrap: anywhere;
   }
 
   .summary-grid {
@@ -4047,6 +4129,16 @@ pre.payload {
     min-height: 44px;
   }
 
+  .approval-card-top {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .payload-details summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   /* Collapse empty columns to a slim "Title 0" strip */
   .approval-column.empty .approval-column-head {
     min-height: 0;
@@ -4065,6 +4157,20 @@ pre.payload {
   .composer {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .section-header,
+  .card-footer,
+  .field-grid {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .card-footer button,
+  .field-grid .segmented,
+  .field-grid select {
+    width: 100%;
   }
 
   .command-panel .segmented {
@@ -4123,8 +4229,58 @@ pre.payload {
     flex: 1 1 96px;
   }
 
+  .entry-head,
+  .setting-row-inner {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .setting-badge {
+    margin-left: 0;
+    margin-top: var(--space-1);
+  }
+
   .ts {
     white-space: normal;
+  }
+
+  .gmail-msg {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+
+  .gmail-msg-snippet {
+    max-width: none;
+    white-space: normal;
+  }
+
+  .gmail-msg-date {
+    padding-top: 0;
+  }
+
+  .drive-search,
+  .drive-upload-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .drive-search button,
+  .drive-upload-actions button {
+    width: 100%;
+  }
+
+  .drive-file-row {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .drive-file-actions {
+    grid-column: 2;
+    flex-wrap: wrap;
+  }
+
+  .drive-file-actions .btn {
+    flex: 1 1 96px;
   }
 
   .activity-row {
@@ -4210,6 +4366,10 @@ pre.payload {
     flex: 1 1 0;
     min-height: 44px;
     font-size: 13px;
+  }
+
+  .source-hints {
+    flex-basis: 100%;
   }
 
   /* --- Composer: near full-width card with a small side margin --- */
@@ -5776,4 +5936,235 @@ select.field option { background: var(--surface); color: var(--text); }
   .ui-overlay,
   .ui-modal,
   .ui-sheet { animation: none; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Sprint 3.2 — per-route 360px sweep                                  */
+/* Keep route pages inside the viewport; grids may scroll internally.   */
+/* ------------------------------------------------------------------ */
+
+@media (max-width: 560px) {
+  body {
+    overflow-x: hidden;
+  }
+
+  .main {
+    padding-right: max(var(--space-3), env(safe-area-inset-right));
+    padding-left: max(var(--space-3), env(safe-area-inset-left));
+  }
+
+  .content,
+  .main,
+  .main-inner,
+  .page-header,
+  .page-header > div,
+  .section,
+  .panel,
+  .card,
+  .state,
+  .error {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .page-header h2,
+  .lede,
+  .item-title,
+  .state,
+  .error {
+    overflow-wrap: anywhere;
+  }
+
+  .jarvis-greeting {
+    max-width: 100%;
+    min-width: 0;
+    padding-inline: var(--space-2);
+  }
+
+  .jarvis-greeting h1 {
+    font-size: clamp(28px, 10vw, 36px);
+    overflow-wrap: anywhere;
+  }
+
+  .jarvis-greeting p {
+    font-size: var(--text-base);
+  }
+
+  .segmented {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .segment {
+    flex: 1 1 0;
+    justify-content: center;
+    min-width: 0;
+    min-height: var(--control-min-touch);
+    text-align: center;
+  }
+
+  .panel.pad,
+  .panel-body {
+    padding: var(--space-4);
+  }
+
+  .panel-head {
+    padding: var(--space-4);
+  }
+
+  .placeholder-hero {
+    padding: var(--space-10) var(--space-4);
+  }
+
+  .toast-viewport {
+    top: max(var(--space-3), env(safe-area-inset-top));
+    right: var(--space-3);
+    left: var(--space-3);
+    width: auto;
+  }
+
+  .ui-modal-header {
+    padding: var(--space-4) var(--space-4) var(--space-2);
+  }
+
+  .ui-modal-body {
+    padding: var(--space-2) var(--space-4) var(--space-4);
+  }
+
+  .ui-modal-footer {
+    align-items: stretch;
+    flex-direction: column-reverse;
+    padding: var(--space-3) var(--space-4) max(var(--space-4), env(safe-area-inset-bottom));
+  }
+
+  .ui-modal-footer .cluster,
+  .ui-modal-footer .btn {
+    width: 100%;
+  }
+
+  .ui-modal-footer .cluster {
+    justify-content: stretch;
+  }
+
+  .ui-modal-footer .btn {
+    min-height: var(--control-min-touch);
+  }
+
+  .approval-card-actions,
+  .chat-approval-actions,
+  .chat-clarification-actions,
+  .si-actions,
+  .si-editor-actions,
+  .sched-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .approval-card-actions .btn,
+  .chat-approval-actions .btn,
+  .chat-clarification-actions .btn,
+  .si-actions .btn,
+  .si-editor-actions .btn,
+  .sched-actions .btn {
+    width: 100%;
+  }
+
+  .drive-file-row {
+    gap: var(--space-2);
+  }
+
+  .drive-file-actions {
+    grid-column: 1 / -1;
+  }
+
+  .gmail-msg,
+  .activity-row,
+  .approval-board-card,
+  .row {
+    min-width: 0;
+  }
+
+  .sched-field,
+  .sched-field-input {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .sched-field-input input {
+    width: 100%;
+    text-align: left;
+  }
+
+  .sched-field-suffix {
+    min-width: 0;
+    padding-top: var(--space-2);
+  }
+
+  .sched-day-row,
+  .si-view-toggle {
+    width: 100%;
+  }
+
+  .sched-day {
+    flex: 1 1 44px;
+  }
+
+  .si-card {
+    padding: var(--space-3);
+  }
+
+  .si-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .si-head-title {
+    flex-wrap: wrap;
+  }
+
+  .si-view-toggle .btn {
+    flex: 1 1 0;
+    min-height: var(--control-min-touch);
+  }
+
+  .si-term,
+  .si-editor-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .si-tl-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .si-tl-time {
+    width: auto;
+  }
+
+  .si-tl-main {
+    grid-column: 1 / -1;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    width: 100%;
+    min-height: var(--control-min-touch);
+  }
+
+  .whg-scroll {
+    margin-inline: calc(var(--space-3) * -1);
+    border-radius: 0;
+    padding-inline: var(--space-3);
+  }
+
+  .whg-chip {
+    padding: var(--space-1) var(--space-2);
+  }
+
+  .whg-del,
+  .whg-check {
+    min-width: 22px;
+    min-height: 22px;
+  }
 }

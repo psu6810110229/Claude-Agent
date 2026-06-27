@@ -101,16 +101,7 @@ function FileRow({
 }) {
   const readable = isReadable(file.mimeType);
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "auto 1fr auto",
-        gap: "var(--space-1) var(--space-3)",
-        padding: "var(--space-2) 0",
-        borderBottom: "1px solid var(--border)",
-        alignItems: "center",
-      }}
-    >
+    <div className="drive-file-row">
       <span style={{ fontSize: "var(--text-lg)" }}>{mimeIcon(file.mimeType)}</span>
       <div style={{ minWidth: 0 }}>
         <div
@@ -131,7 +122,7 @@ function FileRow({
           {file.size ? ` · ${Math.round(Number(file.size) / 1024)} KB` : ""}
         </div>
       </div>
-      <div style={{ display: "flex", gap: "var(--space-1)" }}>
+      <div className="drive-file-actions">
         {readable && (
           <Button size="sm" variant="ghost" onClick={() => onRead(file)}>
             อ่าน
@@ -207,7 +198,7 @@ function UploadPanel() {
   };
 
   return (
-    <div style={{ marginTop: "var(--space-6)" }}>
+    <div className="drive-upload">
       <p style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--text)", marginBottom: "var(--space-2)" }}>
         อัปโหลดไฟล์
       </p>
@@ -246,7 +237,7 @@ function UploadPanel() {
       </div>
 
       {pending && status === "idle" && (
-        <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-2)" }}>
+        <div className="drive-upload-actions">
           <Button variant="primary" fullWidth onClick={confirmUpload}>
             ยืนยันอัปโหลด
           </Button>
@@ -263,7 +254,7 @@ function UploadPanel() {
       )}
 
       {status === "done" && (
-        <div style={{ marginTop: "var(--space-2)", fontSize: "var(--text-xs)", color: "var(--muted-strong)", display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
+        <div className="drive-upload-result">
           ✅ {message}
           {driveLink && (
             <a
@@ -286,7 +277,7 @@ function UploadPanel() {
       )}
 
       {status === "error" && (
-        <div style={{ marginTop: "var(--space-2)", fontSize: "var(--text-xs)", color: "var(--rose)", display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
+        <div className="drive-upload-result error">
           ⚠️ {message}
           <Button
             size="sm"
@@ -325,7 +316,7 @@ export default function DrivePage() {
   if (data && !data.available) {
     return (
       <div>
-        <h1 style={{ fontSize: "var(--text-xl)", fontWeight: 700, marginBottom: "var(--space-4)" }}>Google Drive</h1>
+        <h1 className="drive-title">Google Drive</h1>
         <Empty
           label={
             "Drive ยังไม่ได้เชื่อมต่อ — ตั้งค่า GOOGLE_DRIVE_ENABLED=1 " +
@@ -337,7 +328,7 @@ export default function DrivePage() {
   }
 
   return (
-    <div>
+    <div className="drive-page">
       <Modal
         open={!!readingFile}
         onClose={() => setReadingFile(null)}
@@ -347,12 +338,12 @@ export default function DrivePage() {
         {readingFile && <FileContentBody fileId={readingFile.id} />}
       </Modal>
 
-      <h1 style={{ fontSize: "var(--text-xl)", fontWeight: 700, marginBottom: "var(--space-1)" }}>Google Drive</h1>
-      <p style={{ fontSize: "var(--text-sm)", color: "var(--muted)", marginBottom: "var(--space-4)" }}>
+      <h1 className="drive-title">Google Drive</h1>
+      <p className="drive-lede">
         ค้นหาและอ่านไฟล์ · อัปโหลดผ่านหน้านี้ · ดาวน์โหลดผ่าน Drive โดยตรง
       </p>
 
-      <form onSubmit={handleSearch} style={{ display: "flex", gap: "var(--space-2)", marginBottom: "var(--space-4)" }}>
+      <form onSubmit={handleSearch} className="drive-search">
         <input
           type="text"
           value={query}
