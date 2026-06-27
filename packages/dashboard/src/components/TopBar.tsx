@@ -14,7 +14,7 @@ export function TopBar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const chipRef = useRef<HTMLButtonElement>(null);
-  const { setDrawerOpen, newSession } = useShell();
+  const { drawerOpen, setDrawerOpen, newSession } = useShell();
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -45,6 +45,8 @@ export function TopBar() {
         className="icon-btn mobile-menu-btn" 
         onClick={() => setDrawerOpen(true)}
         aria-label="เปิดเมนู"
+        aria-controls="app-sidebar"
+        aria-expanded={drawerOpen}
       >
         <Menu aria-hidden="true" strokeWidth={1.8} />
       </button>

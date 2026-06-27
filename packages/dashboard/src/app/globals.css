@@ -181,6 +181,10 @@ body {
   -ms-overflow-style: none;
 }
 
+body.drawer-lock {
+  overflow: hidden;
+}
+
 html::-webkit-scrollbar,
 body::-webkit-scrollbar {
   display: none;
@@ -548,6 +552,10 @@ h3 {
 
 .sidebar::-webkit-scrollbar {
   display: none;
+}
+
+.sidebar:focus {
+  outline: none;
 }
 
 .content {
@@ -3885,11 +3893,13 @@ pre.payload {
     top: 0;
     left: 0;
     bottom: 0;
-    width: 300px;
+    width: min(308px, calc(100vw - 56px));
     height: 100dvh;
     margin: 0;
     z-index: var(--z-drawer);
     border-radius: 0 24px 24px 0;
+    padding: max(22px, calc(var(--safe-top) + 16px)) 16px
+      max(16px, env(safe-area-inset-bottom));
     transform: translateX(-100%);
     transition: transform 300ms var(--ease-out-expo);
     box-shadow: 10px 0 40px rgba(0, 0, 0, 0.4), var(--inner-light);
@@ -3942,12 +3952,21 @@ pre.payload {
   }
 
   .topbar {
-    position: static;
+    position: sticky;
+    top: 0;
+    z-index: var(--z-sticky);
     padding: max(12px, var(--safe-top)) 18px 12px;
     border-bottom: 1px solid var(--border);
-    background: none;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
+    background: rgba(8, 8, 8, 0.72);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+  }
+
+  .icon-btn,
+  .topbar-session-btn,
+  .profile-chip {
+    min-width: var(--control-min-touch);
+    min-height: var(--control-min-touch);
   }
 
   .jarvis-session-bar {
@@ -4046,6 +4065,43 @@ pre.payload {
   .composer {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .command-panel .segmented {
+    width: 100%;
+  }
+
+  .command-panel .segment {
+    flex: 1;
+    justify-content: center;
+    min-height: var(--control-min-touch);
+  }
+
+  .command-panel .composer button {
+    min-height: var(--control-min-touch);
+  }
+
+  .topbar {
+    gap: var(--space-2);
+    padding-right: max(var(--space-3), env(safe-area-inset-right));
+    padding-left: max(var(--space-3), env(safe-area-inset-left));
+  }
+
+  .topbar-session-btn {
+    width: var(--control-min-touch);
+    padding: 0;
+    justify-content: center;
+  }
+
+  .topbar-session-btn span {
+    display: none;
+  }
+
+  .profile-chip {
+    gap: 0;
+    padding: 4px;
+    color: transparent;
+    font-size: 0;
   }
 
   select {
