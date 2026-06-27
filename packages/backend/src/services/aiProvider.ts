@@ -237,8 +237,11 @@ const DEEP_PATTERNS: RegExp[] = [
 ];
 
 /** Trivial greeting/ack openers. */
+// No trailing \b: an ASCII word boundary does not fire after a Thai glyph
+// (e.g. "สวัสดีครับ"), so it would wrongly reject Thai greetings. The
+// length<=24 guard in classifyIntent keeps this from over-matching.
 const TRIVIAL_PATTERN =
-  /^(สวัสดี|หวัดดี|ดีครับ|ดีค่ะ|hello|hi|hey|ขอบคุณ|ขอบใจ|thanks|thank you|โอเค|okay?|ครับ|ค่ะ|จ้า)\b/i;
+  /^(สวัสดี|หวัดดี|ดีครับ|ดีค่ะ|hello|hi|hey|ขอบคุณ|ขอบใจ|thanks|thank you|โอเค|okay?|ครับ|ค่ะ|จ้า)/i;
 
 /**
  * Classify a turn into an intent tier. Conservative on the casual side: a turn

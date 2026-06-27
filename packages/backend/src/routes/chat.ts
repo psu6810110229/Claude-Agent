@@ -12,11 +12,14 @@ import { normalizeDictation } from "../services/textNormalizer.js";
 import type { ClaudeInvoker } from "../services/claudeClient.js";
 import {
   selectProvider,
+  routeChat,
   otherAvailableProvider,
   getProvider,
   ProviderError,
   type AiProviderId,
+  type ResolvedProvider,
 } from "../services/aiProvider.js";
+import { isPsuConfigured } from "../services/psuClient.js";
 import {
   realGoogleEventsFetcher,
   type GoogleEventsFetcher,
@@ -181,6 +184,7 @@ async function handleChat(
     mode: requestedMode,
     sessionId,
     geminiModel,
+    psuModel,
   } = body.data;
   const mode = requestedMode ?? "manual";
   
@@ -245,18 +249,28 @@ async function handleChat(
   // invocation, no fake success, requested provider echoed back so the UI never
   // hides the choice). Auto routes transparently and never throws (Claude is the
   // always-available safe default); the message drives low-risk classification.
-  let resolved: ReturnType<typeof selectProvider>;
+  // Auto mode routes through the multi-model intent router ONLY when the PSU
+  // gateway is configured; otherwise it falls back to the original
+  // claude/gemini auto policy so existing behavior (and smoke tests) is intact.
+  const hasFiles = (body.data.attachmentIds?.length ?? 0) > 0;
+  let resolved: ResolvedProvider;
   try {
-    resolved = selectProvider({ mode, requestedProvider, message });
+    resolved =
+      mode === "auto" && isPsuConfigured()
+        ? routeChat({ message, hasFiles })
+        : selectProvider({ mode, requestedProvider, message });
   } catch (err) {
     if (err instanceof ProviderError) {
       logActivity(
         "ai.provider.unavailable",
         `requested '${requestedProvider}': ${err.reason}`,
       );
-      return reply.code(503).send({
+      const forbidden = err.reason === "schedule-forbidden";
+      return reply.code(forbidden ? 400 : 503).send({
         kind: "error",
-        error: providerUnavailableMessage(requestedProvider),
+        error: forbidden
+          ? "โมเดลนี้ไว้คุยเล่นเท่านั้น ใช้กับเรื่องตาราง/งานสำคัญไม่ได้ค่ะ"
+          : providerUnavailableMessage(requestedProvider),
         requestedProvider: requestedProvider ?? null,
         reason: err.reason,
       });
@@ -269,17 +283,24 @@ async function handleChat(
   // Per-turn Gemini model override: only honored when the resolved provider is
   // Gemini. Threaded into invoke opts; the Gemini invoker re-checks the
   // allowlist. The chosen model is echoed back as `selectedModel`.
+  const selectedProviderId = resolved.selection.selectedProvider;
   const useGeminiModel =
-    geminiModel && resolved.selection.selectedProvider === "gemini"
-      ? geminiModel
+    geminiModel && selectedProviderId === "gemini" ? geminiModel : undefined;
+  const usePsuModel =
+    psuModel &&
+    (selectedProviderId === "qwen" ||
+      selectedProviderId === "glm" ||
+      selectedProviderId === "gpt4o")
+      ? psuModel
       : undefined;
-  const effectiveModel = useGeminiModel ?? resolved.selection.selectedModel;
+  const overrideModel = useGeminiModel ?? usePsuModel;
+  const effectiveModel = overrideModel ?? resolved.selection.selectedModel;
 
   // Tests inject `aiInvoker`; otherwise invoke the selected provider directly.
   const baseInvoke = injectedInvoker ?? resolved.provider.invoke;
-  const invoke: ClaudeInvoker = useGeminiModel
+  const invoke: ClaudeInvoker = overrideModel
     ? (prompt, callOpts) =>
-        baseInvoke(prompt, { ...callOpts, model: useGeminiModel })
+        baseInvoke(prompt, { ...callOpts, model: overrideModel })
     : baseInvoke;
   const verified = isVerified(sessionId, true); // `true` updates the idle timeout
 
