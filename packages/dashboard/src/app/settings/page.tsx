@@ -6,22 +6,19 @@ import { useData } from "@/lib/useData";
 import { ErrorBanner } from "@/components/States";
 import { useToast } from "@/components/ToastProvider";
 import { SchedulePrefsPanel } from "@/components/SchedulePrefsPanel";
+import { Button } from "@/components/ui/Button";
 import type { Setting } from "@/lib/types";
 
 function SettingsSkeleton() {
   return (
     <div className="panel">
       {[1, 2, 3, 4].map((i) => (
-        <div
-          key={i}
-          className="row"
-          style={{ flexDirection: "column", alignItems: "flex-start", gap: "0.25rem", padding: "1rem 0" }}
-        >
-          <div style={{ display: "flex", width: "100%", alignItems: "center", gap: "0.75rem" }}>
-            <span className="skel" style={{ flex: 1, height: 18 }} />
-            <span className="skel" style={{ width: 72, height: 32, flexShrink: 0 }} />
+        <div key={i} className="row setting-row">
+          <div className="setting-row-inner">
+            <span className="skel setting-skel-label" />
+            <span className="skel setting-skel-btn" />
           </div>
-          <span className="skel" style={{ width: "58%", height: 13 }} />
+          <span className="skel setting-skel-desc" />
         </div>
       ))}
     </div>
@@ -53,9 +50,9 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <section className="section" style={{ marginTop: "1.5rem" }}>
+      <section className="section setting-schedule">
         <h3>ตั้งค่าตาราง</h3>
-        <p className="lede" style={{ marginBottom: "0.75rem" }}>
+        <p className="lede setting-schedule-lede">
           ปรับเกณฑ์ตรวจสุขภาพตาราง — เวลางาน เวลาพัก และวันที่กันไว้
         </p>
         <SchedulePrefsPanel />
@@ -106,25 +103,27 @@ function SettingRow({
   }
 
   return (
-    <div className="row" style={{ flexDirection: "column", alignItems: "flex-start", gap: "0.25rem", padding: "1rem 0" }}>
-      <div style={{ display: "flex", width: "100%", alignItems: "center", gap: "0.75rem" }}>
+    <div className="row setting-row">
+      <div className="setting-row-inner">
         <div className="grow">
           <strong>{setting.label}</strong>
-          <span className={`badge ${setting.enabled ? "" : "muted"}`} style={{ marginLeft: "0.5rem" }}>
+          <span className={`badge setting-badge ${setting.enabled ? "" : "muted"}`}>
             {setting.enabled ? "enabled" : "disabled"}
           </span>
         </div>
-        <button
-          className={setting.enabled ? "secondary" : "primary"}
-          onClick={toggle}
-          disabled={busy || !setting.configured}
+        <Button
+          variant={setting.enabled ? "secondary" : "primary"}
+          size="sm"
+          loading={busy}
+          disabled={!setting.configured}
           title={setting.configured ? undefined : setting.description}
+          onClick={toggle}
         >
-          {busy ? "Saving…" : setting.enabled ? "Disable" : "Enable"}
-        </button>
+          {setting.enabled ? "Disable" : "Enable"}
+        </Button>
       </div>
-      <div className="muted" style={{ fontSize: "0.85rem" }}>{setting.description}</div>
-      {err && <div className="muted" style={{ color: "var(--color-error, #c00)", fontSize: "0.85rem" }}>{err}</div>}
+      <div className="muted setting-desc">{setting.description}</div>
+      {err && <div className="setting-error">{err}</div>}
     </div>
   );
 }

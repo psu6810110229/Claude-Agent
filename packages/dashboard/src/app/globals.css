@@ -2167,6 +2167,102 @@ pre.payload {
   font-size: 13.5px;
 }
 
+/* --- Settings page (Sprint 2.3) ----------------------------------------- */
+
+.setting-row {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  padding-top: var(--space-4);
+  padding-bottom: var(--space-4);
+}
+
+.setting-row-inner {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.setting-badge {
+  margin-left: var(--space-2);
+}
+
+.setting-desc {
+  font-size: var(--text-sm);
+}
+
+.setting-error {
+  font-size: var(--text-sm);
+  color: var(--rose-5, #f87171);
+}
+
+.setting-schedule {
+  margin-top: var(--space-6);
+}
+
+.setting-schedule-lede {
+  margin-bottom: var(--space-3);
+}
+
+/* Skeleton placeholder shapes */
+.setting-skel-label { flex: 1; height: 18px; }
+.setting-skel-btn   { width: 72px; height: 32px; flex-shrink: 0; }
+.setting-skel-desc  { width: 58%; height: 13px; }
+
+/* --- Gmail page (Sprint 2.3) -------------------------------------------- */
+
+.gmail-msg {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--surface-2);
+  align-items: start;
+}
+
+.gmail-msg:last-child {
+  border-bottom: none;
+}
+
+.gmail-msg-sender {
+  font-size: var(--text-sm);
+  font-weight: 400;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.gmail-msg-sender.is-unread {
+  font-weight: 700;
+}
+
+.gmail-msg-subject {
+  font-size: var(--text-sm);
+  font-weight: 400;
+  color: var(--text);
+}
+
+.gmail-msg-subject.is-unread {
+  font-weight: 600;
+}
+
+.gmail-msg-snippet {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 480px;
+}
+
+.gmail-msg-date {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  white-space: nowrap;
+  padding-top: 1px;
+}
+
 /* ---------------------------------------------------------------------- */
 /* Chat                                                                    */
 /* ---------------------------------------------------------------------- */
