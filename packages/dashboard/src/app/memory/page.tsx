@@ -13,6 +13,7 @@ import {
 import { useData } from "@/lib/useData";
 import { formatTs } from "@/lib/format";
 import { ErrorBanner, Loading, Empty } from "@/components/States";
+import { Button } from "@/components/ui";
 import type {
   FactCategory,
   MemoryContent,
@@ -178,15 +179,14 @@ function KnownFacts() {
                   {fact.keywords ? ` · ${fact.keywords}` : ""}
                 </span>
               </span>
-              <button
-                type="button"
-                className="ghost"
+              <Button
+                variant="ghost"
                 onClick={() => void onForget(fact)}
                 disabled={busy}
                 title="เสนอให้ลืมข้อมูลนี้ (ต้องยืนยัน)"
               >
                 ลืม
-              </button>
+              </Button>
             </div>
           ))}
         </div>
@@ -242,13 +242,13 @@ function KnownFacts() {
             />
             ปักหมุด (จำเสมอ — สำหรับข้อมูลตัวตนหลัก)
           </label>
-          <button
+          <Button
             type="submit"
-            className="primary"
+            variant="primary"
             disabled={busy || content.trim() === ""}
           >
             {busy ? "กำลังบันทึก…" : "จดจำ"}
-          </button>
+          </Button>
         </div>
       </form>
     </section>
@@ -435,17 +435,18 @@ export default function MemoryPage() {
                     aria-labelledby="memory-mode-label"
                   >
                     {(["append", "replace"] as const).map((m) => (
-                      <button
+                      <Button
                         key={m}
-                        type="button"
                         role="radio"
                         aria-checked={mode === m}
                         className={`segment${mode === m ? " active" : ""}`}
+                        variant={mode === m ? "secondary" : "ghost"}
+                        size="sm"
                         onClick={() => setMode(m)}
                         disabled={busy}
                       >
                         {MODE_LABELS[m]}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                 </div>
@@ -484,13 +485,13 @@ export default function MemoryPage() {
                 <span className="muted">
                   เข้าคิวเป็นรายการรออนุมัติ — จะยังไม่มีการบันทึกจนกว่าคุณจะอนุมัติ
                 </span>
-                <button
+                <Button
                   type="submit"
-                  className="primary"
+                  variant="primary"
                   disabled={busy || draft.trim() === ""}
                 >
                   {busy ? "กำลังส่ง…" : "ส่งไปอนุมัติ"}
-                </button>
+                </Button>
               </div>
             </form>
           </div>

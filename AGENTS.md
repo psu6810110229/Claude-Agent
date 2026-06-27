@@ -143,6 +143,23 @@ Run commands only when relevant to the current request.
 - Keep local events/reminders secondary to Google Calendar unless told otherwise.
 - Preserve UTC ISO timestamp behavior and application-maintained `updated_at`.
 
+## Design Context
+
+- Strategy lives in `PRODUCT.md`; visual system lives in `DESIGN.md` and `.impeccable/design.json`. Read those before dashboard UI work.
+- Register: product. Personality: warm, conversational, human; secretary with a voice, not console, not toy.
+- North Star: "Liquid Glass Atelier" - dark-only, frosted glass over near-black void; depth from tonal layering and blur, not borders.
+- Signature: Arc Blue `#0a84ff` for action; Halo Violet `#8b5cf6` for identity/glow only. Status hues amber/rose/green are semantic only. Use one IBM Plex family.
+- Anti-refs: generic SaaS dashboard, toy chatbot, cluttered enterprise admin, over-the-top sci-fi HUD. Orb is the only spectacle.
+- A11y target WCAG 2.1 AA for a single operator: verify contrast on glass, not void; use at least 44px touch targets; reduced-motion must cover framer-motion/JS; never disable zoom.
+- Tokens live in `packages/dashboard/src/app/globals.css` `:root`.
+
+## UI Loop Engineering
+
+- For dashboard UI changes, run the design loop from the docs first: read `PRODUCT.md`, `DESIGN.md`, `.impeccable/design.json`, and the relevant component/page files.
+- Prefer existing primitives and tokens over one-off styling. New actions should use the shared `Button` / `IconButton` primitives where applicable.
+- Use `/impeccable` commands for UI changes to catch visual hierarchy, placement, and design-system drift that lint/build checks cannot see.
+- Keep UI refactors incremental: migrate one surface or primitive family at a time, then run the focused dashboard check before expanding scope.
+
 ## Before Making Changes
 
 - Read `AGENTS.md` first.

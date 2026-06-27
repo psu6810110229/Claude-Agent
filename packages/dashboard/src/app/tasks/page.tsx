@@ -13,6 +13,7 @@ import { formatTs } from "@/lib/format";
 import { ErrorBanner, Empty } from "@/components/States";
 import { CommandBar } from "@/components/CommandBar";
 import { useToast } from "@/components/ToastProvider";
+import { Button } from "@/components/ui";
 import type { Task } from "@/lib/types";
 
 type ToastSuccess = {
@@ -105,13 +106,13 @@ export default function TasksPage() {
           onChange={(e) => setTitle(e.target.value)}
           disabled={busy}
         />
-        <button
+        <Button
           type="submit"
-          className="primary"
+          variant="primary"
           disabled={busy || title.trim() === ""}
         >
           Add
-        </button>
+        </Button>
       </form>
 
       {actionError && (
@@ -242,19 +243,17 @@ function TaskRow({
 
       {!archived && !editing && (
         <div className="row-actions">
-          <button type="button" onClick={toggleStatus} disabled={busy}>
+          <Button onClick={toggleStatus} disabled={busy}>
             {task.status === "done" ? "Reopen" : "Done"}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             onClick={() => setEditing(true)}
             disabled={busy}
           >
             Edit
-          </button>
-          <button
-            type="button"
-            className="danger"
+          </Button>
+          <Button
+            variant="danger"
             onClick={() =>
               run(() => archiveTask(task.id), {
                 title: "Deleted",
@@ -264,22 +263,20 @@ function TaskRow({
             disabled={busy}
           >
             Archive
-          </button>
+          </Button>
         </div>
       )}
 
       {editing && (
         <div className="row-actions">
-          <button
-            type="button"
-            className="primary"
+          <Button
+            variant="primary"
             onClick={saveTitle}
             disabled={busy}
           >
             Save
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             onClick={() => {
               setDraft(task.title);
               setEditing(false);
@@ -287,7 +284,7 @@ function TaskRow({
             disabled={busy}
           >
             Cancel
-          </button>
+          </Button>
         </div>
       )}
     </div>

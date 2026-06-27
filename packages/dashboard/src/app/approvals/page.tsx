@@ -17,6 +17,7 @@ import {
   summarizePayload,
   summarizePayloadDetail,
 } from "@/lib/actionDisplay";
+import { Button } from "@/components/ui";
 import type { Approval, ApprovalConflict } from "@/lib/types";
 
 const CLASH_LABEL: Record<ApprovalConflict["kind"], string> = {
@@ -291,24 +292,22 @@ function ApprovalCard({
 
       {pending && (
         <div className="approval-card-actions">
-          <button
-            type="button"
-            className="primary"
+          <Button
+            variant="primary"
             onClick={() => run(approval, "approve")}
             disabled={busy}
+            iconLeading={<PrimaryIcon strokeWidth={1.9} />}
           >
-            <PrimaryIcon aria-hidden="true" strokeWidth={1.9} />
             {busy ? "Working" : primaryLabel}
-          </button>
-          <button
-            type="button"
-            className="danger"
+          </Button>
+          <Button
+            variant="danger"
             onClick={() => run(approval, "reject")}
             disabled={busy}
+            iconLeading={<X strokeWidth={1.9} />}
           >
-            <X aria-hidden="true" strokeWidth={1.9} />
             Reject
-          </button>
+          </Button>
         </div>
       )}
 
