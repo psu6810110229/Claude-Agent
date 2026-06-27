@@ -5262,3 +5262,366 @@ pre.payload {
   .btn:hover:not(:disabled), .btn:active:not(:disabled) { transform: none; }
   .btn-spinner { animation-duration: 1200ms; }
 }
+
+/* ------------------------------------------------------------------ */
+/* Sprint 1.2 — Form primitives (.field system)                       */
+/* Input / Textarea / Select share one token-driven look. `.field`    */
+/* class outranks the element-level input/select/textarea base. Focus */
+/* ring + coarse-pointer 44px touch baked in, matching .btn.          */
+/* ------------------------------------------------------------------ */
+.field-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.field-label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--muted-strong);
+}
+.field-label-req { color: var(--rose); margin-left: 2px; }
+.field-hint { font-size: var(--text-xs); color: var(--muted); }
+.field-error-text { font-size: var(--text-xs); color: var(--rose); }
+
+.field {
+  width: 100%;
+  min-height: var(--control-md);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--glass);
+  box-shadow: var(--inner-light);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+  outline: none;
+  transition:
+    background-color 200ms var(--spring),
+    border-color 200ms var(--spring),
+    box-shadow 200ms var(--spring);
+}
+.field::placeholder {
+  /* Contrast-on-glass: muted (55%) fails on lightened glass; use 78%. */
+  color: var(--muted-strong);
+}
+.field:hover:not(:disabled):not(:focus) { border-color: var(--border-strong); }
+.field:focus {
+  border-color: var(--accent);
+  background: var(--glass-strong);
+  box-shadow: var(--inner-light), 0 0 0 3px var(--accent-soft);
+}
+.field:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* Error — rose border + ring, set by the primitive on `error` prop. */
+.field-error { border-color: var(--rose); }
+.field-error:focus { box-shadow: var(--inner-light), 0 0 0 3px var(--rose-soft); }
+
+/* Sizes — density, height from the control scale (matches .btn-*). */
+.field-sm { min-height: var(--control-sm); padding: 0 var(--space-2); font-size: var(--text-xs); }
+.field-md { min-height: var(--control-md); }
+.field-lg { min-height: var(--control-lg); padding: 0 var(--space-4); font-size: var(--text-base); }
+
+/* Textarea — multiline: taller, vertical pad, vertical-only resize. */
+textarea.field {
+  min-height: 120px;
+  padding: var(--space-3);
+  line-height: var(--leading-normal);
+  resize: vertical;
+}
+
+/* Select — native chevron removed, token-coloured chevron drawn via CSS. */
+select.field {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: var(--space-8);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a0a0a8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--space-3) center;
+  background-size: 16px;
+  cursor: pointer;
+}
+select.field option { background: var(--surface); color: var(--text); }
+
+/* Touch a11y — bump controls to the WCAG hit target on coarse pointers. */
+@media (pointer: coarse) {
+  .field:not(textarea) { min-height: var(--control-min-touch); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .field { transition: none; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Sprint 1.3 — Surface (Card / Panel) + layout (Stack/Cluster/       */
+/* Container) primitives. Glass tiers + token-scale spacing rhythm.   */
+/* ------------------------------------------------------------------ */
+/* Card — translucent glass over the void (default content surface).  */
+.card {
+  border-radius: var(--radius-lg);
+  background: var(--glass);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-soft), var(--inner-light);
+}
+.card-strong { background: var(--glass-strong); border-color: var(--border-strong); }
+
+/* Panel — solid elevated surface (popover / dropdown / menu tier).   */
+.panel {
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+}
+
+/* Shared padding scale for Card + Panel. */
+.card-pad-none { padding: 0; }
+.card-pad-sm { padding: var(--space-4); }
+.card-pad-md { padding: var(--space-5); }
+.card-pad-lg { padding: var(--space-6); }
+
+/* Stack — vertical rhythm. */
+.stack { display: flex; flex-direction: column; }
+.stack-1 { gap: var(--space-1); }
+.stack-2 { gap: var(--space-2); }
+.stack-3 { gap: var(--space-3); }
+.stack-4 { gap: var(--space-4); }
+.stack-5 { gap: var(--space-5); }
+.stack-6 { gap: var(--space-6); }
+.stack-8 { gap: var(--space-8); }
+.stack-align-start { align-items: flex-start; }
+.stack-align-center { align-items: center; }
+.stack-align-end { align-items: flex-end; }
+.stack-align-stretch { align-items: stretch; }
+
+/* Cluster — horizontal group that wraps. */
+.cluster { display: flex; flex-wrap: wrap; }
+.cluster-1 { gap: var(--space-1); }
+.cluster-2 { gap: var(--space-2); }
+.cluster-3 { gap: var(--space-3); }
+.cluster-4 { gap: var(--space-4); }
+.cluster-5 { gap: var(--space-5); }
+.cluster-6 { gap: var(--space-6); }
+.cluster-8 { gap: var(--space-8); }
+.cluster-align-start { align-items: flex-start; }
+.cluster-align-center { align-items: center; }
+.cluster-align-end { align-items: flex-end; }
+.cluster-align-stretch { align-items: stretch; }
+.cluster-justify-start { justify-content: flex-start; }
+.cluster-justify-center { justify-content: center; }
+.cluster-justify-end { justify-content: flex-end; }
+.cluster-justify-between { justify-content: space-between; }
+
+/* Container — centered max-width column (from the width scale). */
+.container {
+  width: 100%;
+  margin-inline: auto;
+  padding-inline: var(--space-4);
+}
+.container-sm { max-width: var(--width-sm); }
+.container-md { max-width: var(--width-md); }
+.container-lg { max-width: var(--width-lg); }
+.container-xl { max-width: var(--width-xl); }
+.container-default { max-width: var(--width-container); }
+
+/* ------------------------------------------------------------------ */
+/* Sprint 1.4 — Modal / Sheet primitives (.ui-overlay system)         */
+/* ------------------------------------------------------------------ */
+
+/* Shared backdrop: frosted void with the Arc-blue depth wash, same as     */
+/* .jarvis-dialog but generalized. Centers the modal; sheets self-align.   */
+.ui-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal-backdrop);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+  background:
+    radial-gradient(560px 360px at 50% 42%, rgba(10, 132, 255, 0.12), transparent 65%),
+    rgba(0, 0, 0, 0.46);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  animation: dialog-backdrop-enter 180ms var(--ease-out-quart) both;
+}
+
+/* Centered glass dialog on the size scale. */
+.ui-modal {
+  position: relative;
+  z-index: var(--z-modal);
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: calc(100dvh - var(--space-10));
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: rgba(26, 27, 32, 0.9);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(34px) saturate(150%);
+  -webkit-backdrop-filter: blur(34px) saturate(150%);
+  box-shadow:
+    0 34px 120px rgba(0, 0, 0, 0.62),
+    0 10px 36px rgba(10, 132, 255, 0.1),
+    var(--inner-light);
+  animation: dialog-enter 240ms var(--ease-out-expo) both;
+}
+
+.ui-modal-sm { max-width: var(--modal-sm); }
+.ui-modal-md { max-width: var(--modal-md); }
+.ui-modal-lg { max-width: var(--modal-lg); }
+
+.ui-modal:focus,
+.ui-sheet:focus { outline: none; }
+
+/* Header / body / footer regions — body scrolls, header+footer pinned. */
+.ui-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-5) var(--space-3);
+}
+
+.ui-modal-heading { min-width: 0; }
+
+.ui-modal-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  line-height: 1.25;
+  color: var(--text);
+}
+
+.ui-modal-desc {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--muted-strong);
+}
+
+.ui-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-5) var(--space-5);
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
+.ui-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--border);
+}
+
+/* Close affordance — square, meets the touch target on coarse pointers. */
+.ui-modal-close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-sm);
+  height: var(--control-sm);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted-strong);
+  cursor: pointer;
+  transition: background var(--ease-out-quart) 140ms, color var(--ease-out-quart) 140ms;
+}
+
+.ui-modal-close:hover { background: var(--glass-weak); color: var(--text); }
+.ui-modal-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Sheet — edge drawer. Shares the modal glass; pins to an edge instead. */
+.ui-sheet {
+  position: fixed;
+  z-index: var(--z-drawer);
+  display: flex;
+  flex-direction: column;
+  background: rgba(22, 23, 28, 0.92);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(34px) saturate(150%);
+  -webkit-backdrop-filter: blur(34px) saturate(150%);
+  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.6), var(--inner-light);
+}
+
+.ui-sheet-right,
+.ui-sheet-left {
+  top: 0;
+  bottom: 0;
+  width: 100%;
+  max-height: 100dvh;
+}
+.ui-sheet-right.ui-sheet-sm,
+.ui-sheet-left.ui-sheet-sm { max-width: var(--modal-sm); }
+.ui-sheet-right.ui-sheet-md,
+.ui-sheet-left.ui-sheet-md { max-width: var(--modal-md); }
+.ui-sheet-right.ui-sheet-lg,
+.ui-sheet-left.ui-sheet-lg { max-width: var(--modal-lg); }
+
+.ui-sheet-right {
+  right: 0;
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+  animation: sheet-in-right 260ms var(--ease-out-expo) both;
+}
+.ui-sheet-left {
+  left: 0;
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  animation: sheet-in-left 260ms var(--ease-out-expo) both;
+}
+.ui-sheet-bottom {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  max-height: calc(100dvh - var(--space-10));
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  animation: sheet-in-bottom 280ms var(--ease-out-expo) both;
+}
+
+@keyframes sheet-in-right {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes sheet-in-left {
+  from { opacity: 0; transform: translateX(-24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes sheet-in-bottom {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Mobile: a centered dialog can't fit a 360px viewport → drop the modal to */
+/* a full-width bottom sheet rounded only at the top.                       */
+@media (max-width: 560px) {
+  .ui-overlay { padding: 0; align-items: flex-end; }
+  .ui-modal {
+    max-width: 100%;
+    max-height: 92dvh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    animation: sheet-in-bottom 280ms var(--ease-out-expo) both;
+  }
+  .ui-sheet-right,
+  .ui-sheet-left {
+    max-width: 100%;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    top: auto;
+    bottom: 0;
+    max-height: 92dvh;
+    animation: sheet-in-bottom 280ms var(--ease-out-expo) both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-overlay,
+  .ui-modal,
+  .ui-sheet { animation: none; }
+}
