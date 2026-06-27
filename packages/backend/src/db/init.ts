@@ -17,7 +17,36 @@ export function initDb(): void {
   db.exec(schema);
   ensureApprovalExecutionColumns();
   ensureNotificationDedupColumn();
+  ensureCalendarPlanItemTriageColumns();
   ensureMemoryFiles();
+}
+
+/**
+ * Triage redesign — additive migration for the per-item category + the existing
+ * clashing event's time (shown as "already on calendar at HH:MM"). Fresh DBs get
+ * these from schema.sql; pre-existing DBs add them here. Legacy rows default to
+ * category='clean' (NULL-safe) and NULL conflict times — the UI falls back to the
+ * conflict_with snapshot, so old pending plans keep rendering.
+ */
+function ensureCalendarPlanItemTriageColumns(): void {
+  const db = getDb();
+  const columns = new Set(
+    (
+      db
+        .prepare("PRAGMA table_info(calendar_plan_item)")
+        .all() as { name: string }[]
+    ).map((col) => col.name),
+  );
+  const additions: Record<string, string> = {
+    category: "TEXT NOT NULL DEFAULT 'clean'",
+    conflict_starts_at: "TEXT",
+    conflict_ends_at: "TEXT",
+  };
+  for (const [name, decl] of Object.entries(additions)) {
+    if (!columns.has(name)) {
+      db.exec(`ALTER TABLE calendar_plan_item ADD COLUMN ${name} ${decl}`);
+    }
+  }
 }
 
 /**

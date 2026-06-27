@@ -95,7 +95,7 @@ export function Sidebar({
   const showMore = isMobile || expanded || secondaryActive;
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" id="app-sidebar" tabIndex={-1}>
       <div className="brand">
         <div className="brand-orb" aria-hidden="true" />
         <div style={{ flex: 1, minWidth: 0 }}>

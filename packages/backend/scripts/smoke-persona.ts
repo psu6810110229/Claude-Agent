@@ -99,6 +99,20 @@ function main(): void {
     !normal.includes("รอคุณยืนยันนะครับ") && !normal.includes("ขอดูให้ก่อนนะครับ"),
     "normal prompt: imitable ACK templates carry no นะครับ",
   );
+  // GROUP C: no existence/coverage claims beyond the shown 7-day window (the LAB
+  // bulk-add false "ยังไม่มี" failure). Drift-proof: editing the rule out fails here.
+  assert(
+    normal.includes("GROUP C — No existence claims beyond the shown window"),
+    "normal prompt has TRUTHFULNESS GROUP C (no out-of-window existence claims)",
+  );
+  assert(
+    normal.includes("ปฏิทินที่เห็นตรงนี้แค่ 7 วันข้างหน้า"),
+    "GROUP C gives the 7-day window honesty wording for far-future calendar items",
+  );
+  assert(
+    normal.includes("let the backend's per-item duplicate/conflict scan decide"),
+    "bulk-add rule defers existence/duplicate judgement to the backend, not the model",
+  );
 
   // --- 3. Restricted prompt: generic boundary, no mechanism tokens ---
   const restricted = buildChatPrompt(makeCtx({ message: "ฟานไปไหนกับใคร", restricted: true }));

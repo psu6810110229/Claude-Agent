@@ -23,6 +23,7 @@
     "google-auth": "tsx scripts/google-auth.ts",
     "smoke:phase3": "tsx scripts/smoke-phase3.ts",
     "smoke:phase4": "tsx scripts/smoke-phase4.ts",
+    "smoke:router": "tsx scripts/smoke-router.ts",
     "smoke:step13": "tsx scripts/step13-smoke-test.ts",
     "smoke:step14": "tsx scripts/step14-smoke-test.ts",
     "smoke:step14b": "tsx scripts/smoke-step14b-smoke-test.ts",
@@ -42,12 +43,13 @@
     "smoke:step27": "tsx scripts/smoke-step27.ts",
     "smoke:step28": "tsx scripts/smoke-step28.ts",
     "smoke:schedule-import": "tsx scripts/smoke-schedule-import.ts",
+    "smoke:calendar-plan": "tsx scripts/smoke-calendar-plan.ts",
     "smoke:schedule-extract": "tsx scripts/smoke-schedule-extract.ts",
     "smoke:persona": "tsx scripts/smoke-persona.ts"
   },
   "dependencies": {
     "@fastify/multipart": "^10.0.0",
-    "@google/generative-ai": "^0.21.0",
+    "@google/genai": "^2.10.0",
     "better-sqlite3": "^12.2.0",
     "fastify": "^5.2.1",
     "ffmpeg-static": "^5.3.0",

@@ -299,11 +299,64 @@ export interface ScheduleImportResult {
   items: ScheduleImportItem[];
 }
 
+/** A composer attachment staged before send (chat doc by default). */
+export interface StagedAttachment {
+  /** Opaque upload id from POST /api/uploads. */
+  id: string;
+  /** Original filename, for the chip label. */
+  name: string;
+  kind: "image" | "pdf";
+}
+
 /** POST /api/schedule-imports/:id/approve response. */
 export interface ApproveImportResult {
   created: ClassBlock[];
   skipped: ScheduleImportItem[];
   rejected: number;
+}
+
+/** A staged bulk Google Calendar add awaiting review (from a chat turn). */
+export interface CalendarPlan {
+  id: number;
+  status: string; // pending | approved | discarded
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One proposed Google event in a plan. starts_at/ends_at are UTC ISO strings. */
+export interface CalendarPlanItem {
+  id: number;
+  plan_id: number;
+  title: string;
+  starts_at: string;
+  ends_at: string;
+  location: string | null;
+  notes: string | null;
+  selected: number; // 0 | 1
+  override_conflict: number; // 0 | 1
+  conflict_with: string | null;
+  conflict_detail: string | null;
+  category: string; // clean | duplicate | overlap
+  conflict_starts_at: string | null; // existing clashing event's time (UTC ISO)
+  conflict_ends_at: string | null;
+  status: string; // ready | conflict | created | rejected | skipped
+  created_at: string;
+  updated_at: string;
+}
+
+/** GET/chat-embedded calendar plan payload. */
+export interface CalendarPlanResult {
+  plan: CalendarPlan;
+  items: CalendarPlanItem[];
+}
+
+/** POST /api/calendar-plans/:id/approve response. */
+export interface ApproveCalendarPlanResult {
+  created: { id: number; title: string }[];
+  skippedConflict: { id: number; title: string; conflict_with: string | null }[];
+  rejected: number;
+  failed: { id: number; title: string; error: string }[];
 }
 
 /** One open window from GET /api/free-slots. */
@@ -531,7 +584,7 @@ export interface ChatMessage {
  * empty). Failures arrive as 4xx/5xx via ApiError.
  */
 /** Manual AI provider choice carried per chat request (Roadmap 11 Phase 2). */
-export type AiProviderId = "claude" | "gemini";
+export type AiProviderId = "claude" | "gemini" | "qwen" | "glm" | "gpt4o";
 
 /** Provider routing mode (Roadmap 11 Phase 4). */
 export type AiProviderMode = "manual" | "auto";
@@ -578,6 +631,8 @@ export interface ChatResult {
   requestedProvider: AiProviderId | null;
   providerReason?: string;
   approvals: Approval[];
+  /** Staged bulk Google Calendar add for review; null on ordinary turns. */
+  calendarPlan?: CalendarPlanResult | null;
   clarification?: string;
   clarification_choices?: string[];
   notes?: string;

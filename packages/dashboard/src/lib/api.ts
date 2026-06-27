@@ -41,6 +41,9 @@ import type {
   UploadResult,
   ScheduleImportResult,
   ApproveImportResult,
+  CalendarPlanItem,
+  CalendarPlanResult,
+  ApproveCalendarPlanResult,
   FreeSlotsResult,
 } from "./types";
 
@@ -220,9 +223,12 @@ export function getCalendarToday(): Promise<GoogleEventListResponse> {
   return request<GoogleEventListResponse>("/api/calendar/today");
 }
 
-/** Upcoming (next 7 days) Google Calendar events. */
-export function getCalendarUpcoming(): Promise<GoogleEventListResponse> {
-  return request<GoogleEventListResponse>("/api/calendar/upcoming");
+/** Upcoming Google Calendar events. `days` (7/14/30) selects the view range. */
+export function getCalendarUpcoming(
+  days?: 7 | 14 | 30,
+): Promise<GoogleEventListResponse> {
+  const qs = days ? `?days=${days}` : "";
+  return request<GoogleEventListResponse>(`/api/calendar/upcoming${qs}`);
 }
 
 /** Schedule-health findings over today+upcoming (read-only analysis). */
@@ -304,7 +310,7 @@ export function markNotificationRead(id: number): Promise<Notification> {
 /**
  * Send a chat message. `choice` is the user's provider pick:
  * - `"auto"` -> backend routes transparently (`mode: "auto"`).
- * - `"claude" | "gemini"` -> manual provider (`provider: <id>`).
+ * - any provider id -> manual provider (`provider: <id>`).
  * Omitted uses the backend default (Claude, manual). Returns the assistant
  * reply + any queued approvals. AI failures throw ApiError (503 disabled/
  * provider-unconfigured, 504 timeout, 502 failure, 400 invalid output);
@@ -315,6 +321,7 @@ export function sendChat(
   choice?: ProviderChoice,
   sessionId?: string,
   geminiModel?: string,
+  attachmentIds?: string[],
 ): Promise<ChatResult> {
   const base =
     choice === "auto"
@@ -326,10 +333,180 @@ export function sendChat(
   // backend ignores it for other providers anyway.
   const withModel =
     choice === "gemini" && geminiModel ? { ...base, geminiModel } : base;
+  const withAttachments =
+    attachmentIds && attachmentIds.length > 0
+      ? { ...withModel, attachmentIds }
+      : withModel;
   return request<ChatResult>("/api/chat", {
     method: "POST",
-    body: JSON.stringify(sessionId ? { ...withModel, sessionId } : withModel),
+    body: JSON.stringify(
+      sessionId ? { ...withAttachments, sessionId } : withAttachments,
+    ),
   });
+}
+
+export interface ChatStreamCallbacks {
+  onThinking?: (delta: string) => void;
+  onDone: (result: ChatResult) => void;
+  onError?: (message: string) => void;
+}
+
+function chatRequestBody(
+  message: string,
+  choice?: ProviderChoice,
+  sessionId?: string,
+  geminiModel?: string,
+  attachmentIds?: string[],
+): Record<string, unknown> {
+  const base =
+    choice === "auto"
+      ? { message, mode: "auto" }
+      : choice
+        ? { message, provider: choice }
+        : { message };
+  const withModel =
+    choice === "gemini" && geminiModel ? { ...base, geminiModel } : base;
+  const withAttachments =
+    attachmentIds && attachmentIds.length > 0
+      ? { ...withModel, attachmentIds }
+      : withModel;
+  return sessionId ? { ...withAttachments, sessionId } : withAttachments;
+}
+
+function parseSseFrame(frame: string): { event: string; data: string } | null {
+  let event = "message";
+  const data: string[] = [];
+  for (const line of frame.split(/\r?\n/)) {
+    if (!line || line.startsWith(":")) continue;
+    if (line.startsWith("event:")) {
+      event = line.slice("event:".length).trim();
+    } else if (line.startsWith("data:")) {
+      data.push(line.slice("data:".length).trimStart());
+    }
+  }
+  if (data.length === 0) return null;
+  return { event, data: data.join("\n") };
+}
+
+function isChatResult(value: unknown): value is ChatResult {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<ChatResult>;
+  return candidate.kind === "chat" && typeof candidate.reply === "string" && Array.isArray(candidate.approvals);
+}
+
+function errorFromPayload(payload: unknown, fallback: string): ApiError {
+  const details =
+    payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>)
+      : undefined;
+  const message =
+    typeof details?.error === "string" && details.error.length > 0
+      ? details.error
+      : fallback;
+  return new ApiError(message, 502, details);
+}
+
+/**
+ * Streaming chat client. Success is SSE: live `thinking` chunks followed by one
+ * final `done` payload matching `sendChat`. Prep failures are plain JSON, so
+ * the caller must see them as ordinary ApiError failures rather than stream
+ * parse errors.
+ */
+export async function sendChatStream(
+  message: string,
+  choice: ProviderChoice | undefined,
+  sessionId: string | undefined,
+  geminiModel: string | undefined,
+  attachmentIds: string[] | undefined,
+  callbacks: ChatStreamCallbacks,
+  signal?: AbortSignal,
+): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch("/api/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        chatRequestBody(message, choice, sessionId, geminiModel, attachmentIds),
+      ),
+      signal,
+    });
+  } catch (err) {
+    if (signal?.aborted) throw err;
+    const message = "Cannot reach the backend (is it running on :8787?)";
+    callbacks.onError?.(message);
+    throw new ApiError(message, 0);
+  }
+
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!contentType.includes("text/event-stream")) {
+    let errorMessage = `Request failed (${res.status})`;
+    let details: Record<string, unknown> | undefined;
+    try {
+      const body = (await res.json()) as { error?: string } & Record<
+        string,
+        unknown
+      >;
+      if (body?.error) errorMessage = body.error;
+      details = body;
+    } catch {
+      // Non-JSON fallback from an intermediary: keep generic error.
+    }
+    callbacks.onError?.(errorMessage);
+    throw new ApiError(errorMessage, res.status, details);
+  }
+
+  if (!res.ok || !res.body) {
+    const errorMessage = `Request failed (${res.status})`;
+    callbacks.onError?.(errorMessage);
+    throw new ApiError(errorMessage, res.status);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const handleFrame = (frame: string): void => {
+    const parsed = parseSseFrame(frame);
+    if (!parsed) return;
+    if (parsed.event === "thinking") {
+      const payload = JSON.parse(parsed.data) as { delta?: string };
+      if (payload.delta) callbacks.onThinking?.(payload.delta);
+      return;
+    }
+    if (parsed.event === "done") {
+      const payload = JSON.parse(parsed.data) as unknown;
+      if (!isChatResult(payload)) {
+        const error = errorFromPayload(payload, "Chat stream ended without a valid reply");
+        callbacks.onError?.(error.message);
+        throw error;
+      }
+      callbacks.onDone(payload);
+      return;
+    }
+    if (parsed.event === "error") {
+      const payload = JSON.parse(parsed.data) as { error?: string };
+      const errorMessage = payload.error ?? "Chat stream failed";
+      callbacks.onError?.(errorMessage);
+      throw new ApiError(errorMessage, 502, payload);
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    let splitAt = buffer.search(/\r?\n\r?\n/);
+    while (splitAt >= 0) {
+      const frame = buffer.slice(0, splitAt);
+      const match = buffer.slice(splitAt).match(/^\r?\n\r?\n/);
+      buffer = buffer.slice(splitAt + (match?.[0].length ?? 2));
+      handleFrame(frame);
+      splitAt = buffer.search(/\r?\n\r?\n/);
+    }
+    if (done) break;
+  }
+
+  if (buffer.trim()) handleFrame(buffer.trim());
 }
 
 /** Archive the current chat thread. Passes sessionId so the backend clears verified state too. */
@@ -746,10 +923,83 @@ export function approveScheduleImport(
   });
 }
 
+// --- Calendar plan (bulk Google Calendar add from chat) ------------------
+
+/** Fetch a staged calendar plan + its items. */
+export function getCalendarPlan(id: number): Promise<CalendarPlanResult> {
+  return request<CalendarPlanResult>(`/api/calendar-plans/${id}`);
+}
+
+/** Edit one plan item in the review card (selection, override, time, title…). */
+export function patchCalendarPlanItem(
+  planId: number,
+  itemId: number,
+  patch: Partial<{
+    title: string;
+    starts_at: string;
+    ends_at: string;
+    location: string | null;
+    notes: string | null;
+    selected: boolean;
+    override_conflict: boolean;
+  }>,
+): Promise<{ item: CalendarPlanItem }> {
+  return request<{ item: CalendarPlanItem }>(
+    `/api/calendar-plans/${planId}/items/${itemId}`,
+    { method: "PATCH", body: JSON.stringify(patch) },
+  );
+}
+
+/** Approve the plan: create selected items on Google (conflicts re-checked). */
+export function approveCalendarPlan(
+  id: number,
+): Promise<ApproveCalendarPlanResult> {
+  return request<ApproveCalendarPlanResult>(
+    `/api/calendar-plans/${id}/approve`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+}
+
+/** Discard the whole plan (user chose "ไม่เอาเลย"). */
+export function discardCalendarPlan(id: number): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/api/calendar-plans/${id}/discard`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
 /** List active local class blocks (the saved timetable). */
 export async function listClassBlocks(): Promise<ClassBlock[]> {
   const data = await request<{ blocks: ClassBlock[] }>("/api/class-blocks");
   return data.blocks;
+}
+
+/** Manual class-block create/edit payload (Bangkok "HH:MM" / weekday 0–6). */
+export interface ClassBlockInput {
+  subject: string;
+  weekday: number;
+  start_local: string;
+  end_local: string;
+  location?: string | null;
+}
+
+/** Create a local class block (source defaults to "manual" on the backend). */
+export function createClassBlock(input: ClassBlockInput): Promise<{ block: ClassBlock }> {
+  return request<{ block: ClassBlock }>("/api/class-blocks", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Patch an existing class block. */
+export function updateClassBlock(
+  id: number,
+  input: ClassBlockInput,
+): Promise<{ block: ClassBlock }> {
+  return request<{ block: ClassBlock }>(`/api/class-blocks/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
 }
 
 /** Archive (soft-delete) a class block. */

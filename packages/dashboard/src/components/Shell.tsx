@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 
 /** Lets the chat page surface its "เริ่มใหม่" control in the global TopBar. */
@@ -13,11 +13,15 @@ export interface NewSessionControl {
 const ShellContext = createContext<{
   drawerOpen: boolean;
   setDrawerOpen: (v: boolean) => void;
+  collapsed: boolean;
+  setCollapsed: (v: boolean) => void;
   newSession: NewSessionControl | null;
   setNewSession: (c: NewSessionControl | null) => void;
 }>({
   drawerOpen: false,
   setDrawerOpen: () => {},
+  collapsed: false,
+  setCollapsed: () => {},
   newSession: null,
   setNewSession: () => {},
 });
@@ -28,13 +32,38 @@ export function useShell() {
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const [newSession, setNewSession] = useState<NewSessionControl | null>(null);
+  const drawerReturnFocus = useRef<HTMLElement | null>(null);
   const pathname = usePathname();
 
   // close drawer on navigation
   useEffect(() => {
     setDrawerOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (!drawerOpen) return;
+    drawerReturnFocus.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const sidebar = document.querySelector<HTMLElement>(".sidebar");
+    document.body.classList.add("drawer-lock");
+    sidebar?.focus({ preventScroll: true });
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setDrawerOpen(false);
+      }
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.classList.remove("drawer-lock");
+      drawerReturnFocus.current?.focus({ preventScroll: true });
+      drawerReturnFocus.current = null;
+    };
+  }, [drawerOpen]);
 
   // Keep the sticky bottom dock above the on-screen keyboard on iOS Safari,
   // where the layout viewport does not shrink when the keyboard opens. We
@@ -59,11 +88,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <ShellContext.Provider value={{ drawerOpen, setDrawerOpen, newSession, setNewSession }}>
-      <div className={`shell ${drawerOpen ? 'drawer-open' : ''}`}>
+    <ShellContext.Provider value={{ drawerOpen, setDrawerOpen, collapsed, setCollapsed, newSession, setNewSession }}>
+      <div className={`shell ${drawerOpen ? 'drawer-open' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}>
         {children}
         {drawerOpen && (
-          <div className="drawer-backdrop" onClick={() => setDrawerOpen(false)} />
+          <div
+            className="drawer-backdrop"
+            onClick={() => setDrawerOpen(false)}
+            aria-hidden="true"
+          />
         )}
       </div>
     </ShellContext.Provider>

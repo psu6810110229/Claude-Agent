@@ -113,6 +113,14 @@ export const CLAUDE_AI_ENABLED = /^(1|true)$/i.test(
 /** Max proposed actions accepted from a single AI command (anything more is rejected). */
 export const CLAUDE_MAX_ACTIONS = 10;
 
+/**
+ * Max events a single `calendar.bulk_create` action may stage into one calendar
+ * plan. This is the ONE action that carries a whole list, so it deliberately
+ * exceeds CLAUDE_MAX_ACTIONS — a full-semester import must fit in one turn
+ * instead of being silently truncated into "next batch".
+ */
+export const CALENDAR_PLAN_MAX_ITEMS = 60;
+
 /** Cap on open tasks included in the compact context snapshot passed to Claude. */
 export const CLAUDE_CONTEXT_TASK_CAP = 20;
 
@@ -152,10 +160,20 @@ export const BRIEF_EVENT_CAP = 20;
  * prompt size.
  */
 export const CHAT_GOOGLE_WINDOW_DAYS = Number(
-  process.env.CLAUDE_AGENT_CHAT_GOOGLE_WINDOW_DAYS ?? 120,
+  process.env.CLAUDE_AGENT_CHAT_GOOGLE_WINDOW_DAYS ?? 150,
 );
 export const CHAT_GOOGLE_EVENT_CAP = Number(
-  process.env.CLAUDE_AGENT_CHAT_GOOGLE_EVENT_CAP ?? 50,
+  process.env.CLAUDE_AGENT_CHAT_GOOGLE_EVENT_CAP ?? 200,
+);
+
+/**
+ * How many days of PAST Google Calendar history chat recall includes (Step:
+ * past-window). Lets Friday answer "what did I have yesterday / last week" by
+ * its real id. Capped to bound prompt size; 0 disables past recall. Dashboard,
+ * brief, and schedule-health stay forward-only (they pass the default 0).
+ */
+export const CHAT_GOOGLE_PAST_DAYS = Number(
+  process.env.CLAUDE_AGENT_CHAT_GOOGLE_PAST_DAYS ?? 14,
 );
 
 /** Cap on reminders included in a brief's compact context. */
@@ -199,8 +217,16 @@ export const GOOGLE_OAUTH_REDIRECT_PORT = Number(
   process.env.GOOGLE_CALENDAR_OAUTH_PORT ?? 8799,
 );
 
-/** Cap on events fetched per Google Calendar query. */
-export const GOOGLE_CALENDAR_MAX_RESULTS = 50;
+/** Page size for a single Google Calendar `events.list` call (server max 2500). */
+export const GOOGLE_CALENDAR_MAX_RESULTS = 250;
+
+/**
+ * Hard ceiling on TOTAL events accumulated across paginated `events.list` calls
+ * for one window. Bounds memory/latency on a pathologically dense calendar so a
+ * runaway `nextPageToken` loop can never hang the read. Reaching it just means
+ * the window is truncated (logged), never an error.
+ */
+export const GOOGLE_CALENDAR_MAX_TOTAL = 1000;
 
 /**
  * Google Calendar cache (S2) — cut per-turn latency without losing freshness.
@@ -308,6 +334,60 @@ export function isAllowedGeminiModel(model: string): boolean {
 export const GEMINI_TIMEOUT_MS = Number(
   process.env.GEMINI_TIMEOUT_MS ?? 60_000,
 );
+
+/**
+ * Roadmap — PSU AI gateway (ai.psu.blue), OpenAI-compatible multi-model provider.
+ *
+ * One key + one base URL; the model id selects the worker (qwen / glm /
+ * gpt-4o-mini). Used for the smart/deep tier (qwen, glm reasoning models) and
+ * the casual tier (gpt-4o-mini). OFF unless PSU_ENABLED=1 and PSU_API_KEY set;
+ * fails closed otherwise. The key is NEVER logged. gpt-4o-mini is casual-only —
+ * the router must never route schedule/critical work to it (enforced upstream).
+ */
+
+/** PSU gateway is OFF unless explicitly enabled. */
+export const PSU_ENABLED = /^(1|true)$/i.test(process.env.PSU_ENABLED ?? "");
+
+/** PSU gateway API key. Gitignored; never logged. Empty string = not configured. */
+export const PSU_API_KEY = process.env.PSU_API_KEY ?? "";
+
+/** PSU OpenAI-compatible base URL (…/v1). */
+export const PSU_BASE_URL = process.env.PSU_BASE_URL ?? "https://ai.psu.blue/v1";
+
+/** Role → default model id (overridable via env). */
+export const PSU_QWEN_MODEL = process.env.PSU_QWEN_MODEL ?? "qwen/qwen3.7-plus";
+export const PSU_GLM_MODEL = process.env.PSU_GLM_MODEL ?? "z-ai/glm-5";
+export const PSU_GPT4O_MODEL =
+  process.env.PSU_GPT4O_MODEL ?? "openai/gpt-4o-mini";
+
+/**
+ * Allowlist of selectable PSU models. A per-turn model request must be in this
+ * set or it is rejected (fail closed — never silently swaps). Override the whole
+ * list via PSU_MODELS (comma-separated). The three role defaults are always
+ * included so a valid baseline exists even if the env omits them.
+ */
+export const PSU_MODELS: readonly string[] = (() => {
+  const fromEnv = (process.env.PSU_MODELS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const base = fromEnv.length > 0 ? fromEnv : [];
+  for (const m of [PSU_QWEN_MODEL, PSU_GLM_MODEL, PSU_GPT4O_MODEL]) {
+    if (!base.includes(m)) base.push(m);
+  }
+  return base;
+})();
+
+/** True when `model` is a selectable PSU model. */
+export function isAllowedPsuModel(model: string): boolean {
+  return PSU_MODELS.includes(model);
+}
+
+/**
+ * Hard timeout for a single PSU call (ms). Higher than Gemini's because the
+ * reasoning models (qwen/glm) routinely take 25–45s per turn.
+ */
+export const PSU_TIMEOUT_MS = Number(process.env.PSU_TIMEOUT_MS ?? 90_000);
 
 /**
  * Step 12 — Conversational chat agent.

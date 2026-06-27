@@ -1,13 +1,25 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { motion, useReducedMotion } from "framer-motion";
 import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
+import { AnimatePresence, motion, useReducedMotion, type Transition } from "framer-motion";
+import {
+  ArrowDown,
   CalendarDays,
+  Check,
   CheckSquare,
   Clock3,
+  Copy,
   Database,
   MessageCircle,
+  RotateCcw,
 } from "lucide-react";
 import {
   ApiError,
@@ -21,6 +33,7 @@ import {
   requestChatFollowup,
   resetChat,
   sendChat,
+  sendChatStream,
   prepareSpeech,
   speak,
   unlockAudioPlayback,
@@ -32,14 +45,19 @@ import {
   getCalendarUpcoming,
   listEvents,
   listReminders,
+  discardCalendarPlan,
 } from "@/lib/api";
 import { ScheduleImportCard } from "@/components/ScheduleImportCard";
+import { CalendarPlanCard } from "@/components/CalendarPlanCard";
 import { WeekHourGrid, type GridBlock } from "@/components/WeekHourGrid";
 import { DayAgendaCard, type DayItem } from "@/components/DayAgendaCard";
 import type {
   ScheduleImportResult,
   ApproveImportResult,
+  CalendarPlanResult,
+  ApproveCalendarPlanResult,
   ClassBlock,
+  StagedAttachment,
 } from "@/lib/types";
 import {
   cancelAck,
@@ -53,6 +71,7 @@ import { actionQuestion, isActionType } from "@/lib/actionDisplay";
 import { ErrorBanner } from "@/components/States";
 import { Orb, type OrbState } from "@/components/Orb";
 import { JarvisInput } from "@/components/JarvisInput";
+import { Button, ConfirmDialog, IconButton, Sheet } from "@/components/ui";
 import { WelcomeAgenda } from "@/components/WelcomeAgenda";
 import { useShell } from "@/components/Shell";
 import { useToast } from "@/components/ToastProvider";
@@ -65,12 +84,38 @@ import {
   type BriefResult,
   type BriefType,
   type ChatMessage,
+  type ChatResult,
   type VerifyResult,
 } from "@/lib/types";
 
 const PROVIDER_LABELS: Record<AiProviderId, string> = {
   claude: "Claude",
   gemini: "Gemini",
+  qwen: "Qwen",
+  glm: "GLM",
+  gpt4o: "GPT-4o",
+};
+
+const CHAT_BUBBLE_REVEAL_INITIAL = {
+  opacity: 0,
+  y: 18,
+  scale: 0.982,
+  filter: "blur(10px)",
+};
+
+const CHAT_BUBBLE_REVEAL_ANIMATE = {
+  opacity: 1,
+  y: 0,
+  scale: 1,
+  filter: "blur(0px)",
+};
+
+const CHAT_BUBBLE_PHYSICS: Transition = {
+  layout: { type: "spring", stiffness: 156, damping: 23, mass: 0.82 },
+  y: { type: "spring", stiffness: 142, damping: 19, mass: 0.9 },
+  scale: { type: "spring", stiffness: 190, damping: 22, mass: 0.72 },
+  opacity: { duration: 0.22, ease: [0.25, 1, 0.5, 1] },
+  filter: { duration: 0.34, ease: [0.25, 1, 0.5, 1] },
 };
 
 /** Idle delay before Jarvis offers a proactive follow-up after its last turn. */
@@ -302,17 +347,29 @@ function distanceFromBottom(scroller: HTMLElement | Window): number {
 }
 
 type ApprovalMap = Record<number, Approval>;
+interface MessageMeta {
+  provider: AiProviderId;
+  selectedModel?: string | null;
+  latencyMs?: number;
+}
 interface ClarificationPrompt {
   messageId: number;
   question: string;
   choices: string[];
 }
 
+interface PendingApprovalRejection {
+  id: number;
+  question: string;
+  rejectLabel: string;
+}
+
 export default function HomePage() {
   const { notify } = useToast();
   const { setNewSession } = useShell();
   const [greeting, setGreeting] = useState<string | null>(null);
-  const reduceMotion = useReducedMotion();
+  const reduceMotion = useReducedMotion() ?? false;
+  const isCoarsePointer = useCoarsePointer();
   const [orbState, setOrbState] = useState<OrbState>("idle");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [provider, setProvider] = useState<ProviderChoice>("gemini");
@@ -320,6 +377,7 @@ export default function HomePage() {
   const [messageProvider, setMessageProvider] = useState<
     Record<number, AiProviderId>
   >({});
+  const [messageMeta, setMessageMeta] = useState<Record<number, MessageMeta>>({});
   const [approvalMap, setApprovalMap] = useState<ApprovalMap>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -328,6 +386,8 @@ export default function HomePage() {
   const [sendError, setSendError] = useState<string | null>(null);
   const [chatErrorRendered, setChatErrorRendered] = useState(false);
   const [approvalBusy, setApprovalBusy] = useState<number | null>(null);
+  const [pendingRejectAction, setPendingRejectAction] =
+    useState<PendingApprovalRejection | null>(null);
   const [resetting, setResetting] = useState(false);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
@@ -340,6 +400,16 @@ export default function HomePage() {
   // Schedule import — attach a timetable image/PDF → inline review card.
   const [attachBusy, setAttachBusy] = useState(false);
   const [importCard, setImportCard] = useState<ScheduleImportResult | null>(null);
+  // Bulk Google Calendar add staged from a chat turn → inline review card. The
+  // model put the whole event list in one action; nothing is on the calendar
+  // until the user approves the selected items here.
+  const [planCard, setPlanCard] = useState<CalendarPlanResult | null>(null);
+  // Files STAGED in the composer but not yet sent — they wait for the user to
+  // type a prompt and hit send, then ride along with that chat turn.
+  const [pendingAttachments, setPendingAttachments] = useState<StagedAttachment[]>([]);
+  // Files already sent in THIS conversation: their ids ride along with every
+  // later chat turn so Friday can keep answering about them across follow-ups.
+  const [activeAttachmentIds, setActiveAttachmentIds] = useState<string[]>([]);
   // When the user asks to SEE their timetable, render the real class blocks as a
   // visual grid inline (deterministic, not the model's text formatting).
   const [timetableBlocks, setTimetableBlocks] = useState<ClassBlock[] | null>(null);
@@ -351,7 +421,11 @@ export default function HomePage() {
   const [guardEnabled, setGuardEnabled] = useState(false);
   const [pendingVerificationPrompt, setPendingVerificationPrompt] = useState<string | null>(null);
   const [thinkingStatus, setThinkingStatus] = useState<string | null>(null);
+  const [streamThinking, setStreamThinking] = useState("");
+  const [thinkingDone, setThinkingDone] = useState(false);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   // True while the user is at/near the bottom (or just sent a message). When
   // they scroll up to read history this flips false and auto-scroll is paused.
@@ -405,6 +479,7 @@ export default function HomePage() {
       if (followupTimerRef.current !== null) {
         window.clearTimeout(followupTimerRef.current);
       }
+      abortControllerRef.current?.abort();
     },
     [],
   );
@@ -453,7 +528,9 @@ export default function HomePage() {
     const scroller = getScrollParent(bottomRef.current);
     const NEAR_BOTTOM_PX = 120;
     const onScroll = () => {
-      stickToBottomRef.current = distanceFromBottom(scroller) < NEAR_BOTTOM_PX;
+      const away = distanceFromBottom(scroller) >= NEAR_BOTTOM_PX;
+      stickToBottomRef.current = !away;
+      setShowScrollBottom(away);
     };
     const target: Window | HTMLElement = scroller;
     target.addEventListener("scroll", onScroll, { passive: true });
@@ -465,7 +542,8 @@ export default function HomePage() {
   useEffect(() => {
     if (!stickToBottomRef.current) return;
     bottomRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth" });
-  }, [messages, sending, briefBusy, reduceMotion]);
+    setShowScrollBottom(false);
+  }, [messages, sending, briefBusy, streamThinking, reduceMotion]);
 
   function clearFollowup() {
     if (followupTimerRef.current !== null) {
@@ -511,6 +589,95 @@ export default function HomePage() {
     }
   }
 
+  async function requestChatResult(
+    text: string,
+    turnAttachmentIds: string[],
+    controller: AbortController,
+  ): Promise<{ result: ChatResult; latencyMs: number }> {
+    const startedAt = performance.now();
+    if (typeof ReadableStream === "undefined") {
+      const result = await sendChat(
+        text,
+        provider,
+        sessionIdRef.current ?? undefined,
+        geminiModel,
+        turnAttachmentIds.length > 0 ? turnAttachmentIds : undefined,
+      );
+      return { result, latencyMs: Math.round(performance.now() - startedAt) };
+    }
+
+    let finalResult: ChatResult | null = null;
+    let streamError: string | null = null;
+    await sendChatStream(
+      text,
+      provider,
+      sessionIdRef.current ?? undefined,
+      geminiModel,
+      turnAttachmentIds.length > 0 ? turnAttachmentIds : undefined,
+      {
+        onThinking: (delta) => {
+          setStreamThinking((prev) => `${prev}${delta}`);
+        },
+        onDone: (result) => {
+          finalResult = result;
+          setThinkingDone(true);
+          setThinkingStatus("กำลังเรียบเรียงคำตอบ");
+        },
+        onError: (message) => {
+          streamError = message;
+        },
+      },
+      controller.signal,
+    );
+
+    if (!finalResult) {
+      throw new ApiError(streamError ?? "Chat stream ended before the final answer", 502);
+    }
+    return { result: finalResult, latencyMs: Math.round(performance.now() - startedAt) };
+  }
+
+  function stopStreaming() {
+    const controller = abortControllerRef.current;
+    if (!controller || controller.signal.aborted) return;
+    controller.abort();
+    cancelAck();
+    setSending(false);
+    setOrbState("idle");
+    setThinkingStatus(null);
+    setThinkingDone(true);
+    notify({
+      kind: "info",
+      title: "หยุดแล้ว",
+      description: "หยุดการสร้างคำตอบแล้ว",
+    });
+  }
+
+  function scrollToLatest() {
+    stickToBottomRef.current = true;
+    setShowScrollBottom(false);
+    bottomRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth" });
+  }
+
+  function promptForRegenerate(content: string): string {
+    const cleaned = content
+      .split("\n")
+      .filter((line) => !line.startsWith("\uD83D\uDCCE "))
+      .join("\n")
+      .trim();
+    return cleaned || content;
+  }
+
+  async function regenerateFromAssistant(assistantId: number) {
+    if (sending || briefBusy || resetting) return;
+    const index = messages.findIndex((message) => message.id === assistantId);
+    const previousUser = messages
+      .slice(0, index >= 0 ? index : messages.length)
+      .reverse()
+      .find((message) => message.role === "user");
+    if (!previousUser) return;
+    await doSend(promptForRegenerate(previousUser.content));
+  }
+
   async function doSend(text: string, isRetry = false) {
     if (briefBusy) return;
     // Unlock TTS playback while still inside the user's send gesture, so the
@@ -529,15 +696,31 @@ export default function HomePage() {
     setTimetableBlocks(null);
     setDayAgenda(null);
 
+    // Files STAGED in the composer ride along with THIS turn (plus any already
+    // sent earlier in the conversation). Snapshot now; kept staged through a
+    // verification re-run and only promoted to "active" once the turn succeeds.
+    const turnAttachmentIds = Array.from(
+      new Set([...activeAttachmentIds, ...pendingAttachments.map((a) => a.id)]),
+    );
+    const stagedThisTurn = pendingAttachments;
+
     const cleanText = text.trim().toLowerCase();
     const isVerificationKeyword = cleanText === "โอเค" || cleanText.startsWith("โอเค") || cleanText === "1234";
     if (isVerificationKeyword) {
-      setThinkingStatus("ผู้ใช้ไม่ได้พิมพ์คำสั่งเพิ่มเติม");
+      setThinkingStatus("สักครู่ค่ะ");
     } else {
       setThinkingStatus(null);
     }
+    setStreamThinking("");
+    setThinkingDone(false);
+    abortControllerRef.current?.abort();
 
     let shouldFallThrough = false;
+    const settleVisualThinking = () => {
+      setSending(false);
+      setOrbState("idle");
+      setThinkingStatus(null);
+    };
     
     // Conversational Privacy Guard flow
     if (pendingVerificationPrompt && !isRetry) {
@@ -596,10 +779,11 @@ export default function HomePage() {
     }
 
     if (!isRetry) {
+      const attachLines = stagedThisTurn.map((a) => `📎 ${a.name}`).join("\n");
       const optimisticUser: ChatMessage = {
         id: -Date.now(),
         role: "user",
-        content: text,
+        content: attachLines ? `${attachLines}\n${text}` : text,
         actions_json: null,
         status: "active",
         created_at: new Date().toISOString(),
@@ -613,8 +797,17 @@ export default function HomePage() {
     const ackRequestId = nextAckRequestId();
     startAck(ackRequestId, text, muted);
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
-      const result = await sendChat(text, provider, sessionIdRef.current ?? undefined, geminiModel);
+      const { result, latencyMs } = await requestChatResult(
+        text,
+        turnAttachmentIds,
+        controller,
+      );
+      if (controller.signal.aborted) return false;
+      setThinkingDone(true);
       // The instant the reply lands, kick off BOTH the history refetch and TTS
       // buffering concurrently. We buffer the spoken line WITHOUT playing it,
       // then reveal the text and start the voice in the same tick so they land
@@ -628,6 +821,7 @@ export default function HomePage() {
           .reverse()
           .find((message) => message.role === "assistant" && !previousIds.has(message.id));
 
+        settleVisualThinking();
         setMessages(updated);
 
         if (freshAssistant) {
@@ -635,6 +829,14 @@ export default function HomePage() {
           setMessageProvider((prev) => ({
             ...prev,
             [freshAssistant.id]: result.provider,
+          }));
+          setMessageMeta((prev) => ({
+            ...prev,
+            [freshAssistant.id]: {
+              provider: result.provider,
+              selectedModel: result.selectedModel ?? null,
+              latencyMs,
+            },
           }));
         }
 
@@ -649,9 +851,18 @@ export default function HomePage() {
           await settleAckForFinal(ackRequestId);
         }
 
-        setSending(false);
-        setOrbState("idle");
         return;
+      }
+      // Turn succeeded: promote staged files to conversation-active so follow-ups
+      // keep referencing them, and clear the composer chips.
+      if (stagedThisTurn.length > 0) {
+        const stagedIds = stagedThisTurn.map((a) => a.id);
+        setActiveAttachmentIds((prev) =>
+          Array.from(new Set([...prev, ...stagedIds])),
+        );
+        setPendingAttachments((prev) =>
+          prev.filter((a) => !stagedIds.includes(a.id)),
+        );
       }
       const historyP = getChatHistory(100);
       const speech = !muted ? prepareSpeech(result.spoken ?? result.reply) : null;
@@ -667,6 +878,7 @@ export default function HomePage() {
       // prepareSpeech), so text + voice begin together. Fail-soft: muted /
       // disabled / slow TTS resolves fast and text shows anyway.
       if (speech) await speech.ready;
+      settleVisualThinking();
       setMessages(updated);
       if (freshAssistant) {
         setRevealingMessageIds((prev) => new Set(prev).add(freshAssistant.id));
@@ -675,6 +887,14 @@ export default function HomePage() {
         setMessageProvider((prev) => ({
           ...prev,
           [freshAssistant.id]: result.provider,
+        }));
+        setMessageMeta((prev) => ({
+          ...prev,
+          [freshAssistant.id]: {
+            provider: result.provider,
+            selectedModel: result.selectedModel ?? null,
+            latencyMs,
+          },
         }));
       }
       // Text is already revealed above; gate only the VOICE behind any playing
@@ -699,6 +919,8 @@ export default function HomePage() {
           // Soft — the text answer still stands if blocks can't load.
         }
       }
+      // Bulk calendar add → show the review card (nothing on the calendar yet).
+      if (result.calendarPlan) setPlanCard(result.calendarPlan);
       const clarification = buildClarificationPrompt(
         updated,
         result.clarification,
@@ -709,7 +931,9 @@ export default function HomePage() {
       // off-topic and interruptive. Inline follow-up now lives in the reply
       // itself (prompt rules). The /api/chat/followup route + scheduleFollowup()
       // remain available but are no longer auto-fired here.
+      return true;
     } catch (err) {
+      if (controller.signal.aborted) return false;
       // No final answer → stop any pending/playing acknowledgement immediately.
       cancelAck();
       let message = err instanceof ApiError ? err.message : String(err);
@@ -736,16 +960,49 @@ export default function HomePage() {
         title: "ส่งข้อความไม่สำเร็จ",
         description: message,
       });
+      return false;
     } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
       setSending(false);
       setOrbState("idle");
       setThinkingStatus(null);
     }
   }
 
-  // Attach a timetable image/PDF: upload → parse → show the inline review card.
-  // A failure surfaces as an assistant message, never silently.
+  // Attach an image/PDF: STAGE it in the composer — it is NOT sent yet. The user
+  // types a prompt and hits send; the file then rides along with that chat turn
+  // (see doSend). Turning a file into a class timetable is a separate explicit
+  // action (onMakeTimetable). A failure surfaces as a toast, never silently.
   async function onAttach(file: File) {
+    if (attachBusy || sending) return;
+    clearFollowup();
+    setAttachBusy(true);
+    setSendError(null);
+    try {
+      const uploaded = await uploadScheduleFile(file);
+      setPendingAttachments((prev) => [
+        ...prev,
+        { id: uploaded.id, name: file.name, kind: uploaded.kind },
+      ]);
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : String(err);
+      notify({ kind: "error", title: "แนบไฟล์ไม่สำเร็จ", description: message });
+    } finally {
+      setAttachBusy(false);
+    }
+  }
+
+  /** Remove a staged (not-yet-sent) attachment from the composer. */
+  function onRemoveAttachment(id: string) {
+    setPendingAttachments((prev) => prev.filter((a) => a.id !== id));
+  }
+
+  // Explicit "make a class timetable from this file" — the ONLY path into the
+  // schedule-import review card now. Consumes the staged file (the import owns the
+  // upload). A non-timetable file yields zero items and a gentle note instead.
+  async function onMakeTimetable(att: StagedAttachment) {
     if (attachBusy || sending) return;
     clearFollowup();
     setAttachBusy(true);
@@ -753,20 +1010,10 @@ export default function HomePage() {
     setTimetableBlocks(null);
     setDayAgenda(null);
     setSendError(null);
+    setPendingAttachments((prev) => prev.filter((a) => a.id !== att.id));
     stickToBottomRef.current = true;
-    const fileBubble: ChatMessage = {
-      id: -Date.now(),
-      role: "user",
-      content: `📎 ${file.name}`,
-      actions_json: null,
-      status: "active",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, fileBubble]);
     try {
-      const uploaded = await uploadScheduleFile(file);
-      const result = await createScheduleImport(uploaded.id);
+      const result = await createScheduleImport(att.id);
       if (result.items.length === 0) {
         setMessages((prev) => [
           ...prev,
@@ -779,8 +1026,8 @@ export default function HomePage() {
       setImportCard(result);
     } catch (err) {
       const message = err instanceof ApiError ? err.message : String(err);
-      setMessages((prev) => [...prev, fallbackAssistantMessage(`อ่านไฟล์ไม่สำเร็จ: ${message}`)]);
-      notify({ kind: "error", title: "อ่านไฟล์ไม่สำเร็จ", description: message });
+      setMessages((prev) => [...prev, fallbackAssistantMessage(`อ่านตารางไม่สำเร็จ: ${message}`)]);
+      notify({ kind: "error", title: "อ่านตารางไม่สำเร็จ", description: message });
     } finally {
       setAttachBusy(false);
     }
@@ -800,6 +1047,39 @@ export default function HomePage() {
         `เพิ่มตารางเรียนให้แล้ว ${n} คาบ ${result.skipped.length > 0 ? `(ข้าม ${result.skipped.length} คาบที่ข้อมูลไม่ครบ) ` : ""}— ถามได้เลยว่าวันไหนเรียนอะไร หรือให้หาเวลาว่างก็ได้ค่ะ`,
       ),
     ]);
+  }
+
+  // The calendar-plan card finished creating events. Post a TRUTHFUL outcome
+  // line into the chat — created / skipped-due-to-conflict / failed are all named
+  // so a clashing event the user did not confirm is NEVER silently lost.
+  function onPlanResolved(result: ApproveCalendarPlanResult) {
+    setPlanCard(null);
+    const parts = [`เพิ่มลงปฏิทินแล้ว ${result.created.length} รายการ`];
+    if (result.skippedConflict.length > 0) {
+      const names = result.skippedConflict
+        .map((s) => s.title + (s.conflict_with ? ` (ทับ ${s.conflict_with})` : ""))
+        .join(", ");
+      parts.push(`ข้าม ${result.skippedConflict.length} รายการที่เวลาทับและยังไม่ได้ยืนยันสร้างทับ: ${names}`);
+    }
+    if (result.failed.length > 0) {
+      parts.push(`ล้มเหลว ${result.failed.length} รายการ: ${result.failed.map((f) => f.title).join(", ")}`);
+    }
+    notify({
+      kind: result.failed.length > 0 ? "error" : "success",
+      title: "อัปเดตปฏิทินแล้ว",
+      description: `สร้าง ${result.created.length} รายการ`,
+    });
+    setMessages((prev) => [...prev, fallbackAssistantMessage(parts.join(" · "))]);
+  }
+
+  // User dismissed the plan card without creating anything ("ไม่เอาเลย").
+  async function onPlanDiscard(planId: number) {
+    setPlanCard(null);
+    try {
+      await discardCalendarPlan(planId);
+    } catch {
+      // Soft — the card is already gone from the UI.
+    }
   }
 
   async function runBrief(type: BriefType) {
@@ -849,8 +1129,11 @@ export default function HomePage() {
     });
   }
 
-  async function runApproval(id: number, decision: "approve" | "reject") {
-    if (approvalBusy) return;
+  async function runApproval(
+    id: number,
+    decision: "approve" | "reject",
+  ): Promise<boolean> {
+    if (approvalBusy) return false;
     clearFollowup();
     setApprovalBusy(id);
     setSendError(null);
@@ -869,6 +1152,7 @@ export default function HomePage() {
             ? "ดำเนินการที่อนุมัติแล้ว"
             : "ยกเลิกงานที่รออนุมัติแล้ว",
       });
+      return true;
     } catch (err) {
       try {
         mergeApprovals(await listApprovals());
@@ -881,6 +1165,7 @@ export default function HomePage() {
         title: "ทำรายการไม่สำเร็จ",
         description: err instanceof ApiError ? err.message : String(err),
       });
+      return false;
     } finally {
       setApprovalBusy(null);
     }
@@ -899,10 +1184,19 @@ export default function HomePage() {
   async function confirmNewSession() {
     if (sending || briefBusy || resetting) return;
     clearFollowup();
+    abortControllerRef.current?.abort();
     setResetting(true);
     try {
       await resetChat(sessionIdRef.current ?? undefined);
       setMessages([]);
+      setMessageProvider({});
+      setMessageMeta({});
+      setActiveAttachmentIds([]);
+      setPendingAttachments([]);
+      setImportCard(null);
+      setPlanCard(null);
+      setStreamThinking("");
+      setThinkingDone(false);
       setSendError(null);
       setChatErrorRendered(false);
       setActiveClarification(null);
@@ -943,12 +1237,19 @@ export default function HomePage() {
                   : { type: "spring", stiffness: 70, damping: 18, delay: 0.15 }
               }
             >
-              <h1 className={greeting ? "" : "pending"}>
+              <h1
+                className={`rt-line${greeting ? "" : " pending"}`}
+                style={{ animationDelay: "150ms" }}
+              >
                 {greeting ?? "สวัสดี"} คุณ Fran
               </h1>
-              <p>วันนี้ให้ Friday ช่วยอะไรดีคะ</p>
+              <p className="rt-line" style={{ animationDelay: "230ms" }}>
+                วันนี้ให้ Friday ช่วยอะไรดีคะ
+              </p>
               <WelcomeAgenda
-                onPrompt={doSend}
+                onPrompt={(text) => {
+                  void doSend(text);
+                }}
                 disabled={sending || briefBusy !== null}
               />
             </motion.div>
@@ -966,7 +1267,10 @@ export default function HomePage() {
               <ChatMessageGroup
                 key={group.key}
                 group={group}
+                isCoarsePointer={isCoarsePointer}
+                reduceMotion={reduceMotion}
                 messageProvider={messageProvider}
+                messageMeta={messageMeta}
                 approvalMap={approvalMap}
                 approvalBusy={approvalBusy}
                 revealingMessageIds={revealingMessageIds}
@@ -979,9 +1283,13 @@ export default function HomePage() {
                   })
                 }
                 onApproval={runApproval}
+                onRequestReject={(id, question, rejectLabel) =>
+                  setPendingRejectAction({ id, question, rejectLabel })
+                }
                 activeClarification={activeClarification}
                 onClarificationChoice={doSend}
                 onClarificationSkip={() => setActiveClarification(null)}
+                onRegenerate={regenerateFromAssistant}
               />
             ))}
 
@@ -992,7 +1300,7 @@ export default function HomePage() {
                 </div>
                 <div className="chat-bubble assistant typing">
                   <span className="chat-role-label">Friday</span>
-                  <ThinkingContent status="กำลังอ่านตารางเรียนจากไฟล์" />
+                  <ThinkingContent status="กำลังเตรียมไฟล์" />
                 </div>
               </div>
             )}
@@ -1012,6 +1320,23 @@ export default function HomePage() {
                     note={importCard.import.note}
                     onApproved={onImportApproved}
                     onCancel={() => setImportCard(null)}
+                  />
+                </div>
+              </div>
+            )}
+
+            {planCard && (
+              <div className="chat-bubble-wrapper assistant">
+                <div className="chat-avatar assistant-avatar" aria-hidden="true">
+                  <span className="avatar-text">F</span>
+                </div>
+                <div className="chat-import-slot">
+                  <CalendarPlanCard
+                    planId={planCard.plan.id}
+                    initialItems={planCard.items}
+                    note={planCard.plan.note}
+                    onResolved={onPlanResolved}
+                    onDiscard={() => onPlanDiscard(planCard.plan.id)}
                   />
                 </div>
               </div>
@@ -1059,17 +1384,30 @@ export default function HomePage() {
               </div>
             )}
 
-            {sending && (
-              <div className="chat-bubble-wrapper assistant">
-                <div className="chat-avatar assistant-avatar" aria-hidden="true">
-                  <span className="avatar-text">F</span>
-                </div>
-                <div className="chat-bubble assistant typing">
-                  <span className="chat-role-label">Friday</span>
-                  <ThinkingContent status={thinkingStatus} />
-                </div>
-              </div>
-            )}
+            {/* One live bubble for the whole "thinking" phase — same chrome as
+                the answer. It fades out as the final answer reveals in its
+                place, so CoT → answer reads as a single morphing bubble. */}
+            <AnimatePresence mode="popLayout">
+              {sending && (
+                <motion.div
+                  key="live-think"
+                  initial={false}
+                  exit={
+                    reduceMotion
+                      ? undefined
+                      : { opacity: 0, y: -6, filter: "blur(8px)" }
+                  }
+                  transition={{ duration: 0.5, ease: [0.22, 0.61, 0.36, 1] }}
+                >
+                  <LiveThinkingBubble
+                    thinking={streamThinking}
+                    status={thinkingStatus}
+                    done={thinkingDone}
+                    reduceMotion={reduceMotion}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {briefBusy && (
               <div className="chat-bubble-wrapper assistant">
@@ -1077,7 +1415,6 @@ export default function HomePage() {
                   <span className="avatar-text">F</span>
                 </div>
                 <div className="chat-bubble assistant typing">
-                  <span className="chat-role-label">Friday</span>
                   <ThinkingContent
                     status={`กำลังสร้าง${briefBusy === "daily" ? "สรุปเช้า" : "สรุปเย็น"}`}
                   />
@@ -1090,6 +1427,17 @@ export default function HomePage() {
 
           {sendError && !chatErrorRendered && (
             <ErrorBanner message={sendError} onRetry={onRetry} />
+          )}
+          {showScrollBottom && (
+            <button
+              type="button"
+              className="scroll-bottom-btn"
+              onClick={scrollToLatest}
+              aria-label="เลื่อนไปข้อความล่าสุด"
+            >
+              <ArrowDown aria-hidden="true" strokeWidth={2} />
+              <span>ล่าสุด</span>
+            </button>
           )}
         </div>
       </div>
@@ -1105,11 +1453,18 @@ export default function HomePage() {
         }
       >
         <JarvisInput
-          onSubmit={doSend}
+          onSubmit={(text) => {
+            void doSend(text);
+          }}
           onBrief={runBrief}
           onAttach={onAttach}
+          attachments={pendingAttachments}
+          onRemoveAttachment={onRemoveAttachment}
+          onMakeTimetable={onMakeTimetable}
           attachBusy={attachBusy}
           disabled={sending || briefBusy !== null}
+          sending={sending}
+          onStop={stopStreaming}
           briefBusy={briefBusy}
           provider={provider}
           onProviderChange={setProvider}
@@ -1141,6 +1496,27 @@ export default function HomePage() {
           onConfirm={confirmNewSession}
         />
       )}
+      <ConfirmDialog
+        open={pendingRejectAction !== null}
+        onCancel={() => setPendingRejectAction(null)}
+        onConfirm={async () => {
+          if (!pendingRejectAction) return;
+          const ok = await runApproval(pendingRejectAction.id, "reject");
+          if (ok) setPendingRejectAction(null);
+        }}
+        busy={
+          pendingRejectAction !== null &&
+          approvalBusy === pendingRejectAction.id
+        }
+        title="ไม่อนุมัติรายการนี้?"
+        description={pendingRejectAction?.question}
+        confirmLabel={pendingRejectAction?.rejectLabel ?? "ปฏิเสธ"}
+        confirmVariant="danger"
+      >
+        <p className="muted u-text-sm">
+          Friday จะไม่ดำเนินการรายการนี้จนกว่าจะมีการเสนอใหม่
+        </p>
+      </ConfirmDialog>
     </div>
   );
 }
@@ -1216,17 +1592,12 @@ function SessionConfirmDialog({
           </p>
         </div>
         <div className="jarvis-dialog-actions">
-          <button type="button" onClick={onCancel} disabled={busy} autoFocus>
+          <Button variant="secondary" onClick={onCancel} disabled={busy} autoFocus>
             ยกเลิก
-          </button>
-          <button
-            type="button"
-            className="primary"
-            onClick={onConfirm}
-            disabled={busy}
-          >
-            {busy ? "กำลังเริ่ม..." : "เริ่มใหม่"}
-          </button>
+          </Button>
+          <Button variant="primary" onClick={onConfirm} disabled={busy} loading={busy}>
+            เริ่มใหม่
+          </Button>
         </div>
       </section>
     </div>
@@ -1283,6 +1654,141 @@ function ChatSkeleton() {
  */
 const THINKING_PHASES = ["สักครู่ค่ะ"];
 
+/**
+ * Lifecycle-ordered status lines for the no-CoT case. Honest about the *reasoning*
+ * lifecycle (understand → think → weigh → draft → refine → wrap up) — never a
+ * fabricated tool action ("reading your calendar"). Shown in order so it reads
+ * like real progress, each held for its own dwell time (see LIVE_DWELL_MS).
+ */
+const LIVE_PHASES = [
+  "รับคำถามแล้วค่ะ",
+  "กำลังอ่านคำถาม…",
+  "ทำความเข้าใจสิ่งที่ถาม…",
+  "กำลังคิด…",
+  "ตั้งหลักความคิด…",
+  "ชั่งน้ำหนักตัวเลือก…",
+  "กำลังเชื่อมโยงเหตุผล…",
+  "ประมวลผลในใจ…",
+  "กำลังเรียบเรียงความคิด…",
+  "จัดลำดับคำตอบ…",
+  "กำลังร่างคำตอบ…",
+  "เลือกถ้อยคำให้เหมาะ…",
+  "ขัดเกลาคำตอบ…",
+  "ตรวจทานอีกครั้ง…",
+  "ใกล้เรียบร้อยแล้ว…",
+  "อีกสักครู่ค่ะ…",
+];
+
+/** Dwell pool (ms) — long and uneven so each line lingers and the cadence feels
+ *  human, not metronomic. A fresh value is drawn per shown line. */
+const LIVE_DWELL_POOL = [2800, 3600, 4400, 3200, 5000, 4000];
+
+/**
+ * Build one thinking session's script: up to 3 distinct lines, kept in lifecycle
+ * order, each paired with an uneven dwell. Picking a small ordered subset means
+ * a single think shows ≤3 different lines, but they vary across requests.
+ */
+function buildLiveScript(): { line: string; dwell: number }[] {
+  const count = 2 + Math.floor(Math.random() * 2); // 2–3 lines
+  const picked = new Set<number>([0]); // always open with "รับคำถามแล้วค่ะ"
+  while (picked.size < count) {
+    picked.add(1 + Math.floor(Math.random() * (LIVE_PHASES.length - 1)));
+  }
+  return [...picked]
+    .sort((a, b) => a - b)
+    .map((i) => ({
+      line: LIVE_PHASES[i],
+      dwell: LIVE_DWELL_POOL[Math.floor(Math.random() * LIVE_DWELL_POOL.length)],
+    }));
+}
+
+/** Latest meaningful CoT line, stripped of markdown and capped — a rolling
+ *  one-liner, never a multi-line dump. */
+function summarizeCot(text: string): string {
+  const line = text
+    .split(/\r?\n/)
+    .map((l) =>
+      l
+        .replace(/[`*_>#~-]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
+    .filter((l) => l.length > 0)
+    .at(-1);
+  if (!line) return "";
+  return line.length > 80 ? `${line.slice(0, 79).trimEnd()}…` : line;
+}
+
+/**
+ * Unified live "thinking" bubble. Same chrome as an answer bubble so that, when
+ * the real answer lands and this fades out in its place, the whole CoT → answer
+ * sequence reads as one morphing bubble. While thinking it shows either a
+ * rolling one-line CoT summary (if the model streamed reasoning) or a rotating
+ * generic status (if it did not). Each line swap fades out/in.
+ */
+function LiveThinkingBubble({
+  thinking,
+  status,
+  done,
+  reduceMotion,
+}: {
+  thinking: string;
+  status?: string | null;
+  done: boolean;
+  reduceMotion: boolean;
+}) {
+  const hasCot = thinking.trim().length > 0;
+  // One fixed ≤3-line script per mount (per thinking session).
+  const [script] = useState(buildLiveScript);
+  const [phase, setPhase] = useState(0);
+
+  // Step through this session's script, each line held for its own dwell, then
+  // settle on the last until the answer arrives.
+  useEffect(() => {
+    if (hasCot || status || done) return;
+    if (phase >= script.length - 1) return;
+    const timer = window.setTimeout(
+      () => setPhase((current) => current + 1),
+      script[phase].dwell,
+    );
+    return () => window.clearTimeout(timer);
+  }, [hasCot, status, done, phase, script]);
+
+  const line = hasCot
+    ? summarizeCot(thinking)
+    : (status ?? script[Math.min(phase, script.length - 1)].line);
+
+  return (
+    <div className="chat-bubble-wrapper assistant">
+      <div className="chat-avatar assistant-avatar" aria-hidden="true">
+        <span className="avatar-text">F</span>
+      </div>
+      <div className="chat-bubble assistant typing">
+        <span className="chat-role-label">Friday</span>
+        <div className="chat-live-think" aria-live="polite">
+          <span className="thinking-orb" aria-hidden="true" />
+          {reduceMotion ? (
+            <span className="chat-live-think-text">{line}</span>
+          ) : (
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.span
+                key={line}
+                className="chat-live-think-text"
+                initial={{ opacity: 0, y: 8, filter: "blur(7px)" }}
+                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                exit={{ opacity: 0, y: -8, filter: "blur(7px)" }}
+                transition={{ duration: 0.46, ease: [0.22, 0.61, 0.36, 1] }}
+              >
+                {line}
+              </motion.span>
+            </AnimatePresence>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ThinkingContent({
   status,
 }: {
@@ -1310,6 +1816,15 @@ function ThinkingContent({
           {label}
         </span>
       </div>
+    </div>
+  );
+}
+
+function TypingSkeleton() {
+  return (
+    <div className="typing-skeleton" aria-hidden="true">
+      <span />
+      <span />
     </div>
   );
 }
@@ -1347,26 +1862,40 @@ function groupMessages(messages: ChatMessage[]): ChatGroup[] {
 
 function ChatMessageGroup({
   group,
+  isCoarsePointer,
+  reduceMotion,
   messageProvider,
+  messageMeta,
   approvalMap,
   approvalBusy,
   revealingMessageIds,
   onRevealDone,
   onApproval,
+  onRequestReject,
   activeClarification,
   onClarificationChoice,
   onClarificationSkip,
+  onRegenerate,
 }: {
   group: ChatGroup;
+  isCoarsePointer: boolean;
+  reduceMotion: boolean;
   messageProvider: Record<number, AiProviderId>;
+  messageMeta: Record<number, MessageMeta>;
   approvalMap: ApprovalMap;
   approvalBusy: number | null;
   revealingMessageIds: Set<number>;
   onRevealDone: (id: number) => void;
   onApproval: (id: number, decision: "approve" | "reject") => void;
+  onRequestReject: (
+    id: number,
+    question: string,
+    rejectLabel: string,
+  ) => void;
   activeClarification: ClarificationPrompt | null;
   onClarificationChoice: (text: string) => void;
   onClarificationSkip: () => void;
+  onRegenerate: (assistantId: number) => void;
 }) {
   const isUser = group.role === "user";
   const first = group.messages[0];
@@ -1375,22 +1904,11 @@ function ChatMessageGroup({
       inferSourceHints(message, parseActions(message.actions_json)),
     ),
   );
-  const groupProvider = isUser
-    ? undefined
-    : group.messages
-        .map((message) => messageProvider[message.id])
-        .find((value): value is AiProviderId => Boolean(value));
-
   return (
     <section className={`chat-group ${isUser ? "user" : "assistant"}`}>
       <div className="chat-group-header">
         <span className="chat-role">{isUser ? "คุณ" : "Friday"}</span>
         <span className="ts">{formatTs(first.created_at)}</span>
-        {groupProvider && (
-          <span className="provider-badge" title="ผู้ให้บริการ AI">
-            {PROVIDER_LABELS[groupProvider]}
-          </span>
-        )}
         {!isUser && <SourceHintList hints={groupSources} />}
       </div>
       <div className="chat-group-stack">
@@ -1399,11 +1917,15 @@ function ChatMessageGroup({
             key={msg.id}
             msg={msg}
             groupedIndex={index}
+            isCoarsePointer={isCoarsePointer}
+            reduceMotion={reduceMotion}
             approvalMap={approvalMap}
+            meta={messageMeta[msg.id]}
             approvalBusy={approvalBusy}
             revealing={revealingMessageIds.has(msg.id)}
             onRevealDone={onRevealDone}
             onApproval={onApproval}
+            onRequestReject={onRequestReject}
             clarification={
               activeClarification?.messageId === msg.id
                 ? activeClarification
@@ -1411,6 +1933,7 @@ function ChatMessageGroup({
             }
             onClarificationChoice={onClarificationChoice}
             onClarificationSkip={onClarificationSkip}
+            onRegenerate={onRegenerate}
           />
         ))}
       </div>
@@ -1421,27 +1944,45 @@ function ChatMessageGroup({
 function ChatBubble({
   msg,
   groupedIndex,
+  isCoarsePointer,
+  reduceMotion,
+  meta,
   approvalMap,
   approvalBusy,
   revealing,
   onRevealDone,
   onApproval,
+  onRequestReject,
   clarification,
   onClarificationChoice,
   onClarificationSkip,
+  onRegenerate,
 }: {
   msg: ChatMessage;
   groupedIndex: number;
+  isCoarsePointer: boolean;
+  reduceMotion: boolean;
+  meta?: MessageMeta;
   approvalMap: ApprovalMap;
   approvalBusy: number | null;
   revealing: boolean;
   onRevealDone: (id: number) => void;
   onApproval: (id: number, decision: "approve" | "reject") => void;
+  onRequestReject: (
+    id: number,
+    question: string,
+    rejectLabel: string,
+  ) => void;
   clarification: ClarificationPrompt | null;
   onClarificationChoice: (text: string) => void;
   onClarificationSkip: () => void;
+  onRegenerate: (assistantId: number) => void;
 }) {
   const isUser = msg.role === "user";
+  const [copied, setCopied] = useState(false);
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
   // Show approval cards ONLY for items still awaiting the user's explicit
   // confirmation. Anything Jarvis already handled itself (auto-executed →
   // approved, or rejected) is hidden — no noisy "done" cards. A failed
@@ -1450,6 +1991,209 @@ function ChatBubble({
     const approval = approvalMap[action.id];
     return !approval || approval.status === "pending";
   });
+
+  useEffect(
+    () => () => {
+      if (longPressTimerRef.current !== null) {
+        window.clearTimeout(longPressTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  function clearLongPress() {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressStartRef.current = null;
+  }
+
+  async function copyMessage(closeSheet: unknown = false) {
+    try {
+      await navigator.clipboard.writeText(msg.content);
+      setCopied(true);
+      if (closeSheet === true) setMobileActionsOpen(false);
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  function handleBubblePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (isUser || !isCoarsePointer || event.pointerType !== "touch") return;
+    if (isInteractiveTarget(event.target)) return;
+    clearLongPress();
+    longPressStartRef.current = { x: event.clientX, y: event.clientY };
+    longPressTimerRef.current = window.setTimeout(() => {
+      setMobileActionsOpen(true);
+      clearLongPress();
+    }, 420);
+  }
+
+  function handleBubblePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!longPressStartRef.current) return;
+    const dx = event.clientX - longPressStartRef.current.x;
+    const dy = event.clientY - longPressStartRef.current.y;
+    if (Math.hypot(dx, dy) > 10) clearLongPress();
+  }
+
+  function handleMobileRegenerate() {
+    setMobileActionsOpen(false);
+    onRegenerate(msg.id);
+  }
+
+  const assistantTools =
+    !isUser && !isCoarsePointer ? (
+      <div className="chat-bubble-tools" aria-label="เครื่องมือข้อความ">
+        <IconButton
+          className="chat-tool-btn"
+          variant="ghost"
+          size="sm"
+          onClick={() => onRegenerate(msg.id)}
+          aria-label="สร้างคำตอบใหม่"
+          title="สร้างคำตอบใหม่"
+        >
+          <RotateCcw aria-hidden="true" strokeWidth={1.8} />
+        </IconButton>
+        <IconButton
+          className="chat-tool-btn"
+          variant="ghost"
+          size="sm"
+          onClick={() => void copyMessage()}
+          aria-label={copied ? "คัดลอกแล้ว" : "คัดลอกข้อความ"}
+          title={copied ? "คัดลอกแล้ว" : "คัดลอกข้อความ"}
+        >
+          {copied ? (
+            <Check aria-hidden="true" strokeWidth={1.9} />
+          ) : (
+            <Copy aria-hidden="true" strokeWidth={1.8} />
+          )}
+        </IconButton>
+      </div>
+    ) : null;
+
+  const bubbleLayout = (
+    <>
+      <motion.div
+        layout={reduceMotion ? false : "position"}
+        className={`chat-bubble-wrapper ${isUser ? "user" : "assistant"}`}
+        initial={
+          revealing && !isUser && !reduceMotion
+            ? CHAT_BUBBLE_REVEAL_INITIAL
+            : false
+        }
+        animate={CHAT_BUBBLE_REVEAL_ANIMATE}
+        transition={reduceMotion ? { duration: 0 } : CHAT_BUBBLE_PHYSICS}
+        style={{ transformOrigin: isUser ? "right top" : "left top" }}
+      >
+        {!isUser && groupedIndex === 0 && (
+          <div className="chat-avatar assistant-avatar" aria-hidden="true">
+            <span className="avatar-text">F</span>
+          </div>
+        )}
+        {!isUser && groupedIndex > 0 && <div className="chat-avatar-spacer" />}
+        <div className={`chat-bubble-column ${isUser ? "user" : "assistant"}`}>
+          <div
+            className={`chat-bubble-frame ${isUser ? "user" : "assistant"}`}
+            onPointerDown={handleBubblePointerDown}
+            onPointerMove={handleBubblePointerMove}
+            onPointerUp={clearLongPress}
+            onPointerCancel={clearLongPress}
+            onPointerLeave={clearLongPress}
+            onContextMenu={(event) => {
+              if (!isUser && isCoarsePointer) event.preventDefault();
+            }}
+          >
+            <div
+              className={`chat-bubble ${isUser ? "user" : "assistant"} ${
+                groupedIndex > 0 ? "grouped" : ""
+              } ${revealing && !isUser ? "revealing" : ""}`}
+            >
+              <RichText
+                text={msg.content}
+                reduceMotion={reduceMotion}
+                reveal={revealing && !isUser}
+                onRevealDone={() => onRevealDone(msg.id)}
+              />
+              {actions.length > 0 && (
+                <div className="chat-approval-stack">
+                  {actions.map((action, i) => (
+                    <div
+                      key={action.id}
+                      className={revealing && !isUser ? "rt-line" : undefined}
+                      style={
+                        revealing && !isUser
+                          ? { animationDelay: `${Math.min(i * 90, 1400)}ms` }
+                          : undefined
+                      }
+                    >
+                      <InlineApproval
+                        action={action}
+                        approval={approvalMap[action.id]}
+                        busy={approvalBusy === action.id}
+                        onApproval={onApproval}
+                        onRequestReject={onRequestReject}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!isUser && clarification && (
+                <ClarificationPanel
+                  prompt={clarification}
+                  onChoice={onClarificationChoice}
+                  onSkip={onClarificationSkip}
+                />
+              )}
+            </div>
+          </div>
+          {assistantTools}
+          {!isUser && meta && (
+            <div className="chat-bubble-footer">
+              <MessageMetaBadge meta={meta} />
+            </div>
+          )}
+        </div>
+      </motion.div>
+      {!isUser && isCoarsePointer && (
+        <Sheet
+          open={mobileActionsOpen}
+          onClose={() => setMobileActionsOpen(false)}
+          side="bottom"
+          size="sm"
+          title="จัดการข้อความ"
+          className="chat-message-sheet"
+        >
+          <div className="chat-message-sheet-meta">
+            {meta ? <MessageMetaBadge meta={meta} /> : <span>ข้อความจาก Friday</span>}
+          </div>
+          <div className="chat-message-sheet-actions">
+            <Button
+              variant="secondary"
+              size="lg"
+              fullWidth
+              iconLeading={copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+              onClick={() => void copyMessage(true)}
+            >
+              {copied ? "คัดลอกแล้ว" : "คัดลอกข้อความ"}
+            </Button>
+            <Button
+              variant="secondary"
+              size="lg"
+              fullWidth
+              iconLeading={<RotateCcw aria-hidden="true" />}
+              onClick={handleMobileRegenerate}
+            >
+              สร้างคำตอบใหม่
+            </Button>
+          </div>
+        </Sheet>
+      )}
+    </>
+  );
+
+  if (bubbleLayout) return bubbleLayout;
 
   return (
     <div className={`chat-bubble-wrapper ${isUser ? "user" : "assistant"}`}>
@@ -1464,26 +2208,61 @@ function ChatBubble({
       <div
         className={`chat-bubble ${isUser ? "user" : "assistant"} ${
           groupedIndex > 0 ? "grouped" : ""
-        }`}
+        } ${revealing && !isUser ? "revealing" : ""}`}
       >
-        {!isUser && groupedIndex === 0 && (
-          <span className="chat-role-label">Friday</span>
-        )}
         <RichText
           text={msg.content}
+          reduceMotion={reduceMotion}
           reveal={revealing && !isUser}
           onRevealDone={() => onRevealDone(msg.id)}
         />
+        {!isUser && (
+          <div className="chat-bubble-tools">
+            {meta && <MessageMetaBadge meta={meta} />}
+            <button
+              type="button"
+              className="chat-tool-btn"
+              onClick={() => onRegenerate(msg.id)}
+              aria-label="สร้างคำตอบใหม่"
+              title="สร้างคำตอบใหม่"
+            >
+              <RotateCcw aria-hidden="true" strokeWidth={1.8} />
+            </button>
+          <button
+            type="button"
+            className="chat-tool-btn"
+            onClick={copyMessage}
+            aria-label={copied ? "คัดลอกแล้ว" : "คัดลอกข้อความ"}
+            title={copied ? "คัดลอกแล้ว" : "คัดลอกข้อความ"}
+            >
+              {copied ? (
+                <Check aria-hidden="true" strokeWidth={1.9} />
+              ) : (
+                <Copy aria-hidden="true" strokeWidth={1.8} />
+              )}
+            </button>
+          </div>
+        )}
         {actions.length > 0 && (
           <div className="chat-approval-stack">
-            {actions.map((action) => (
-              <InlineApproval
+            {actions.map((action, i) => (
+              <div
                 key={action.id}
-                action={action}
-                approval={approvalMap[action.id]}
-                busy={approvalBusy === action.id}
-                onApproval={onApproval}
-              />
+                className={revealing && !isUser ? "rt-line" : undefined}
+                style={
+                  revealing && !isUser
+                    ? { animationDelay: `${Math.min(i * 90, 1400)}ms` }
+                    : undefined
+                }
+              >
+                <InlineApproval
+                  action={action}
+                  approval={approvalMap[action.id]}
+                  busy={approvalBusy === action.id}
+                  onApproval={onApproval}
+                  onRequestReject={onRequestReject}
+                />
+              </div>
             ))}
           </div>
         )}
@@ -1496,6 +2275,59 @@ function ChatBubble({
         )}
       </div>
     </div>
+  );
+}
+
+function MessageMetaBadge({ meta }: { meta: MessageMeta }) {
+  const parts = [
+    PROVIDER_LABELS[meta.provider],
+    meta.selectedModel ? compactModelName(meta.selectedModel) : null,
+    typeof meta.latencyMs === "number" ? formatLatency(meta.latencyMs) : null,
+  ].filter((part): part is string => Boolean(part));
+  return <span className="message-meta-badge">{parts.join(" · ")}</span>;
+}
+
+function compactModelName(model: string): string {
+  return model
+    .replace(/^models\//, "")
+    .replace(/^openai\//, "")
+    .replace(/^qwen\//, "")
+    .replace(/^z-ai\//, "");
+}
+
+function formatLatency(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
+}
+
+function useCoarsePointer(): boolean {
+  const [isCoarsePointer, setIsCoarsePointer] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(hover: none), (pointer: coarse)");
+    const update = () => setIsCoarsePointer(media.matches);
+    update();
+
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
+
+  return isCoarsePointer;
+}
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    Boolean(
+      target.closest(
+        "button, a, input, textarea, select, summary, [role='button'], [role='menuitem']",
+      ),
+    )
   );
 }
 
@@ -1513,18 +2345,13 @@ function ClarificationPanel({
       <span>{prompt.question}</span>
       <div className="chat-clarification-actions">
         {prompt.choices.map((choice) => (
-          <button
-            type="button"
-            className="primary"
-            key={choice}
-            onClick={() => onChoice(choice)}
-          >
+          <Button variant="primary" size="sm" key={choice} onClick={() => onChoice(choice)}>
             {choice}
-          </button>
+          </Button>
         ))}
-        <button type="button" onClick={onSkip}>
+        <Button variant="ghost" size="sm" onClick={onSkip}>
           ข้าม
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -1543,17 +2370,24 @@ function InlineApproval({
   approval,
   busy,
   onApproval,
+  onRequestReject,
 }: {
   action: ActionRef;
   approval: Approval | undefined;
   busy: boolean;
   onApproval: (id: number, decision: "approve" | "reject") => void;
+  onRequestReject: (
+    id: number,
+    question: string,
+    rejectLabel: string,
+  ) => void;
 }) {
   const status = approval?.status ?? "pending";
   const executionStatus = approval?.execution_status ?? "not_started";
   const copy = actionQuestion(approval ?? action);
   const disabled = status !== "pending" || busy;
   const failed = status === "pending" && executionStatus === "failed";
+  const approveLabel = failed ? "ลองใหม่" : copy.approve;
   const executionMessage = approval
     ? approvalExecutionMessage(approval)
     : null;
@@ -1567,23 +2401,31 @@ function InlineApproval({
         )}
       </span>
       {status === "pending" ? (
-        <div className="chat-approval-actions">
+        <div className="chat-approval-decision">
+          <div className="chat-approval-actions">
           {failed && <span className="badge failed">ไม่สำเร็จ</span>}
-          <button
-            type="button"
-            className="primary"
+          <Button
+            variant="primary"
+            size="sm"
+            loading={busy}
             disabled={disabled}
             onClick={() => onApproval(action.id, "approve")}
           >
-            {busy ? "..." : copy.approve}
-          </button>
-          <button
-            type="button"
+            {approveLabel}
+          </Button>
+          </div>
+          <div className="chat-approval-danger">
+          <Button
+            variant="link"
+            size="sm"
             disabled={disabled}
-            onClick={() => onApproval(action.id, "reject")}
+            onClick={() =>
+              onRequestReject(action.id, copy.question, copy.reject)
+            }
           >
             {copy.reject}
-          </button>
+          </Button>
+          </div>
         </div>
       ) : (
         <span className={`badge ${executionStatus === "succeeded" ? "succeeded" : status}`}>
@@ -1608,61 +2450,52 @@ function approvalExecutionMessage(approval: Approval): string | null {
 
 function RichText({
   text,
+  reduceMotion = false,
   reveal = false,
   onRevealDone,
 }: {
   text: string;
+  reduceMotion?: boolean;
   reveal?: boolean;
   onRevealDone?: () => void;
 }) {
-  const [visibleCount, setVisibleCount] = useState(reveal ? 0 : text.length);
-  const displayText = reveal ? text.slice(0, visibleCount) : text;
+  // Premium reveal: render the whole reply at once, then fade each line in
+  // with a short, fast stagger (fade + slight rise + blur clear). Feels silky
+  // and "typed by light" rather than a mechanical character ticker.
+  const animate = reveal && !reduceMotion;
+  const STAGGER_MS = 85;
+  const FADE_MS = 620;
+  const CAP_MS = 1900; // never delay a line past this, even in long replies
+  const blocks = parseMarkdownBlocks(text);
+
+  let seq = 0;
+  const nextDelay = () => Math.min(seq++ * STAGGER_MS, CAP_MS);
+  const rendered = blocks.map((block, blockIndex) =>
+    renderBlock(block, blockIndex, animate, nextDelay),
+  );
+  const totalMs = animate
+    ? Math.min(Math.max(seq - 1, 0) * STAGGER_MS, CAP_MS) + FADE_MS + 80
+    : 0;
 
   useEffect(() => {
-    if (!reveal) {
-      setVisibleCount(text.length);
-      return;
+    if (!reveal) return;
+    if (!animate) {
+      const raf = window.requestAnimationFrame(() => onRevealDone?.());
+      return () => window.cancelAnimationFrame(raf);
     }
-    setVisibleCount(0);
-    // Premium reveal: a smooth, unhurried cadence. Short replies stream
-    // character-by-character; long ones reveal a few chars per frame so the
-    // whole thing still finishes within a calm, bounded window (never abrupt,
-    // never tediously slow). ~24ms/frame keeps motion silky on 60Hz+ displays.
-    const FRAME_MS = 24;
-    const MAX_DURATION_MS = 3200;
-    const frames = Math.max(1, Math.round(MAX_DURATION_MS / FRAME_MS));
-    const step = Math.max(1, Math.ceil(text.length / frames));
-    let doneTimer = 0;
-    const timer = window.setInterval(() => {
-      setVisibleCount((current) => {
-        const next = Math.min(text.length, current + step);
-        if (next >= text.length) {
-          window.clearInterval(timer);
-          doneTimer = window.setTimeout(() => onRevealDone?.(), 140);
-        }
-        return next;
-      });
-    }, FRAME_MS);
-    return () => {
-      window.clearInterval(timer);
-      window.clearTimeout(doneTimer);
-    };
-  }, [onRevealDone, reveal, text]);
+    const timer = window.setTimeout(() => onRevealDone?.(), totalMs);
+    return () => window.clearTimeout(timer);
+  }, [animate, onRevealDone, reveal, text, totalMs]);
 
-  const blocks = parseMarkdownBlocks(displayText);
   return (
-    <div className="chat-content">
-      {blocks.map((block, blockIndex) => renderBlock(block, blockIndex))}
-      {reveal && visibleCount < text.length && (
-        <span className="stream-caret" aria-hidden="true" />
-      )}
-    </div>
+    <div className={`chat-content${animate ? " rt-reveal" : ""}`}>{rendered}</div>
   );
 }
 
 type MarkdownBlock =
   | { kind: "paragraph"; lines: string[] }
   | { kind: "list"; ordered: boolean; items: string[] }
+  | { kind: "table"; headers: string[]; rows: string[][] }
   | { kind: "code"; text: string };
 
 function parseMarkdownBlocks(text: string): MarkdownBlock[] {
@@ -1686,7 +2519,8 @@ function parseMarkdownBlocks(text: string): MarkdownBlock[] {
     }
   }
 
-  for (const line of lines) {
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex];
     if (line.trim().startsWith("```")) {
       if (code) {
         blocks.push({ kind: "code", text: code.join("\n") });
@@ -1707,6 +2541,25 @@ function parseMarkdownBlocks(text: string): MarkdownBlock[] {
     if (!line.trim()) {
       flushParagraph();
       flushList();
+      continue;
+    }
+
+    if (
+      isTableRow(line) &&
+      lineIndex + 1 < lines.length &&
+      isTableSeparator(lines[lineIndex + 1])
+    ) {
+      flushParagraph();
+      flushList();
+      const headers = splitTableRow(line);
+      const rows: string[][] = [];
+      lineIndex += 2;
+      while (lineIndex < lines.length && isTableRow(lines[lineIndex])) {
+        rows.push(splitTableRow(lines[lineIndex]));
+        lineIndex++;
+      }
+      lineIndex--;
+      blocks.push({ kind: "table", headers, rows });
       continue;
     }
 
@@ -1731,10 +2584,45 @@ function parseMarkdownBlocks(text: string): MarkdownBlock[] {
   return blocks;
 }
 
-function renderBlock(block: MarkdownBlock, index: number) {
+function isTableRow(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.includes("|", 1);
+}
+
+function isTableSeparator(line: string): boolean {
+  return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+}
+
+function splitTableRow(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function renderBlock(
+  block: MarkdownBlock,
+  index: number,
+  reveal = false,
+  nextDelay?: () => number,
+) {
+  // When revealing, each animatable line gets `.rt-line` + a staggered delay
+  // so the reply fades in line-by-line. Off-reveal, layout is untouched.
+  const lineProps = (): { className?: string; style?: CSSProperties } =>
+    reveal && nextDelay
+      ? { className: "rt-line", style: { animationDelay: `${nextDelay()}ms` } }
+      : {};
+
   if (block.kind === "code") {
+    const { className, style } = lineProps();
     return (
-      <pre className="rt-code-block" key={index}>
+      <pre
+        className={`rt-code-block${className ? ` ${className}` : ""}`}
+        style={style}
+        key={index}
+      >
         <code>{block.text}</code>
       </pre>
     );
@@ -1745,9 +2633,56 @@ function renderBlock(block: MarkdownBlock, index: number) {
     return (
       <Tag className="rt-list" key={index}>
         {block.items.map((item, itemIndex) => (
-          <li key={`${index}-${itemIndex}`}>{renderInline(item)}</li>
+          <li key={`${index}-${itemIndex}`} {...lineProps()}>
+            {renderInline(item)}
+          </li>
         ))}
       </Tag>
+    );
+  }
+
+  if (block.kind === "table") {
+    return (
+      <div className="rt-table-wrap" key={index}>
+        <table className="rt-table">
+          <thead>
+            <tr {...lineProps()}>
+              {block.headers.map((header, headerIndex) => (
+                <th key={`${index}-h-${headerIndex}`}>{renderInline(header)}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {block.rows.map((row, rowIndex) => (
+              <tr key={`${index}-r-${rowIndex}`} {...lineProps()}>
+                {block.headers.map((_, cellIndex) => (
+                  <td key={`${index}-r-${rowIndex}-${cellIndex}`}>
+                    {renderInline(row[cellIndex] ?? "")}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  if (reveal && nextDelay) {
+    // Each source line becomes its own block-level span so it can rise+fade
+    // independently (no <br> — the spans stack and animate per line).
+    return (
+      <p className="rt-block" key={index}>
+        {block.lines.map((line, lineIndex) => (
+          <span
+            key={`${index}-${lineIndex}`}
+            className="rt-line rt-pline"
+            style={{ animationDelay: `${nextDelay()}ms` }}
+          >
+            {renderInline(line)}
+          </span>
+        ))}
+      </p>
     );
   }
 

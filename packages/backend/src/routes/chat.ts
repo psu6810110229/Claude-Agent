@@ -9,14 +9,21 @@ import { archiveActiveMessages, listRecentMessages } from "../db/repositories/ch
 import { runChat } from "../services/chat.js";
 import { runChatFollowup } from "../services/chatFollowup.js";
 import { normalizeDictation } from "../services/textNormalizer.js";
-import type { ClaudeInvoker } from "../services/claudeClient.js";
+import type { ClaudeInvoker, ClaudeInvokeOptions } from "../services/claudeClient.js";
 import {
   selectProvider,
+  routeChat,
+  resolveStreamInvoker,
   otherAvailableProvider,
   getProvider,
   ProviderError,
   type AiProviderId,
+  type AiProviderMode,
+  type AiProvider,
+  type ResolvedProvider,
 } from "../services/aiProvider.js";
+import { isPsuConfigured } from "../services/psuClient.js";
+import { invokerToStream, type ThinkingSink } from "../services/aiStreaming.js";
 import {
   realGoogleEventsFetcher,
   type GoogleEventsFetcher,
@@ -27,6 +34,16 @@ import {
   isGuardEnabled,
   clearVerified,
 } from "../services/identityVerifier.js";
+import {
+  loadChatAttachment,
+  type ChatAttachment,
+} from "../services/attachmentService.js";
+import {
+  geminiVisionExtract,
+  isGeminiConfigured,
+  type VisionPart,
+} from "../services/geminiClient.js";
+import type { ChatContext } from "../services/chatPrompt.js";
 import { OWNER_SECRET_PHRASES, OWNER_PIN } from "../config.js";
 
 /** Plugin options. Both injectables let tests stub Claude / Google Calendar. */
@@ -52,6 +69,10 @@ export async function chatRoutes(
 
   app.post("/api/chat", async (req, reply) =>
     handleChat(req, opts.aiInvoker, fetchGoogle, reply),
+  );
+
+  app.post("/api/chat/stream", async (req, reply) =>
+    handleChatStream(req, opts.aiInvoker, fetchGoogle, reply),
   );
 
   app.get("/api/chat/challenge", async (_req, reply) => {
@@ -152,17 +173,45 @@ export async function chatRoutes(
   });
 }
 
-async function handleChat(
+/** Everything the chat pipeline needs after request parsing + provider routing. */
+interface ChatPrepOk {
+  ok: true;
+  message: string;
+  originalMessage: string;
+  sessionId?: string;
+  mode: AiProviderMode;
+  resolved: ResolvedProvider;
+  provider: AiProvider;
+  verified: boolean;
+  effectiveModel?: string;
+  extraOpts: ClaudeInvokeOptions;
+  useGeminiModel?: string;
+  thinkingBudget?: number;
+  visionParts: VisionPart[];
+  attachmentDescriptors: ChatContext["attachments"];
+  /** Plain (non-streaming) invoke with model/budget overrides already applied. */
+  invoke: ClaudeInvoker;
+}
+interface ChatPrepError {
+  ok: false;
+  code: number;
+  body: Record<string, unknown>;
+}
+type ChatPrep = ChatPrepOk | ChatPrepError;
+
+/**
+ * Shared pre-invoke work for BOTH the JSON and the SSE chat endpoints: parse,
+ * inline owner-unlock, provider routing, model/budget overrides, attachment +
+ * vision loading. Keeping it in one place means the security-sensitive unlock
+ * and the routing/guard logic can never drift between the two endpoints.
+ */
+async function prepareChat(
   req: import("fastify").FastifyRequest,
   injectedInvoker: ClaudeInvoker | undefined,
-  fetchGoogle: GoogleEventsFetcher,
-  reply: FastifyReply,
-): Promise<unknown> {
+): Promise<ChatPrep> {
   const body = chatRequestSchema.safeParse(req.body);
   if (!body.success) {
-    return reply
-      .code(400)
-      .send({ kind: "error", error: body.error.issues[0].message });
+    return { ok: false, code: 400, body: { kind: "error", error: body.error.issues[0].message } };
   }
 
   let message = body.data.message;
@@ -171,9 +220,10 @@ async function handleChat(
     mode: requestedMode,
     sessionId,
     geminiModel,
+    psuModel,
   } = body.data;
   const mode = requestedMode ?? "manual";
-  
+
   // Step 16: Dictation normalization
   message = normalizeDictation(message);
   const originalMessage = message;
@@ -185,15 +235,11 @@ async function handleChat(
     let removeLength = 0;
     let unlockSecret = "";
 
-    // 1. Check PIN
     if (OWNER_PIN && cleanMsg === OWNER_PIN.trim().toLowerCase()) {
       matchedInline = true;
       unlockSecret = OWNER_PIN;
       removeLength = cleanMsg.length;
-    }
-    // 2. Check Secret Phrase / owner openers (any phrase unlocks; strip it,
-    //    forward the remainder). First match in the list wins.
-    else {
+    } else {
       for (const phrase of OWNER_SECRET_PHRASES) {
         if (!phrase) continue;
         if (cleanMsg.startsWith(phrase)) {
@@ -230,51 +276,126 @@ async function handleChat(
 
   logActivity("chat.message.received", message.slice(0, 120));
 
-  // Roadmap 11 Phase 2/4 — provider selection. Manual resolves the requested
-  // provider per request (an unconfigured provider fails closed here: no
-  // invocation, no fake success, requested provider echoed back so the UI never
-  // hides the choice). Auto routes transparently and never throws (Claude is the
-  // always-available safe default); the message drives low-risk classification.
-  let resolved: ReturnType<typeof selectProvider>;
+  // Auto mode routes through the multi-model intent router ONLY when the PSU
+  // gateway is configured; otherwise it falls back to the original claude/gemini
+  // auto policy so existing behavior (and smoke tests) is intact.
+  const hasFiles = (body.data.attachmentIds?.length ?? 0) > 0;
+  let resolved: ResolvedProvider;
   try {
-    resolved = selectProvider({ mode, requestedProvider, message });
+    resolved =
+      mode === "auto" && isPsuConfigured()
+        ? routeChat({ message, hasFiles })
+        : selectProvider({ mode, requestedProvider, message });
   } catch (err) {
     if (err instanceof ProviderError) {
-      logActivity(
-        "ai.provider.unavailable",
-        `requested '${requestedProvider}': ${err.reason}`,
-      );
-      return reply.code(503).send({
-        kind: "error",
-        error: providerUnavailableMessage(requestedProvider),
-        requestedProvider: requestedProvider ?? null,
-        reason: err.reason,
-      });
+      logActivity("ai.provider.unavailable", `requested '${requestedProvider}': ${err.reason} — ${err.message}`);
+      const forbidden = err.reason === "schedule-forbidden";
+      return {
+        ok: false,
+        code: forbidden ? 400 : 503,
+        body: {
+          kind: "error",
+          error: forbidden
+            ? "โมเดลนี้ไว้คุยเล่นเท่านั้น ใช้กับเรื่องตาราง/งานสำคัญไม่ได้ค่ะ"
+            : providerUnavailableMessage(requestedProvider),
+          requestedProvider: requestedProvider ?? null,
+          reason: err.reason,
+        },
+      };
     }
     throw err;
   }
 
   logActivity("ai.provider.selected", resolved.selection.reason);
 
-  // Per-turn Gemini model override: only honored when the resolved provider is
-  // Gemini. Threaded into invoke opts; the Gemini invoker re-checks the
-  // allowlist. The chosen model is echoed back as `selectedModel`.
+  const selectedProviderId = resolved.selection.selectedProvider;
   const useGeminiModel =
-    geminiModel && resolved.selection.selectedProvider === "gemini"
-      ? geminiModel
+    geminiModel && selectedProviderId === "gemini" ? geminiModel : undefined;
+  const usePsuModel =
+    psuModel &&
+    (selectedProviderId === "qwen" ||
+      selectedProviderId === "glm" ||
+      selectedProviderId === "gpt4o")
+      ? psuModel
       : undefined;
-  const effectiveModel = useGeminiModel ?? resolved.selection.selectedModel;
+  const overrideModel = useGeminiModel ?? usePsuModel;
+  const effectiveModel = overrideModel ?? resolved.selection.selectedModel;
+  const thinkingBudget =
+    selectedProviderId === "gemini" ? resolved.selection.thinkingBudget : undefined;
 
-  // Tests inject `aiInvoker`; otherwise invoke the selected provider directly.
   const baseInvoke = injectedInvoker ?? resolved.provider.invoke;
-  const invoke: ClaudeInvoker = useGeminiModel
-    ? (prompt, callOpts) =>
-        baseInvoke(prompt, { ...callOpts, model: useGeminiModel })
-    : baseInvoke;
+  const extraOpts: ClaudeInvokeOptions = {};
+  if (overrideModel) extraOpts.model = overrideModel;
+  if (thinkingBudget !== undefined) extraOpts.thinkingBudget = thinkingBudget;
+  const invoke: ClaudeInvoker =
+    Object.keys(extraOpts).length > 0
+      ? (prompt, callOpts) => baseInvoke(prompt, { ...callOpts, ...extraOpts })
+      : baseInvoke;
   const verified = isVerified(sessionId, true); // `true` updates the idle timeout
-  const result = await runChat(message, invoke, fetchGoogle, { verified, sessionId, originalMessage });
 
-  // Spawn/timeout/disabled/empty: fail closed, no approvals, no history written.
+  // Chat doc attachments. PRIVACY: only an OWNER-VERIFIED requester's attachments
+  // are read. Stale/expired ids are silently skipped.
+  const attachmentIds = verified ? (body.data.attachmentIds ?? []) : [];
+  let attachmentDescriptors: ChatContext["attachments"] = [];
+  const visionParts: VisionPart[] = [];
+  if (attachmentIds.length > 0) {
+    const loaded = (
+      await Promise.all(attachmentIds.map((id) => loadChatAttachment(id)))
+    ).filter((a): a is ChatAttachment => a !== null);
+    attachmentDescriptors = loaded.map((a, i) => {
+      if (a.source.mode === "vision") {
+        visionParts.push(...a.source.parts);
+        return { index: i + 1, mode: "vision" as const, source: a.kind, text: null };
+      }
+      return { index: i + 1, mode: "text" as const, source: a.kind, text: a.source.text };
+    });
+  }
+
+  if (visionParts.length > 0 && !isGeminiConfigured()) {
+    logActivity("chat.attachment.vision_unavailable", `parts=${visionParts.length}`);
+    return {
+      ok: false,
+      code: 503,
+      body: { kind: "error", error: "อ่านรูป/ไฟล์สแกนต้องเปิด Gemini ก่อนค่ะ" },
+    };
+  }
+
+  return {
+    ok: true,
+    message,
+    originalMessage,
+    sessionId,
+    mode,
+    resolved,
+    provider: resolved.provider,
+    verified,
+    effectiveModel,
+    extraOpts,
+    useGeminiModel,
+    thinkingBudget,
+    visionParts,
+    attachmentDescriptors,
+    invoke,
+  };
+}
+
+/** A non-streaming invoke that routes a vision turn to Gemini multimodal. */
+function finalInvokeFor(prep: ChatPrepOk): ClaudeInvoker {
+  if (prep.visionParts.length === 0) return prep.invoke;
+  return (prompt, callOpts) =>
+    geminiVisionExtract(prompt, prep.visionParts, {
+      timeoutMs: callOpts?.timeoutMs,
+      model: prep.useGeminiModel ?? callOpts?.model,
+      thinkingBudget: prep.thinkingBudget ?? callOpts?.thinkingBudget,
+    });
+}
+
+/** Map a runChat result + prep into a {code, body} response (shared by both endpoints). */
+function chatResultResponse(
+  result: Awaited<ReturnType<typeof runChat>>,
+  prep: ChatPrepOk,
+): { code: number; body: Record<string, unknown> } {
+  const { mode, resolved, effectiveModel } = prep;
   if (result.kind === "failed") {
     logActivity("chat.message.failed", `${result.reason}: ${result.message}`);
     const code =
@@ -284,10 +405,7 @@ async function handleChat(
           ? 503
           : result.reason === "rate-limit"
             ? 429
-          : 502;
-    // Phase 4 — VISIBLE Auto fallback. The budget allows one provider call per
-    // chat command, so we never retry silently. On an Auto failure we surface
-    // the other available provider for an EXPLICIT user retry instead.
+            : 502;
     const fallback =
       mode === "auto"
         ? otherAvailableProvider(resolved.selection.selectedProvider)
@@ -298,22 +416,23 @@ async function handleChat(
         `${resolved.selection.selectedProvider} failed (${result.reason}); offer ${fallback.id}`,
       );
     }
-    return reply.code(code).send({
-      kind: "error",
-      error: result.userMessage,
-      mode,
-      provider: resolved.selection.selectedProvider,
-      fallbackProvider: fallback?.id ?? null,
-    });
+    return {
+      code,
+      body: {
+        kind: "error",
+        error: result.userMessage,
+        mode,
+        provider: resolved.selection.selectedProvider,
+        fallbackProvider: fallback?.id ?? null,
+      },
+    };
   }
 
-  // Invalid JSON / schema failure: reject, no approvals.
   if (result.kind === "rejected") {
     logActivity("chat.message.rejected", result.message);
-    return reply.code(400).send({ kind: "error", error: result.message });
+    return { code: 400, body: { kind: "error", error: result.message } };
   }
 
-  // Valid reply. Log any queued approvals.
   for (const approval of result.approvals) {
     logActivity(
       "chat.message.proposed",
@@ -322,25 +441,108 @@ async function handleChat(
   }
   logActivity("chat.message.replied", `${result.approvals.length} proposal(s)`);
 
-  return reply.code(201).send({
-    kind: "chat",
-    reply: result.reply,
-    spoken: result.spoken ?? null,
-    resultReport: result.resultReport ?? null,
-    resultSpoken: result.resultSpoken ?? null,
-    mode,
-    provider: resolved.selection.selectedProvider,
-    selectedModel: effectiveModel ?? null,
-    requestedProvider: resolved.selection.requestedProvider ?? null,
-    providerReason: resolved.selection.reason,
-    approvals: result.approvals,
-    clarification: result.clarification,
-    clarification_choices: result.clarificationChoices,
-    notes: result.notes,
-    verificationRequired: result.verificationRequired || undefined,
+  return {
+    code: 201,
+    body: {
+      kind: "chat",
+      reply: result.reply,
+      spoken: result.spoken ?? null,
+      resultReport: result.resultReport ?? null,
+      resultSpoken: result.resultSpoken ?? null,
+      mode,
+      provider: resolved.selection.selectedProvider,
+      selectedModel: effectiveModel ?? null,
+      requestedProvider: resolved.selection.requestedProvider ?? null,
+      providerReason: resolved.selection.reason,
+      approvals: result.approvals,
+      calendarPlan: result.calendarPlan ?? null,
+      clarification: result.clarification,
+      clarification_choices: result.clarificationChoices,
+      notes: result.notes,
+      verificationRequired: result.verificationRequired || undefined,
+      sensitivity: result.sensitivity ?? "normal",
+    },
+  };
+}
 
-    sensitivity: result.sensitivity ?? "normal",
+async function handleChat(
+  req: import("fastify").FastifyRequest,
+  injectedInvoker: ClaudeInvoker | undefined,
+  fetchGoogle: GoogleEventsFetcher,
+  reply: FastifyReply,
+): Promise<unknown> {
+  const prep = await prepareChat(req, injectedInvoker);
+  if (!prep.ok) return reply.code(prep.code).send(prep.body);
+
+  const result = await runChat(prep.message, finalInvokeFor(prep), fetchGoogle, {
+    verified: prep.verified,
+    sessionId: prep.sessionId,
+    originalMessage: prep.originalMessage,
+    attachments: prep.attachmentDescriptors,
   });
+
+  const { code, body } = chatResultResponse(result, prep);
+  return reply.code(code).send(body);
+}
+
+/**
+ * Streaming variant of POST /api/chat. Streams the model's live THINKING as SSE
+ * `thinking` events while the answer is accumulated; once the full JSON answer is
+ * parsed through the SAME approval-gated pipeline, a single `done` (or `error`)
+ * event carries the final payload — identical in shape to the JSON endpoint.
+ * The answer itself is never streamed token-by-token (it must parse as one blob).
+ */
+async function handleChatStream(
+  req: import("fastify").FastifyRequest,
+  injectedInvoker: ClaudeInvoker | undefined,
+  fetchGoogle: GoogleEventsFetcher,
+  reply: FastifyReply,
+): Promise<unknown> {
+  const prep = await prepareChat(req, injectedInvoker);
+  if (!prep.ok) return reply.code(prep.code).send(prep.body);
+
+  // Switch to manual SSE on the raw socket; fastify must not also respond.
+  reply.hijack();
+  const raw = reply.raw;
+  raw.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+  });
+  const send = (event: string, data: unknown): void => {
+    raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  const sink: ThinkingSink = (e) => {
+    if (e.type === "thinking") send("thinking", { delta: e.delta });
+  };
+
+  // A vision turn has no native thinking stream → adapt the (non-stream) vision
+  // invoke. Otherwise use the provider's streaming invoke, or an injected stub.
+  const streamInvoker =
+    prep.visionParts.length > 0 || injectedInvoker
+      ? invokerToStream(finalInvokeFor(prep))
+      : resolveStreamInvoker(prep.provider);
+  const streamingInvoke: ClaudeInvoker = (prompt, callOpts) =>
+    streamInvoker(prompt, sink, { ...callOpts, ...prep.extraOpts });
+
+  try {
+    const result = await runChat(prep.message, streamingInvoke, fetchGoogle, {
+      verified: prep.verified,
+      sessionId: prep.sessionId,
+      originalMessage: prep.originalMessage,
+      attachments: prep.attachmentDescriptors,
+    });
+    const { body } = chatResultResponse(result, prep);
+    send("done", body);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logActivity("chat.stream.failed", msg.slice(0, 120));
+    send("error", { kind: "error", error: "เกิดข้อผิดพลาดระหว่างประมวลผลค่ะ" });
+  } finally {
+    raw.end();
+  }
+  return reply;
 }
 
 /**

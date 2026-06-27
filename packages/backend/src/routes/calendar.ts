@@ -6,8 +6,14 @@ import {
 } from "../schemas/googleCalendar.js";
 import {
   realGoogleEventsFetcher,
+  searchGoogleCalendarEvents,
   type GoogleEventsFetcher,
 } from "../services/googleCalendar.js";
+import {
+  CHAT_GOOGLE_WINDOW_DAYS,
+  CHAT_GOOGLE_PAST_DAYS,
+} from "../config.js";
+import { z } from "zod";
 import { analyzeSchedule } from "../services/scheduleHealth.js";
 import { getSchedulePrefs } from "../services/schedulePrefs.js";
 import { recallFacts } from "../services/factRecall.js";
@@ -25,8 +31,25 @@ import type { ClaudeInvoker } from "../services/claudeClient.js";
  */
 export interface CalendarRouteOptions {
   calendarFetcher?: GoogleEventsFetcher;
+  /** Injectable keyword searcher (tests stub Google). Defaults to the real one. */
+  calendarSearcher?: (
+    q: string,
+    timeMinIso: string,
+    timeMaxIso: string,
+  ) => Promise<import("../schemas/googleCalendar.js").GoogleEvent[]>;
   aiInvoker?: ClaudeInvoker;
 }
+
+/** Search query: required text + optional forward horizon (days), capped. */
+const calendarSearchQuerySchema = z.object({
+  q: z.string().trim().min(1).max(200),
+  days: z.coerce.number().int().min(1).max(730).optional(),
+});
+
+/** Upcoming view range — the dashboard's 7/14/30-day window selector. */
+const upcomingDaysQuerySchema = z.object({
+  days: z.coerce.number().int().refine((n) => [7, 14, 30].includes(n)),
+});
 
 /**
  * Google Calendar read routes (Step 10).
@@ -43,14 +66,50 @@ export async function calendarRoutes(
   opts: CalendarRouteOptions,
 ): Promise<void> {
   const fetchEvents = opts.calendarFetcher ?? realGoogleEventsFetcher;
+  const searchEvents = opts.calendarSearcher ?? searchGoogleCalendarEvents;
+
+  // Keyword search across the calendar window (recent past + forward horizon),
+  // so the user can find an event by name/place even far out. Read-only, fail
+  // closed: any disabled/config/auth/API error returns available:false + [].
+  app.get("/api/calendar/search", async (req, reply) => {
+    const parsed = calendarSearchQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return reply
+        .code(400)
+        .send({ error: parsed.error.issues.map((i) => i.message).join("; ") });
+    }
+    const forwardDays = parsed.data.days ?? CHAT_GOOGLE_WINDOW_DAYS;
+    const { pastStartUtc, upcomingEndUtc } = agendaBounds(
+      new Date(),
+      forwardDays,
+      CHAT_GOOGLE_PAST_DAYS,
+    );
+    try {
+      const events = await searchEvents(
+        parsed.data.q,
+        pastStartUtc,
+        upcomingEndUtc,
+      );
+      return googleEventListResponseSchema.parse({ events, available: true });
+    } catch {
+      return googleEventListResponseSchema.parse({
+        events: [],
+        available: false,
+      });
+    }
+  });
 
   app.get("/api/calendar/today", async () => {
     const { todayStartUtc, todayEndUtc } = agendaBounds();
     return fetchWindow(fetchEvents, todayStartUtc, todayEndUtc);
   });
 
-  app.get("/api/calendar/upcoming", async () => {
-    const { todayEndUtc, upcomingEndUtc } = agendaBounds();
+  app.get("/api/calendar/upcoming", async (req) => {
+    // Optional view range: the dashboard offers 7/14/30-day windows. Anything
+    // out of the allowlist falls back to the default 7-day agenda window.
+    const parsed = upcomingDaysQuerySchema.safeParse(req.query);
+    const days = parsed.success ? parsed.data.days : undefined;
+    const { todayEndUtc, upcomingEndUtc } = agendaBounds(new Date(), days);
     return fetchWindow(fetchEvents, todayEndUtc, upcomingEndUtc);
   });
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { getCalendarUpcoming, listEvents, listReminders } from "@/lib/api";
 import { useData } from "@/lib/useData";
 import { bucketEvents, bucketReminders } from "@/lib/agenda";
@@ -13,13 +14,16 @@ import type {
   Reminder,
 } from "@/lib/types";
 
-async function loadUpcoming(): Promise<{
+type ViewDays = 7 | 14 | 30;
+const VIEW_RANGES: ViewDays[] = [7, 14, 30];
+
+async function loadUpcoming(days: ViewDays): Promise<{
   calendar: GoogleEventListResponse;
   events: CalendarEvent[];
   reminders: Reminder[];
 }> {
   const [calendar, events, reminders] = await Promise.all([
-    getCalendarUpcoming(),
+    getCalendarUpcoming(days),
     listEvents(),
     listReminders(),
   ]);
@@ -46,7 +50,11 @@ function UpcomingSkeleton() {
 }
 
 export default function UpcomingPage() {
-  const { data, loading, error, reload } = useData("/api/upcoming", loadUpcoming);
+  const [days, setDays] = useState<ViewDays>(7);
+  const { data, loading, error, reload } = useData(
+    `/api/upcoming?days=${days}`,
+    () => loadUpcoming(days),
+  );
 
   return (
     <>
@@ -54,7 +62,28 @@ export default function UpcomingPage() {
         <div>
           <p className="page-kicker">Agenda</p>
           <h2>Upcoming</h2>
-          <p className="lede">Events and reminders in the next 7 days.</p>
+          <p className="lede">
+            Google Calendar for the next {days} days; local events and reminders
+            for the next 7.
+          </p>
+        </div>
+        <div
+          className="segmented"
+          role="radiogroup"
+          aria-label="Calendar view range in days"
+        >
+          {VIEW_RANGES.map((d) => (
+            <button
+              key={d}
+              type="button"
+              role="radio"
+              aria-checked={days === d}
+              className={`segment${days === d ? " active" : ""}`}
+              onClick={() => setDays(d)}
+            >
+              {d}d
+            </button>
+          ))}
         </div>
       </header>
 

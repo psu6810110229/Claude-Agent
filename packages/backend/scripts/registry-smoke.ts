@@ -71,18 +71,21 @@ for (const type of actionTypeSchema.options) {
 }
 
 // The external-service actions are exactly the Google Calendar writes (Step 14
-// added update/delete). No other capability reaches an external service.
+// added update/delete) plus the Gmail writes (Step 17 draft/send). No other
+// capability reaches an external service.
 const external = actionTypeSchema.options.filter((t) =>
   getActionMeta(t).policies.includes("external-service"),
 );
 assert(
   JSON.stringify([...external].sort()) ===
     JSON.stringify([
+      "gmail.draft",
+      "gmail.send",
       "google_event.create",
       "google_event.delete",
       "google_event.update",
     ]),
-  "external-service actions are exactly the Google Calendar writes",
+  "external-service actions are exactly the Google Calendar + Gmail writes",
 );
 assert(
   getActionMeta("google_event.create").policies.includes("create-only"),
@@ -141,6 +144,13 @@ const chatPrompt = buildChatPrompt({
   googleEvents: [],
   events: [],
   reminders: [],
+  gmailUnread: [],
+  contacts: [],
+  contactsStatus: "disabled",
+  recentDriveFiles: [],
+  lineChats: [],
+  lineMessages: [],
+  lineMatches: [],
   approvalOutcomes: [],
   history: [],
   autoExecute: false,

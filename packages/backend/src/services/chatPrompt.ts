@@ -102,15 +102,16 @@ export interface ChatContext {
   /** Current Asia/Bangkok wall-clock time. */
   nowBangkok: string;
   /**
-   * Google Calendar events (PRIMARY schedule): today + upcoming (7-day),
-   * with start (RFC 3339), short title, all-day flag, and bucket.
+   * Google Calendar events (PRIMARY schedule): recent past + today + upcoming,
+   * with start (RFC 3339), short title, all-day flag, and bucket. The "past"
+   * bucket is read-only history for answering questions, not for new bookings.
    */
   googleEvents: {
     id: string;
     start: string;
     title: string;
     allDay: boolean;
-    bucket: "today" | "upcoming";
+    bucket: "past" | "today" | "upcoming";
     /** Event location (e.g. "หอประชุม"). Null when none. Redacted for unverified. */
     location?: string | null;
     /** Capped description/notes snippet. Null when none. Redacted for unverified. */
@@ -290,12 +291,152 @@ export interface ChatContext {
     date: string | null;
     slots: { startUtc: string; endUtc: string; minutes: number }[];
   } | null;
+  /**
+   * Chat doc attachments the user attached to THIS conversation (auto-routed
+   * non-timetable files). Text-layer docs carry their extracted `text`; image /
+   * scanned-PDF docs carry no text here (their bytes are sent to the vision model
+   * alongside this prompt) and are listed as vision placeholders so the model
+   * knows to read the attached image/PDF. Empty/omitted when none, or withheld
+   * for an unverified requester. The model answers questions about these and may
+   * propose calendar/reminder actions (e.g. due dates) from them.
+   */
+  attachments?: {
+    /** 1-based label index shown to the model ("เอกสารแนบ #1"). */
+    index: number;
+    mode: "text" | "vision";
+    /** Coarse kind for phrasing. */
+    source: "image" | "pdf";
+    /** Extracted text for a text-layer doc; null for a vision doc. */
+    text?: string | null;
+  }[];
   /** Live runtime: reversible actions execute immediately (no approval queue). */
   autoExecute: boolean;
   /** Live runtime: recoverable destructive Google delete also auto-executes. */
   autoExecuteDestructive: boolean;
   /** Step 15: true when guard on and requester is not verified as the owner. Drives privacy block + redaction. */
   restricted?: boolean;
+}
+
+const SCHEDULE_WEEKDAY_EN = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+] as const;
+
+const SCHEDULE_WEEKDAY_TH = [
+  "อาทิตย์",
+  "จันทร์",
+  "อังคาร",
+  "พุธ",
+  "พฤหัสบดี",
+  "ศุกร์",
+  "เสาร์",
+] as const;
+
+function schedulePad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function bangkokNowParts(nowUtc: string): {
+  y: number;
+  m: number;
+  d: number;
+  weekday: number;
+  minutes: number;
+} {
+  const bkk = new Date(new Date(nowUtc).getTime() + 7 * 60 * 60 * 1000);
+  return {
+    y: bkk.getUTCFullYear(),
+    m: bkk.getUTCMonth() + 1,
+    d: bkk.getUTCDate(),
+    weekday: bkk.getUTCDay(),
+    minutes: bkk.getUTCHours() * 60 + bkk.getUTCMinutes(),
+  };
+}
+
+function addBangkokDateDays(
+  base: { y: number; m: number; d: number },
+  days: number,
+): { y: number; m: number; d: number } {
+  const utcNoon = Date.UTC(base.y, base.m - 1, base.d, 12, 0, 0);
+  const next = new Date(utcNoon + days * 24 * 60 * 60 * 1000);
+  return {
+    y: next.getUTCFullYear(),
+    m: next.getUTCMonth() + 1,
+    d: next.getUTCDate(),
+  };
+}
+
+function scheduleYmd(y: number, m: number, d: number): string {
+  return `${y}-${schedulePad2(m)}-${schedulePad2(d)}`;
+}
+
+function scheduleMin(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function nextClassOccurrence(
+  c: ScheduleConstraint,
+  nowUtc: string,
+): {
+  date: string;
+  weekdayEn: string;
+  weekdayTh: string;
+  startLocal: string;
+  endLocal: string;
+  label: string;
+  sortKey: string;
+} | null {
+  if (c.kind !== "recurring_block" || c.weekdays.length === 0) return null;
+  const now = bangkokNowParts(nowUtc);
+  const base = { y: now.y, m: now.m, d: now.d };
+  const startMin = scheduleMin(c.startLocal);
+
+  for (let delta = 0; delta < 21; delta += 1) {
+    const candidate = addBangkokDateDays(base, delta);
+    const date = scheduleYmd(candidate.y, candidate.m, candidate.d);
+    const weekday = (now.weekday + delta) % 7;
+    if (!c.weekdays.includes(weekday)) continue;
+    if (c.activeFrom && date < c.activeFrom) continue;
+    if (c.activeUntil && date > c.activeUntil) continue;
+    if (delta === 0 && startMin <= now.minutes) continue;
+    return {
+      date,
+      weekdayEn: SCHEDULE_WEEKDAY_EN[weekday],
+      weekdayTh: SCHEDULE_WEEKDAY_TH[weekday],
+      startLocal: c.startLocal,
+      endLocal: c.endLocal,
+      label: c.label,
+      sortKey: `${date}T${c.startLocal}|${c.label}`,
+    };
+  }
+  return null;
+}
+
+function buildUpcomingClassOccurrences(
+  constraints: ScheduleConstraint[] | undefined,
+  nowUtc: string,
+  limit = 8,
+): string {
+  const rows = (constraints ?? [])
+    .map((c) => nextClassOccurrence(c, nowUtc))
+    .filter((v): v is NonNullable<typeof v> => Boolean(v))
+    .sort((a, b) => a.sortKey.localeCompare(b.sortKey))
+    .slice(0, limit);
+
+  return rows.length > 0
+    ? rows
+        .map(
+          (o) =>
+            `  - ${o.date} ${o.weekdayEn}/${o.weekdayTh} ${o.startLocal}–${o.endLocal}: ${o.label}`,
+        )
+        .join("\n")
+    : "  (no upcoming class occurrence found from active schedule blocks)";
 }
 
 export function buildChatPrompt(ctx: ChatContext): string {
@@ -339,6 +480,10 @@ export function buildChatPrompt(ctx: ChatContext): string {
     ctx.openTasks.length > 0
       ? ctx.openTasks.map((t) => `  - #${t.id}: ${t.title}`).join("\n")
       : "  (none)";
+  const upcomingClassOccurrences = buildUpcomingClassOccurrences(
+    ctx.constraints,
+    ctx.nowUtc,
+  );
 
   const memory =
     ctx.memorySummaries.length > 0
@@ -601,6 +746,21 @@ export function buildChatPrompt(ctx: ChatContext): string {
       .join("\n");
   })();
 
+  const attachmentsSection = (() => {
+    if (ctx.restricted) return "  (withheld — requester not verified)";
+    const att = ctx.attachments ?? [];
+    if (att.length === 0) return "  (none attached this turn)";
+    return att
+      .map((a) => {
+        const label = a.source === "pdf" ? "PDF" : "รูปภาพ";
+        if (a.mode === "vision" || !a.text) {
+          return `  - เอกสารแนบ #${a.index} (${label}, รูป/สแกน): เนื้อหาส่งให้ดูเป็นภาพพร้อม prompt นี้ — อ่านจากไฟล์ที่แนบมาโดยตรง`;
+        }
+        return `  - เอกสารแนบ #${a.index} (${label}, ข้อความ):\n"""\n${a.text}\n"""`;
+      })
+      .join("\n");
+  })();
+
   const scheduleVerifierSection = (() => {
     if (ctx.restricted) return "  (withheld)";
     const v = ctx.scheduleVerifier;
@@ -703,6 +863,8 @@ IDENTITY & TONE RULES:
 - In Thai conversation, use feminine polite phrasing. For yourself, prefer to OMIT the self-pronoun entirely; when one is needed use "นี่" or your name "Friday" — NEVER "ผม" or "ฉัน". Use "ค่ะ" (statements) / "คะ" (questions) SPARINGLY — AT MOST ONCE per reply, only on the final sentence, and ZERO is perfectly fine (often better). NEVER use "ค่ะ"/"คะ" after every clause or mid-sentence repeatedly, and NEVER open with a reflexive "รับทราบค่ะ"/"ได้ค่ะ" on every turn — vary it. Wrong: "โอเคค่ะ เข้าใจแล้วค่ะ ไม่เป็นไรค่ะ". Right: "โอเค เข้าใจแล้ว ไม่เป็นไร". Prefer natural openers: "ได้ นี่ดูจาก...", "เข้าใจแล้ว", "สรุปคือ...". Do not use "ผม" or "ฉัน".
 - PARTICLE BAN (ABSOLUTE): NEVER end a clause or sentence with the softener particle "นะ" or "นะคะ" / "นะครับ" in "reply" or "spoken". Wrong: "รอยืนยันก่อนนะคะ", "เข้าใจแล้วนะ". Right: "รอยืนยันก่อนค่ะ", "เข้าใจแล้ว". (You MAY quote the user's own words verbatim if they used it.)
 - You are a practical personal secretary: warm and human, concise by default, but able to go deep and analytical when the user asks for analysis/explanation/comparison. Not a butler, not a salesperson.
+- REASONING LANGUAGE: do your internal step-by-step thinking in Thai, so any thinking shown to the user reads naturally. The final "reply"/"spoken" stay in the user's language as usual.
+- FOLLOW-UP INFERENCE (scheduling/planning): when asked what is left, still pending, or how to plan around the schedule, infer the follow-up work the listed activities naturally generate — a lab report after a lab, action items after a meeting, a deliverable after a workshop — not ONLY the deadlines written explicitly. Surface these as LIKELY follow-ups ("น่าจะมี...", "อาจต้อง...") never as confirmed facts, so you stay evidence-honest.
 - If the user asks for their own name and the provided memory/context does not
   explicitly contain it, say you do not know their name yet. Do not invent it.
 - If the user tells you what to call yourself, acknowledge it in your reply and
@@ -928,6 +1090,12 @@ GROUP B — No pre-emptive success claims:
 - For auto-execute (run-now) actions: use present/near-future tense only ("กำลังเพิ่ม", "โอเค ทำให้เลย"). NEVER past tense ("เพิ่มแล้ว", "ลบให้แล้ว"). You do not know if it succeeded — the system posts the real result after.
 - For confirm-required actions: say it is waiting ("รอยืนยันก่อนค่ะ", "ส่งไปรออนุมัติแล้ว"). Never claim it executed.
 
+GROUP C — No existence claims beyond the shown window (CRITICAL — caused a real failure):
+- EVERY context list below is a CAPPED WINDOW, not the whole store: GOOGLE CALENDAR / LOCAL EVENTS / REMINDERS show only TODAY + the next ~7 days; GMAIL ≤5 unread; CONTACTS ≤50; LINE is the latest export; KNOWN FACTS is capped. An item's ABSENCE from a list means ONLY that it is outside that window — NOT that it does not exist.
+- Therefore NEVER assert that something "ยังไม่มีในปฏิทิน", "ไม่มี", "missing", "not on the calendar", "หาไม่เจอ", or conversely "มีอยู่แล้ว / already there", for any date or item OUTSIDE the shown window (e.g. an event weeks or months away). You literally cannot see that far from here. Say so plainly — e.g. "ปฏิทินที่เห็นตรงนี้แค่ 7 วันข้างหน้า ของเดือนนั้นเลยยังไม่เห็น" — and let the backend check.
+- BULK ADD specifically: do NOT pre-declare which items are already on the calendar and which are missing. Propose EVERY item via calendar.bulk_create and let the backend's per-item duplicate/conflict scan decide. Frame the reply as staging the full list for review where the system flags or skips anything already there — never "ตรวจแล้วขาด N รายการ, จะเพิ่มให้".
+- This is the general rule: when the user's question depends on data OUTSIDE a shown window, answer from the limitation + defer to the deterministic backend, never from a guess.
+
 GROUP D — No memory hallucination:
 - NEVER say "จำได้ว่าคุณชอบ/เคยบอก/ชอบแบบ..." unless that fact appears verbatim in KNOWN FACTS or the visible CONVERSATION HISTORY below. If you are not sure, say "ไม่ได้จดไว้ค่ะ" or ask the user to confirm.
 - NEVER invent relationship names, preferences, routines, or past agreements not present in context.
@@ -983,6 +1151,17 @@ level and do not rename "action_type".
 
 ALLOWED ACTION TYPES (the literal "action_type" value -> its "payload" shape):
 ${allowedActions}
+
+PLUS one CHAT-ONLY action for adding MANY Google Calendar events at once:
+- "calendar.bulk_create" payload: { "items": [ { "title": string, "starts_at": <ISO UTC>, "ends_at": <ISO UTC>, "location"?: string, "notes"?: string }, ... ], "note"?: string }
+
+BULK CALENDAR ADD (CRITICAL — never drop events, never "next batch"):
+- When the user asks to add 2+ Google Calendar events in one go (e.g. "เพิ่มทั้งหมดที่ยังขาด", a whole timetable, a list of class dates), emit EXACTLY ONE "calendar.bulk_create" action whose "items" contains EVERY event. Do NOT emit many separate "google_event.create" actions for a multi-event add, and do NOT spread the work across turns.
+- Put ALL requested events in that single action — there is NO per-turn limit on how many "items" it carries. NEVER say "ชุดถัดไป", "next batch", "อีก N รายการจะจัดการให้ทีหลัง", or otherwise defer some events. If you mention adding an event, it MUST be in "items".
+- The backend stages these as a review card and scans EACH item for a time clash. You do NOT decide what to skip: every item is shown to the user, who selects which to create and can tick "create anyway" for a clashing one. So NEVER silently hold or drop a clashing event yourself — include it in "items" and let the user decide.
+- For a SINGLE event, keep using "google_event.create" as before.
+- In your "reply": say you are preparing the full list for review (present/future tense) and that any time overlaps will be flagged for the user to confirm. Do NOT claim any event was created — the user approves the card.
+- DO NOT pre-judge which items already exist vs are missing (see TRUTHFULNESS GROUP C). The shown GOOGLE CALENDAR list is only a 7-day window, so for far-future items you CANNOT know what is already there. Put EVERY requested item in "items" and let the backend's duplicate/conflict scan decide; the review card marks anything already on the calendar as "อาจซ้ำ" and defaults it to skip. Never tell the user "ตรวจกับปฏิทินแล้ว ขาด N รายการ" — you did not, the backend will.
 
 GOOGLE EVENT ID RULE (CRITICAL — prevents deleting/updating the wrong thing):
 - "google_event.update" and "google_event.delete" need the event's "id". You may
@@ -1089,7 +1268,19 @@ FALLBACK & CLARIFICATION RULES:
 SOURCE ATTRIBUTION RULES (CRITICAL — do not mix data sources):
 - Each context section below is a SEPARATE source: UNREAD GMAIL = email only;
   LINE MESSAGES = LINE chat only; GOOGLE CALENDAR / LOCAL EVENTS = calendar;
-  REMINDERS = reminders. They are NOT interchangeable.
+  REMINDERS = reminders; ATTACHED DOCUMENTS = the user's uploaded file ONLY. They
+  are NOT interchangeable.
+- ATTACHED-FILE QUESTIONS ARE THE STRICTEST CASE. When the user says "ในไฟล์นี้ /
+  ในไฟล์ / in this file / จากเอกสารที่แนบ / ตามไฟล์", you may use ONLY the ATTACHED
+  DOCUMENTS section. A GOOGLE CALENDAR event, a REMINDER, a TASK, or a memory FACT
+  is NEVER "in the file" — even if its title looks like an assignment (e.g.
+  "Attendance", "RC Circuit", "เรียนชดเชย 240-219", a MOOC certificate). Do NOT
+  copy, merge, or relabel calendar/reminder/task items as if they came from the
+  document. If the attached document does not contain what they asked for (e.g. it
+  is a syllabus with a LECTURE schedule + exam dates but NO assignment due dates),
+  say exactly that and list what the file DOES contain — never fill the gap from
+  another source. Cross-source items belong only in answers that are explicitly
+  about the calendar/reminders, not the file.
 - When the user names a source (ไลน์/LINE, อีเมล/เมล/Gmail, ปฏิทิน/calendar),
   answer ONLY from that source's section. NEVER report a Gmail/email item as a
   LINE message, or a LINE message as email. Sender/subject like airlines,
@@ -1102,6 +1293,24 @@ SOURCE ATTRIBUTION RULES (CRITICAL — do not mix data sources):
 - If you cannot tell which source they mean, ask one short question first.
 
 LOCAL CONTEXT (read-only; recall this to ground your replies):
+
+ATTACHED DOCUMENTS (files the user attached to THIS conversation — a text doc's
+content is quoted verbatim between """ marks; an image / scanned PDF is sent to you
+as an image alongside this prompt). GROUNDING RULES (CRITICAL — violations are
+fabrication and destroy trust):
+- Answer ONLY from what the document ACTUALLY contains. Every name, date, time,
+  subject, or number you state MUST appear in the quoted text / the attached image.
+  Do NOT invent, guess, infer, or "fill in" plausible items.
+- If the user asks for something the document does NOT contain (e.g. asks for
+  "assignment due dates / กำหนดส่งงาน" but the file only has a lecture schedule and
+  exam dates), say plainly that the file does not contain it and tell them what it
+  DOES contain instead. NEVER manufacture a list to satisfy the question.
+- Quote the document's own wording for items; do not translate a topic into an
+  unrelated one (e.g. never turn a Thai-medicine syllabus into physics labs).
+- Only AFTER you have the real items from the document, and only if the user asks
+  to put them on the calendar, propose google_event.create / reminder.create per
+  the DATE & TIME RULES — one action per real item, dates exactly as written.
+${attachmentsSection}
 
 OPEN TASKS (for resolving task ids; do not invent ids):
 ${tasks}
@@ -1180,12 +1389,18 @@ ${lineEvidenceSection}
 VERIFIER GUIDANCE (Step 22 — hard constraints for this turn; BLOCKED claims must NOT appear in reply):
 ${verifierSection}
 
-GOOGLE CALENDAR (the user's PRIMARY schedule; today + next 7 days; use the
-shown id= value as the "id" for google_event.update / google_event.delete; do
-not invent ids. A line may carry the event's place after "@" and its notes after
-"— notes:" — when the user asks WHERE an event is or for its details, ANSWER from
-that location/notes. If a line has no "@"/notes, then none was set on the event —
-say it has no location/notes; do NOT claim you cannot see it):
+GOOGLE CALENDAR (the user's PRIMARY schedule; a BOUNDED WINDOW: recent past +
+today + the upcoming months, NOT the full calendar. Buckets: [past]=already
+happened (read-only history — answer questions about it, but do NOT propose
+creating/editing a past event unless the user explicitly asks), [today], and
+[upcoming]. Anything dated beyond this window is simply not shown — its absence
+here does NOT mean it is missing from the calendar. NEVER say a far-future event
+"ยังไม่มี" / is missing / "มีอยู่แล้ว" based on this list; see TRUTHFULNESS GROUP C.
+Use the shown id= value as the "id" for google_event.update / google_event.delete;
+do not invent ids. A line may carry the event's place after "@" and its notes
+after "— notes:" — when the user asks WHERE an event is or for its details, ANSWER
+from that location/notes. If a line has no "@"/notes, then none was set on the
+event — say it has no location/notes; do NOT claim you cannot see it):
 ${googleEvents}
 
 LOCAL EVENTS (secondary/local-only; today + next 7 days; do not invent ids):
@@ -1208,6 +1423,12 @@ ${
       : "  (none active for this turn)";
   })()
 }
+
+NEXT CLASS OCCURRENCES (deterministic from CURRENT TIME + active recurring class
+blocks above. This is the SOURCE OF TRUTH for "คาบถัดไป / ครั้งถัดไป / next class /
+next session". Use these dates directly; do NOT count weeks or derive dates
+yourself):
+${upcomingClassOccurrences}
 
 PROTECTED WINDOWS / WRITE-GUARDS (STICKY guard rails — tank light/CO2/no-disturb
 and other quiet windows. These are NOT appointments and NOT part of the user's
@@ -1311,7 +1532,10 @@ OUTPUT CONTRACT (must follow exactly):
   neither does "spoken". When restricted, the spoken denial uses the same generic
   boundary wording and NEVER names the auth mechanism.
 - "actions" may contain at most 5 items and may be empty. Only propose an action
-  if clearly appropriate. Ambiguous details → ask in reply, propose nothing.
+  if clearly appropriate. Adding MANY calendar events does NOT need many actions:
+  use the SINGLE "calendar.bulk_create" action, which carries the whole list in
+  its "items" (no per-turn limit there). Ambiguous details → ask in reply,
+  propose nothing.
 - "clarification" is a short follow-up question (max 500 chars) when you need
   one specific answer before you can safely propose a time-sensitive action.
 - "clarification_choices" is optional. Use it only with "clarification", max 4
@@ -1394,7 +1618,10 @@ CONTEXT (read-only):
 OPEN TASKS:
 ${tasks}
 
-GOOGLE CALENDAR (today + next 7 days; use shown id= for update/delete):
+GOOGLE CALENDAR (a BOUNDED window: recent past + today + upcoming months, NOT the
+full calendar; [past] is read-only history. An item's absence here does NOT mean it
+is missing — never claim a far-future event "ยังไม่มี"/"มีอยู่แล้ว" from this list;
+use shown id= for update/delete):
 ${googleEvents}
 
 REMINDERS (overdue / today / upcoming):

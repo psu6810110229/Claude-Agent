@@ -1,23 +1,34 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   ArrowUp,
+  CalendarPlus,
   ChevronDown,
-  Moon,
+  FileText,
+  Image as ImageIcon,
   Paperclip,
-  Sun,
+  Square,
   Volume2,
   VolumeX,
+  X,
 } from "lucide-react";
-import { GEMINI_MODEL_OPTIONS, type ProviderChoice, type BriefType } from "@/lib/types";
-import { motion, AnimatePresence } from "framer-motion";
+import {
+  GEMINI_MODEL_OPTIONS,
+  type ProviderChoice,
+  type BriefType,
+  type StagedAttachment,
+} from "@/lib/types";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
 const PROVIDER_OPTIONS: { id: ProviderChoice; label: string; title: string }[] = [
-  { id: "auto", label: "อัตโนมัติ", title: "ให้ระบบเลือกผู้ให้บริการที่เหมาะกับงาน" },
+  { id: "auto", label: "อัตโนมัติ", title: "ให้ระบบเลือกโมเดลที่เหมาะกับงาน" },
   { id: "claude", label: "Claude", title: "ใช้ Claude เสมอ" },
   { id: "gemini", label: "Gemini", title: "ใช้ Gemini เสมอ" },
+  { id: "qwen", label: "Qwen", title: "ใช้ Qwen สำหรับงานคิดลึก" },
+  { id: "glm", label: "GLM", title: "ใช้ GLM เป็นตัวเลือกสำรอง" },
+  { id: "gpt4o", label: "GPT-4o", title: "ใช้ GPT-4o สำหรับคุยเล่น ไม่ใช้กับงานตารางหรืองานสำคัญ" },
 ];
 
 /**
@@ -38,7 +49,12 @@ export function JarvisInput({
   muted = false,
   onToggleMute,
   onAttach,
+  attachments = [],
+  onRemoveAttachment,
+  onMakeTimetable,
   attachBusy = false,
+  sending = false,
+  onStop,
 }: {
   onSubmit: (text: string) => void | Promise<void>;
   onBrief?: (type: BriefType) => void | Promise<void>;
@@ -51,10 +67,20 @@ export function JarvisInput({
   onGeminiModelChange?: (model: string) => void;
   muted?: boolean;
   onToggleMute?: () => void;
-  /** Called with a dropped/selected image or PDF (timetable upload). */
+  /** Called with a dropped/selected image or PDF — STAGES it (not sent until send). */
   onAttach?: (file: File) => void | Promise<void>;
+  /** Files staged in the composer, shown as removable chips above the textarea. */
+  attachments?: StagedAttachment[];
+  /** Remove a staged attachment by id. */
+  onRemoveAttachment?: (id: string) => void;
+  /** Turn a staged file into a class timetable (explicit, separate from send). */
+  onMakeTimetable?: (att: StagedAttachment) => void;
   /** True while an attachment is being uploaded/parsed (disables the button). */
   attachBusy?: boolean;
+  /** True while Friday is generating — send button becomes a one-tap pause. */
+  sending?: boolean;
+  /** Stop the in-flight generation (wired to the pause button). */
+  onStop?: () => void;
 }) {
   const [text, setText] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -62,10 +88,13 @@ export function JarvisInput({
   const [dragging, setDragging] = useState(false);
 
   const [unifiedPos, setUnifiedPos] = useState<{ left: number; bottom: number } | null>(null);
+  const reduceMotion = useReducedMotion();
+  const unifiedMenuId = useId();
 
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const menuWrapRef = useRef<HTMLDivElement>(null);
+  const unifiedButtonRef = useRef<HTMLButtonElement>(null);
   const unifiedMenuWrapRef = useRef<HTMLDivElement>(null);
   const unifiedMenuRef = useRef<HTMLDivElement>(null);
 
@@ -115,13 +144,37 @@ export function JarvisInput({
         setUnifiedMenuOpen(false);
       }
     }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (unifiedMenuOpen) {
+        setUnifiedMenuOpen(false);
+        unifiedButtonRef.current?.focus();
+      }
+    }
     document.addEventListener("mousedown", handleOuterClick);
-    return () => document.removeEventListener("mousedown", handleOuterClick);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleOuterClick);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, [menuOpen, unifiedMenuOpen]);
+
+  useEffect(() => {
+    if (!unifiedMenuOpen) return;
+    const raf = requestAnimationFrame(() => {
+      const target =
+        unifiedMenuRef.current?.querySelector<HTMLElement>(
+          '[aria-pressed="true"], [role="menuitem"], button:not(:disabled)',
+        ) ?? unifiedMenuRef.current;
+      target?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [unifiedMenuOpen]);
 
   function submit() {
     const trimmed = text.trim();
-    if (!trimmed || disabled) return;
+    // Allow sending with just a staged attachment (no typed text).
+    if (disabled || (trimmed === "" && attachments.length === 0)) return;
     setText("");
     void onSubmit(trimmed);
   }
@@ -153,6 +206,9 @@ export function JarvisInput({
   return (
     <form
       className={`jarvis-input${dragging ? " dragging" : ""}`}
+      data-gramm="false"
+      data-gramm_editor="false"
+      data-enable-grammarly="false"
       onSubmit={handleSubmit}
       onDragOver={(e) => {
         if (!onAttach) return;
@@ -182,6 +238,46 @@ export function JarvisInput({
           }}
         />
       )}
+      {attachments.length > 0 && (
+        <div className="ji-attachments" role="list" aria-label="ไฟล์ที่แนบ">
+          {attachments.map((att) => (
+            <div className="ji-attach-chip" role="listitem" key={att.id}>
+              {att.kind === "pdf" ? (
+                <FileText className="ji-attach-icon" aria-hidden="true" />
+              ) : (
+                <ImageIcon className="ji-attach-icon" aria-hidden="true" />
+              )}
+              <span className="ji-attach-name" title={att.name}>
+                {att.name}
+              </span>
+              {onMakeTimetable && (
+                <button
+                  type="button"
+                  className="ji-attach-action"
+                  onClick={() => onMakeTimetable(att)}
+                  disabled={disabled || attachBusy}
+                  title="ทำเป็นตารางเรียน"
+                >
+                  <CalendarPlus strokeWidth={1.8} aria-hidden="true" />
+                  <span>ตาราง</span>
+                </button>
+              )}
+              {onRemoveAttachment && (
+                <button
+                  type="button"
+                  className="ji-attach-remove"
+                  onClick={() => onRemoveAttachment(att.id)}
+                  disabled={attachBusy}
+                  title="เอาออก"
+                  aria-label={`เอา ${att.name} ออก`}
+                >
+                  <X strokeWidth={2} aria-hidden="true" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       <textarea
         ref={taRef}
         className="ji-textarea"
@@ -192,6 +288,10 @@ export function JarvisInput({
         onBlur={() => onFocusChange?.(false)}
         placeholder="ถาม Friday"
         aria-label="ถาม Friday"
+        data-gramm="false"
+        data-gramm_editor="false"
+        data-enable-grammarly="false"
+        spellCheck={false}
         disabled={disabled}
         rows={1}
         autoFocus
@@ -205,8 +305,8 @@ export function JarvisInput({
               className="ji-tool ji-attach"
               onClick={() => fileRef.current?.click()}
               disabled={disabled || attachBusy}
-              title="แนบรูป/ไฟล์ตารางเรียน"
-              aria-label="แนบรูปหรือ PDF ตารางเรียน"
+              title="แนบรูปหรือ PDF (ตารางเรียน หรือเอกสารให้ถามได้)"
+              aria-label="แนบรูปหรือ PDF"
             >
               <Paperclip strokeWidth={1.8} aria-hidden="true" />
             </button>
@@ -214,10 +314,13 @@ export function JarvisInput({
           {onProviderChange && (
             <div className="ji-unified-wrap" ref={unifiedMenuWrapRef}>
               <button
+                ref={unifiedButtonRef}
                 type="button"
                 className="ji-unified-btn"
                 disabled={disabled}
                 onClick={() => setUnifiedMenuOpen((o) => !o)}
+                aria-haspopup="menu"
+                aria-controls={unifiedMenuOpen ? unifiedMenuId : undefined}
                 aria-expanded={unifiedMenuOpen}
               >
                 <span className="ji-unified-label">
@@ -232,6 +335,7 @@ export function JarvisInput({
                 <AnimatePresence>
                   {unifiedMenuOpen && (
                   <motion.div
+                    id={unifiedMenuId}
                     ref={unifiedMenuRef}
                     className="ji-custom-menu unified-menu"
                     style={{
@@ -239,11 +343,13 @@ export function JarvisInput({
                       left: unifiedPos?.left ?? 0,
                       bottom: unifiedPos?.bottom ?? 0,
                     }}
-                    initial={{ opacity: 0 }}
+                    tabIndex={-1}
+                    initial={reduceMotion ? false : { opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.15 }}
+                    exit={reduceMotion ? { opacity: 1 } : { opacity: 0 }}
+                    transition={reduceMotion ? { duration: 0 } : { duration: 0.15 }}
                     role="menu"
+                    aria-label="ตัวเลือก AI"
                   >
                     <div className="ji-menu-section-title">AI Provider</div>
                     <div
@@ -269,13 +375,13 @@ export function JarvisInput({
                       })}
                     </div>
 
-                    <AnimatePresence mode="popLayout">
+                    <AnimatePresence initial={false}>
                       {provider === "gemini" && onGeminiModelChange && (
                         <motion.div
-                          initial={{ opacity: 0, height: 0 }}
+                          initial={reduceMotion ? false : { opacity: 0, height: 0 }}
                           animate={{ opacity: 1, height: "auto" }}
-                          exit={{ opacity: 0, height: 0 }}
-                          transition={{ duration: 0.2 }}
+                          exit={reduceMotion ? { opacity: 1, height: "auto" } : { opacity: 0, height: 0 }}
+                          transition={reduceMotion ? { duration: 0 } : { duration: 0.2 }}
                           style={{ overflow: "hidden" }}
                         >
                           <div className="ji-menu-divider" />
@@ -323,17 +429,47 @@ export function JarvisInput({
           )}
         </div>
 
-        <motion.button
-          type="submit"
-          className="ji-send"
-          disabled={disabled || text.trim() === ""}
-          aria-label="ส่ง"
-          whileHover={disabled || text.trim() === "" ? {} : { scale: 1.05 }}
-          whileTap={disabled || text.trim() === "" ? {} : { scale: 0.94 }}
-          transition={{ type: "spring", bounce: 0.4, duration: 0.4 }}
-        >
-          <ArrowUp strokeWidth={2} />
-        </motion.button>
+        {sending ? (
+          // While generating, the send button turns into a one-tap pause.
+          <motion.button
+            type="button"
+            className="ji-send pausing"
+            onClick={onStop}
+            aria-label="หยุด"
+            whileHover={reduceMotion ? {} : { scale: 1.05 }}
+            whileTap={reduceMotion ? {} : { scale: 0.94 }}
+            transition={
+              reduceMotion
+                ? { duration: 0 }
+                : { type: "spring", bounce: 0.4, duration: 0.4 }
+            }
+          >
+            <Square strokeWidth={2} fill="currentColor" />
+          </motion.button>
+        ) : (
+          (() => {
+            // Send is allowed once there's text OR a staged attachment.
+            const canSend =
+              !disabled && (text.trim() !== "" || attachments.length > 0);
+            return (
+              <motion.button
+                type="submit"
+                className="ji-send"
+                disabled={!canSend}
+                aria-label="ส่ง"
+                whileHover={reduceMotion || !canSend ? {} : { scale: 1.05 }}
+                whileTap={reduceMotion || !canSend ? {} : { scale: 0.94 }}
+                transition={
+                  reduceMotion
+                    ? { duration: 0 }
+                    : { type: "spring", bounce: 0.4, duration: 0.4 }
+                }
+              >
+                <ArrowUp strokeWidth={2} />
+              </motion.button>
+            );
+          })()
+        )}
       </div>
     </form>
   );

@@ -26,53 +26,17 @@ function formatDate(iso: string): string {
 
 function MessageRow({ msg }: { msg: GmailMessage }) {
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "1fr auto",
-        gap: "4px 12px",
-        padding: "12px 0",
-        borderBottom: "1px solid var(--surface-2)",
-        alignItems: "start",
-      }}
-    >
+    <div className="gmail-msg">
       <div>
-        <div
-          style={{
-            fontSize: 13,
-            fontWeight: msg.unread ? 700 : 400,
-            color: "var(--text-1)",
-            marginBottom: 2,
-          }}
-        >
+        <div className={`gmail-msg-sender ${msg.unread ? "is-unread" : ""}`}>
           {formatFrom(msg.from)}
         </div>
-        <div
-          style={{
-            fontSize: 13,
-            fontWeight: msg.unread ? 600 : 400,
-            color: "var(--text-1)",
-          }}
-        >
+        <div className={`gmail-msg-subject ${msg.unread ? "is-unread" : ""}`}>
           {msg.subject}
         </div>
-        <div
-          style={{
-            fontSize: 12,
-            color: "var(--text-3)",
-            marginTop: 2,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            maxWidth: "480px",
-          }}
-        >
-          {msg.snippet}
-        </div>
+        <div className="gmail-msg-snippet">{msg.snippet}</div>
       </div>
-      <div style={{ fontSize: 12, color: "var(--text-3)", whiteSpace: "nowrap", paddingTop: 1 }}>
-        {formatDate(msg.receivedAt)}
-      </div>
+      <div className="gmail-msg-date">{formatDate(msg.receivedAt)}</div>
     </div>
   );
 }
@@ -89,7 +53,12 @@ export default function GmailPage() {
   if (!data.available) {
     return (
       <div>
-        <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>Gmail</h1>
+        <header className="page-header">
+          <div>
+            <p className="page-kicker">Inbox</p>
+            <h2>Gmail</h2>
+          </div>
+        </header>
         <Empty
           label={
             "Gmail ยังไม่ได้เชื่อมต่อ — เปิดใช้งานโดยตั้งค่า GMAIL_ENABLED=1 " +
@@ -102,10 +71,15 @@ export default function GmailPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Gmail</h1>
-      <p style={{ fontSize: 13, color: "var(--text-3)", marginBottom: 16 }}>
-        กล่องจดหมายที่ยังไม่ได้อ่าน (อ่านอย่างเดียว — ตอบผ่าน Friday ในหน้าแชท)
-      </p>
+      <header className="page-header">
+        <div>
+          <p className="page-kicker">Inbox</p>
+          <h2>Gmail</h2>
+          <p className="lede">
+            กล่องจดหมายที่ยังไม่ได้อ่าน (อ่านอย่างเดียว — ตอบผ่าน Friday ในหน้าแชท)
+          </p>
+        </div>
+      </header>
       {data.messages.length === 0 ? (
         <Empty label="ไม่มีอีเมลที่ยังไม่ได้อ่าน" />
       ) : (

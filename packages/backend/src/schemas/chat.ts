@@ -1,7 +1,24 @@
 import { z } from "zod";
 import { aiActionSchema } from "./aiCommand.js";
+import { calendarBulkCreateActionSchema } from "./calendarPlan.js";
 import { aiProviderIdSchema, aiProviderModeSchema } from "../services/aiProvider.js";
-import { CLAUDE_MAX_ACTIONS, isAllowedGeminiModel } from "../config.js";
+import {
+  CLAUDE_MAX_ACTIONS,
+  isAllowedGeminiModel,
+  isAllowedPsuModel,
+} from "../config.js";
+
+/**
+ * Chat actions = every executor action PLUS the chat-only `calendar.bulk_create`
+ * staging action (a single action carrying a whole list of events). The bulk
+ * action is peeled off in chat.ts and turned into a reviewable plan; it is never
+ * dispatched through the executor, so it stays out of the shared aiActionSchema.
+ */
+export const chatActionSchema = z.union([
+  aiActionSchema,
+  calendarBulkCreateActionSchema,
+]);
+export type ChatAction = z.infer<typeof chatActionSchema>;
 
 /**
  * Request schema for POST /api/chat (Step 12; Roadmap 11 Phase 2/4).
@@ -23,9 +40,23 @@ export const chatRequestSchema = z.object({
     .trim()
     .refine(isAllowedGeminiModel, { message: "ไม่รองรับโมเดลนี้" })
     .optional(),
+  // Optional per-turn PSU model override (qwen / glm / gpt4o). Validated against
+  // the runtime allowlist; ignored unless the resolved provider is a PSU model.
+  psuModel: z
+    .string()
+    .trim()
+    .refine(isAllowedPsuModel, { message: "ไม่รองรับโมเดลนี้" })
+    .optional(),
   // Step 15 — opaque per-tab session id. Optional so guard-off and older clients
   // still work; the backend treats a missing id as unverified when the guard is on.
   sessionId: z.string().trim().min(8).max(128).optional(),
+  // Chat doc attachments — opaque upload ids (from POST /api/attachments, kind
+  // "doc") the user attached to this conversation. The backend re-reads + extracts
+  // each per turn and injects its content. Capped; unknown/expired ids are skipped.
+  attachmentIds: z
+    .array(z.string().trim().regex(/^[0-9a-f-]{36}$/i))
+    .max(4)
+    .optional(),
 });
 
 /**
@@ -65,13 +96,16 @@ export const chatOutputSchema = z
       .enum(["private", "normal"])
       .nullish()
       .transform((v) => v ?? "normal"),
-    actions: z.array(aiActionSchema).max(CLAUDE_MAX_ACTIONS).default([]),
+    actions: z.array(chatActionSchema).max(CLAUDE_MAX_ACTIONS).default([]),
     clarification: z
-      .string()
-      .trim()
-      .min(1)
-      .max(500)
-      .nullish()
+      .preprocess(
+        // gpt-4o-mini (and occasionally other models) emit "clarification": ""
+        // instead of omitting the key. An empty/whitespace value means "no
+        // clarification" — coerce it to undefined so the strict min(1) below
+        // only rejects genuinely malformed non-empty input.
+        (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+        z.string().trim().min(1).max(500).nullish(),
+      )
       .transform((v) => v ?? undefined),
     clarification_choices: z
       .array(z.string().trim().min(1).max(120))
@@ -121,11 +155,14 @@ export const followupOutputSchema = z
       .transform((v) => v ?? undefined),
     actions: z.array(aiActionSchema).max(CLAUDE_MAX_ACTIONS).default([]),
     clarification: z
-      .string()
-      .trim()
-      .min(1)
-      .max(500)
-      .nullish()
+      .preprocess(
+        // gpt-4o-mini (and occasionally other models) emit "clarification": ""
+        // instead of omitting the key. An empty/whitespace value means "no
+        // clarification" — coerce it to undefined so the strict min(1) below
+        // only rejects genuinely malformed non-empty input.
+        (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+        z.string().trim().min(1).max(500).nullish(),
+      )
       .transform((v) => v ?? undefined),
     clarification_choices: z
       .array(z.string().trim().min(1).max(120))

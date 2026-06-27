@@ -14,10 +14,24 @@ export function TopBar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const chipRef = useRef<HTMLButtonElement>(null);
-  const { setDrawerOpen, newSession } = useShell();
+  const menuRef = useRef<HTMLDivElement>(null);
+  const { drawerOpen, setDrawerOpen, collapsed, setCollapsed, newSession } = useShell();
+
+  // One button, two behaviors: open the slide-in drawer on mobile, collapse the
+  // sticky sidebar on desktop.
+  const onMenuClick = () => {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 980px)").matches) {
+      setDrawerOpen(true);
+    } else {
+      setCollapsed(!collapsed);
+    }
+  };
 
   useEffect(() => {
     if (!menuOpen) return;
+    const raf = window.requestAnimationFrame(() => {
+      menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    });
     function onPointerDown(e: PointerEvent) {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
@@ -33,6 +47,7 @@ export function TopBar() {
     window.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
     return () => {
+      window.cancelAnimationFrame(raf);
       window.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
@@ -40,11 +55,13 @@ export function TopBar() {
 
   return (
     <header className="topbar" ref={wrapRef}>
-      <button 
-        type="button" 
-        className="icon-btn mobile-menu-btn" 
-        onClick={() => setDrawerOpen(true)}
+      <button
+        type="button"
+        className="icon-btn menu-btn"
+        onClick={onMenuClick}
         aria-label="เปิดเมนู"
+        aria-controls="app-sidebar"
+        aria-expanded={drawerOpen || !collapsed}
       >
         <Menu aria-hidden="true" strokeWidth={1.8} />
       </button>
@@ -77,6 +94,7 @@ export function TopBar() {
         onClick={() => setMenuOpen((v) => !v)}
         aria-expanded={menuOpen}
         aria-haspopup="menu"
+        aria-controls={menuOpen ? "topbar-profile-menu" : undefined}
       >
         <span className="avatar" aria-hidden="true">
           F
@@ -85,7 +103,13 @@ export function TopBar() {
       </button>
 
       {menuOpen && (
-        <div className="menu-pop" role="menu">
+        <div
+          ref={menuRef}
+          id="topbar-profile-menu"
+          className="menu-pop"
+          role="menu"
+          aria-label="เมนูโปรไฟล์"
+        >
           <Link href="/memory" role="menuitem" onClick={() => setMenuOpen(false)}>
             <Brain size={15} strokeWidth={1.8} aria-hidden="true" />
             ความจำ
