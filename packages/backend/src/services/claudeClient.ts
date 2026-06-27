@@ -49,6 +49,12 @@ export interface ClaudeInvokeOptions {
    * it and keeps using CLAUDE_MODEL.
    */
   model?: string;
+  /**
+   * Per-call Gemini thinking budget (tokens). Only the Gemini invoker honors it:
+   * >0 enables native thinking with that ceiling, 0 disables it, undefined uses
+   * the model default. Claude/PSU invokers ignore it.
+   */
+  thinkingBudget?: number;
 }
 
 /**

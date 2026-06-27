@@ -295,13 +295,23 @@ async function handleChat(
       : undefined;
   const overrideModel = useGeminiModel ?? usePsuModel;
   const effectiveModel = overrideModel ?? resolved.selection.selectedModel;
+  // Gemini thinking budget from the auto router (undefined for non-Gemini or
+  // manual selections → model default). Threaded into the invoke opts; only the
+  // Gemini invoker honors it.
+  const thinkingBudget =
+    selectedProviderId === "gemini"
+      ? resolved.selection.thinkingBudget
+      : undefined;
 
   // Tests inject `aiInvoker`; otherwise invoke the selected provider directly.
   const baseInvoke = injectedInvoker ?? resolved.provider.invoke;
-  const invoke: ClaudeInvoker = overrideModel
-    ? (prompt, callOpts) =>
-        baseInvoke(prompt, { ...callOpts, model: overrideModel })
-    : baseInvoke;
+  const extraOpts: { model?: string; thinkingBudget?: number } = {};
+  if (overrideModel) extraOpts.model = overrideModel;
+  if (thinkingBudget !== undefined) extraOpts.thinkingBudget = thinkingBudget;
+  const invoke: ClaudeInvoker =
+    Object.keys(extraOpts).length > 0
+      ? (prompt, callOpts) => baseInvoke(prompt, { ...callOpts, ...extraOpts })
+      : baseInvoke;
   const verified = isVerified(sessionId, true); // `true` updates the idle timeout
 
   // Chat doc attachments. PRIVACY: only an OWNER-VERIFIED requester's attachments
@@ -343,6 +353,7 @@ async function handleChat(
           geminiVisionExtract(prompt, visionParts, {
             timeoutMs: callOpts?.timeoutMs,
             model: useGeminiModel ?? callOpts?.model,
+            thinkingBudget: thinkingBudget ?? callOpts?.thinkingBudget,
           })
       : invoke;
 
