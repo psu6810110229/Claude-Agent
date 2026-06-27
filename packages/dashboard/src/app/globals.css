@@ -65,6 +65,87 @@
 
   /* Safe-area insets (notch / status bar) */
   --safe-top: env(safe-area-inset-top, 0px);
+
+  /* ---------------------------------------------------------------- */
+  /* Sprint 0.1 — Type scale (derived from DESIGN.md typography roles) */
+  /* font-size / line-height / weight / tracking. Use via utility       */
+  /* classes (.u-text-*) or var() directly. Replaces hardcoded px.      */
+  /* ---------------------------------------------------------------- */
+  --text-2xs: 11px;   /* label / kicker (DESIGN label) */
+  --text-xs: 12px;    /* meta, captions, badges */
+  --text-sm: 13px;    /* secondary body, controls */
+  --text-base: 14px;  /* body (DESIGN body) */
+  --text-md: 15px;    /* title (DESIGN title) */
+  --text-lg: 17px;    /* sub-heading */
+  --text-xl: 20px;    /* dialog heading */
+  --text-2xl: 28px;   /* headline (DESIGN headline) */
+  --text-display: clamp(34px, 4.4vw, 52px); /* hero (DESIGN display) */
+
+  --leading-none: 1;
+  --leading-tight: 1.2;
+  --leading-snug: 1.35;
+  --leading-normal: 1.55; /* DESIGN body */
+
+  --weight-regular: 400;
+  --weight-medium: 540;
+  --weight-semibold: 620;
+  --weight-bold: 700;
+
+  --tracking-tight: -0.02em;  /* headline/display */
+  --tracking-snug: -0.01em;   /* title */
+  --tracking-normal: 0.01em;  /* body */
+  --tracking-wide: 0.14em;    /* label / kicker uppercase */
+
+  /* ---------------------------------------------------------------- */
+  /* Sprint 0.2 — Spacing scale (4px grid) + radius scale              */
+  /* Canonical vocabulary; replaces 364 magic padding/margin/gap px.   */
+  /* Off-grid legacy values (6/10/14/18) collapse to nearest step at   */
+  /* refactor time (Phase 2, /impeccable visual check).                */
+  /* ---------------------------------------------------------------- */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Radius scale — extends existing --radius (14, md) / --radius-lg (22). */
+  --radius-sm: 12px;     /* DESIGN rounded.sm — inputs, buttons, chips */
+  --radius-bubble: 20px; /* DESIGN rounded.bubble — chat bubbles */
+  --radius-pill: 999px;  /* DESIGN rounded.pill — pills, badges */
+
+  /* ---------------------------------------------------------------- */
+  /* Sprint 0.3 — Size scale: control heights + widths + breakpoints   */
+  /* ---------------------------------------------------------------- */
+  /* Control heights — collapses 28/30/32/34/38/40/44 mix to 3 steps.  */
+  --control-sm: 32px;
+  --control-md: 40px;        /* DESIGN input height; default control */
+  --control-lg: 44px;        /* primary / comfortable */
+  --control-min-touch: 44px; /* WCAG 2.1 AA min hit area — bake into primitives */
+
+  /* Container / modal widths — collapses 9 ad-hoc max-widths.         */
+  --width-xs: 260px;   /* tight popovers */
+  --width-sm: 340px;   /* small dialog / notif */
+  --width-md: 520px;   /* default dialog (jarvis-dialog) */
+  --width-lg: 680px;   /* reading column (lede) */
+  --width-xl: 860px;   /* chat column */
+  --width-container: 1080px; /* main content max (main-inner) */
+  --modal-sm: 340px;
+  --modal-md: 520px;
+  --modal-lg: 720px;
+
+  /* Breakpoint tokens — SINGLE SOURCE of truth for sm/md/lg.          */
+  /* NOTE: plain CSS cannot use var() inside @media feature queries.    */
+  /* These vars are for JS/matchMedia/container-queries; @media blocks  */
+  /* must hardcode the SAME px values below (kept in sync manually).    */
+  --bp-sm: 560px;   /* phone → small tablet */
+  --bp-md: 768px;   /* tablet */
+  --bp-lg: 1024px;  /* small laptop */
 }
 
 * {
@@ -1177,6 +1258,32 @@ h3 {
 .muted {
   color: var(--muted);
 }
+
+/* ---------------------------------------------------------------------- */
+/* Type-scale utilities (Sprint 0.1) — size+line-height pairs from tokens. */
+/* Opt-in; existing element styles unchanged. Compose with weight/tracking */
+/* utilities below as needed.                                              */
+/* ---------------------------------------------------------------------- */
+
+.u-text-2xs { font-size: var(--text-2xs); line-height: var(--leading-snug); }
+.u-text-xs { font-size: var(--text-xs); line-height: var(--leading-snug); }
+.u-text-sm { font-size: var(--text-sm); line-height: var(--leading-snug); }
+.u-text-base { font-size: var(--text-base); line-height: var(--leading-normal); }
+.u-text-md { font-size: var(--text-md); line-height: var(--leading-tight); }
+.u-text-lg { font-size: var(--text-lg); line-height: var(--leading-tight); }
+.u-text-xl { font-size: var(--text-xl); line-height: var(--leading-tight); }
+.u-text-2xl { font-size: var(--text-2xl); line-height: var(--leading-tight); letter-spacing: var(--tracking-tight); }
+.u-text-display { font-size: var(--text-display); line-height: var(--leading-none); letter-spacing: var(--tracking-tight); }
+
+.u-weight-regular { font-weight: var(--weight-regular); }
+.u-weight-medium { font-weight: var(--weight-medium); }
+.u-weight-semibold { font-weight: var(--weight-semibold); }
+.u-weight-bold { font-weight: var(--weight-bold); }
+
+.u-tracking-tight { letter-spacing: var(--tracking-tight); }
+.u-tracking-snug { letter-spacing: var(--tracking-snug); }
+.u-tracking-normal { letter-spacing: var(--tracking-normal); }
+.u-tracking-wide { letter-spacing: var(--tracking-wide); }
 
 .stack {
   display: grid;
