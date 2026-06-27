@@ -2,7 +2,11 @@ import { z } from "zod";
 import { aiActionSchema } from "./aiCommand.js";
 import { calendarBulkCreateActionSchema } from "./calendarPlan.js";
 import { aiProviderIdSchema, aiProviderModeSchema } from "../services/aiProvider.js";
-import { CLAUDE_MAX_ACTIONS, isAllowedGeminiModel } from "../config.js";
+import {
+  CLAUDE_MAX_ACTIONS,
+  isAllowedGeminiModel,
+  isAllowedPsuModel,
+} from "../config.js";
 
 /**
  * Chat actions = every executor action PLUS the chat-only `calendar.bulk_create`
@@ -35,6 +39,13 @@ export const chatRequestSchema = z.object({
     .string()
     .trim()
     .refine(isAllowedGeminiModel, { message: "ไม่รองรับโมเดลนี้" })
+    .optional(),
+  // Optional per-turn PSU model override (qwen / glm / gpt4o). Validated against
+  // the runtime allowlist; ignored unless the resolved provider is a PSU model.
+  psuModel: z
+    .string()
+    .trim()
+    .refine(isAllowedPsuModel, { message: "ไม่รองรับโมเดลนี้" })
     .optional(),
   // Step 15 — opaque per-tab session id. Optional so guard-off and older clients
   // still work; the backend treats a missing id as unverified when the guard is on.
