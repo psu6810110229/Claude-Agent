@@ -336,6 +336,60 @@ export const GEMINI_TIMEOUT_MS = Number(
 );
 
 /**
+ * Roadmap — PSU AI gateway (ai.psu.blue), OpenAI-compatible multi-model provider.
+ *
+ * One key + one base URL; the model id selects the worker (qwen / glm /
+ * gpt-4o-mini). Used for the smart/deep tier (qwen, glm reasoning models) and
+ * the casual tier (gpt-4o-mini). OFF unless PSU_ENABLED=1 and PSU_API_KEY set;
+ * fails closed otherwise. The key is NEVER logged. gpt-4o-mini is casual-only —
+ * the router must never route schedule/critical work to it (enforced upstream).
+ */
+
+/** PSU gateway is OFF unless explicitly enabled. */
+export const PSU_ENABLED = /^(1|true)$/i.test(process.env.PSU_ENABLED ?? "");
+
+/** PSU gateway API key. Gitignored; never logged. Empty string = not configured. */
+export const PSU_API_KEY = process.env.PSU_API_KEY ?? "";
+
+/** PSU OpenAI-compatible base URL (…/v1). */
+export const PSU_BASE_URL = process.env.PSU_BASE_URL ?? "https://ai.psu.blue/v1";
+
+/** Role → default model id (overridable via env). */
+export const PSU_QWEN_MODEL = process.env.PSU_QWEN_MODEL ?? "qwen/qwen3.7-plus";
+export const PSU_GLM_MODEL = process.env.PSU_GLM_MODEL ?? "z-ai/glm-5";
+export const PSU_GPT4O_MODEL =
+  process.env.PSU_GPT4O_MODEL ?? "openai/gpt-4o-mini";
+
+/**
+ * Allowlist of selectable PSU models. A per-turn model request must be in this
+ * set or it is rejected (fail closed — never silently swaps). Override the whole
+ * list via PSU_MODELS (comma-separated). The three role defaults are always
+ * included so a valid baseline exists even if the env omits them.
+ */
+export const PSU_MODELS: readonly string[] = (() => {
+  const fromEnv = (process.env.PSU_MODELS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const base = fromEnv.length > 0 ? fromEnv : [];
+  for (const m of [PSU_QWEN_MODEL, PSU_GLM_MODEL, PSU_GPT4O_MODEL]) {
+    if (!base.includes(m)) base.push(m);
+  }
+  return base;
+})();
+
+/** True when `model` is a selectable PSU model. */
+export function isAllowedPsuModel(model: string): boolean {
+  return PSU_MODELS.includes(model);
+}
+
+/**
+ * Hard timeout for a single PSU call (ms). Higher than Gemini's because the
+ * reasoning models (qwen/glm) routinely take 25–45s per turn.
+ */
+export const PSU_TIMEOUT_MS = Number(process.env.PSU_TIMEOUT_MS ?? 90_000);
+
+/**
  * Step 12 — Conversational chat agent.
  *
  * Number of recent chat messages fed back into the prompt as conversation

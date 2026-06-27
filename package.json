@@ -23,6 +23,7 @@
     "smoke:step12": "npm run smoke:step12 -w @claude-agent/backend",
     "smoke:phase3": "npm run smoke:phase3 -w @claude-agent/backend",
     "smoke:phase4": "npm run smoke:phase4 -w @claude-agent/backend",
+    "smoke:router": "npm run smoke:router -w @claude-agent/backend",
     "smoke:step13": "npm run smoke:step13 -w @claude-agent/backend",
     "smoke:step14": "npm run smoke:step14 -w @claude-agent/backend",
     "smoke:step14b": "npm run smoke:step14b -w @claude-agent/backend",
