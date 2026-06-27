@@ -12,6 +12,7 @@ import type {
   ApproveImportResult,
 } from "@/lib/types";
 import { WeekHourGrid, type GridBlock } from "./WeekHourGrid";
+import { Button, IconButton } from "@/components/ui";
 
 /** Editable fields for one candidate item (selected is a boolean intent here). */
 type ItemPatch = {
@@ -152,26 +153,24 @@ export function ScheduleImportCard({
           <span className="si-count">{items.length} คาบ</span>
         </div>
         <div className="si-view-toggle" role="tablist" aria-label="มุมมอง">
-          <button
-            type="button"
+          <IconButton
             role="tab"
             aria-selected={view === "grid"}
+            aria-label="ตาราง"
             className={view === "grid" ? "active" : ""}
             onClick={() => setView("grid")}
-            title="ตาราง"
           >
-            <LayoutGrid aria-hidden="true" />
-          </button>
-          <button
-            type="button"
+            <LayoutGrid />
+          </IconButton>
+          <IconButton
             role="tab"
             aria-selected={view === "timeline"}
+            aria-label="ไทม์ไลน์"
             className={view === "timeline" ? "active" : ""}
             onClick={() => setView("timeline")}
-            title="ไทม์ไลน์"
           >
-            <ListTree aria-hidden="true" />
-          </button>
+            <ListTree />
+          </IconButton>
         </div>
       </header>
 
@@ -232,17 +231,17 @@ export function ScheduleImportCard({
       {error && <p className="si-error">{error}</p>}
 
       <footer className="si-actions">
-        <button type="button" className="si-btn-ghost" onClick={onCancel} disabled={approving}>
+        <Button variant="ghost" onClick={onCancel} disabled={approving}>
           ยกเลิก
-        </button>
-        <button
-          type="button"
-          className="si-btn-primary"
+        </Button>
+        <Button
+          variant="primary"
           onClick={approve}
-          disabled={approving || readyCount === 0}
+          loading={approving}
+          disabled={readyCount === 0}
         >
           {approving ? "กำลังเพิ่ม..." : `เพิ่ม ${readyCount} คาบเข้าตาราง`}
-        </button>
+        </Button>
       </footer>
       <p className="si-hint">
         บันทึกเป็นตารางในเครื่อง ไม่ขึ้น Google Calendar · Friday ใช้เทียบหาเวลาว่างให้
@@ -312,9 +311,16 @@ function ScheduleGrid({
         <div className="si-unplaced">
           <span className="si-unplaced-label">ยังไม่มีวัน/เวลา</span>
           {unplaced.map((i) => (
-            <button type="button" key={i.id} className="si-unplaced-chip bad" onClick={() => onEdit(i.id)}>
-              {i.subject} <Pencil aria-hidden="true" />
-            </button>
+            <Button
+              key={i.id}
+              variant="ghost"
+              size="sm"
+              className="si-unplaced-chip bad"
+              onClick={() => onEdit(i.id)}
+              iconTrailing={<Pencil />}
+            >
+              {i.subject}
+            </Button>
           ))}
         </div>
       )}
@@ -363,24 +369,25 @@ function ScheduleTimeline({
               const bad = !isComplete(i);
               return (
                 <div className={`si-tl-row ${off ? "off" : ""} ${bad ? "bad" : ""}`} key={i.id}>
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     className="si-tl-check"
                     role="checkbox"
                     aria-checked={!off}
                     onClick={() => onToggle(i.id, off)}
                   >
                     {!off && <Check aria-hidden="true" />}
-                  </button>
+                  </Button>
                   <span className="si-tl-time">
                     {i.start_local && i.end_local ? `${i.start_local}–${i.end_local}` : "—"}
                   </span>
-                  <button type="button" className="si-tl-main" onClick={() => onEdit(i.id)}>
+                  <Button variant="ghost" className="si-tl-main" onClick={() => onEdit(i.id)}>
                     <span className="si-tl-subj">{i.subject}</span>
                     {i.location && <span className="si-tl-loc">{i.location}</span>}
                     {bad && <AlertTriangle className="si-tl-bad" aria-hidden="true" />}
                     <Pencil className="si-tl-pencil" aria-hidden="true" />
-                  </button>
+                  </Button>
                 </div>
               );
             })}
@@ -414,9 +421,9 @@ function ItemEditor({
           <span>วิชา</span>
           <input value={subject} onChange={(e) => setSubject(e.target.value)} />
         </label>
-        <button type="button" className="si-editor-close" onClick={onClose} aria-label="ปิด">
-          <X aria-hidden="true" />
-        </button>
+        <IconButton aria-label="ปิด" onClick={onClose}>
+          <X />
+        </IconButton>
       </div>
       <div className="si-editor-row">
         <label className="si-editor-field">
@@ -449,12 +456,11 @@ function ItemEditor({
         </label>
       </div>
       <div className="si-editor-actions">
-        <button type="button" className="si-btn-ghost" onClick={onClose}>
+        <Button variant="ghost" onClick={onClose}>
           ปิด
-        </button>
-        <button
-          type="button"
-          className="si-btn-primary"
+        </Button>
+        <Button
+          variant="primary"
           onClick={() =>
             onSave({
               subject: subject.trim() || item.subject,
@@ -466,7 +472,7 @@ function ItemEditor({
           }
         >
           บันทึก
-        </button>
+        </Button>
       </div>
     </div>
   );
