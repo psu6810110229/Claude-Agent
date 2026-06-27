@@ -16,6 +16,7 @@ import {
   rejectApproval,
 } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
+import { Button } from "@/components/ui/Button";
 import type { ScheduleFindingKind, ScheduleFixProposal } from "@/lib/types";
 
 const KIND_LABELS: Record<ScheduleFindingKind, string> = {
@@ -114,19 +115,19 @@ export function ScheduleFixProposals() {
   return (
     <div className="fix-wrap">
       <div className="fix-head">
-        <button
-          type="button"
-          className="primary fix-trigger"
+        <Button
+          variant="primary"
+          className="fix-trigger"
           onClick={generate}
-          disabled={phase === "loading"}
+          loading={phase === "loading"}
+          iconLeading={<Sparkles aria-hidden="true" strokeWidth={1.9} />}
         >
-          <Sparkles aria-hidden="true" strokeWidth={1.9} />
           {phase === "loading"
             ? "กำลังคิดวิธีจัด…"
             : phase === "done"
               ? "เสนอใหม่อีกครั้ง"
               : "ให้ Friday เสนอวิธีจัดตาราง"}
-        </button>
+        </Button>
         <span className="fix-hint">ข้อเสนอทุกอันต้องกดอนุมัติก่อน ไม่ปรับเองอัตโนมัติ</span>
       </div>
 
@@ -163,24 +164,22 @@ export function ScheduleFixProposals() {
                   )}
                 </div>
                 <div className="approval-card-actions">
-                  <button
-                    type="button"
-                    className="primary"
+                  <Button
+                    variant="primary"
                     onClick={() => decide(p, "approve")}
-                    disabled={busy}
+                    loading={busy}
+                    iconLeading={<Check aria-hidden="true" strokeWidth={1.9} />}
                   >
-                    <Check aria-hidden="true" strokeWidth={1.9} />
                     {busy ? "กำลังทำ" : "อนุมัติ"}
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
+                  </Button>
+                  <Button
+                    variant="danger"
                     onClick={() => decide(p, "reject")}
                     disabled={busy}
+                    iconLeading={<X aria-hidden="true" strokeWidth={1.9} />}
                   >
-                    <X aria-hidden="true" strokeWidth={1.9} />
                     ไม่ใช้
-                  </button>
+                  </Button>
                 </div>
               </article>
             );

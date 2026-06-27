@@ -58,6 +58,7 @@ import { actionQuestion, isActionType } from "@/lib/actionDisplay";
 import { ErrorBanner } from "@/components/States";
 import { Orb, type OrbState } from "@/components/Orb";
 import { JarvisInput } from "@/components/JarvisInput";
+import { Button, ConfirmDialog } from "@/components/ui";
 import { WelcomeAgenda } from "@/components/WelcomeAgenda";
 import { useShell } from "@/components/Shell";
 import { useToast } from "@/components/ToastProvider";
@@ -313,11 +314,17 @@ interface ClarificationPrompt {
   choices: string[];
 }
 
+interface PendingApprovalRejection {
+  id: number;
+  question: string;
+  rejectLabel: string;
+}
+
 export default function HomePage() {
   const { notify } = useToast();
   const { setNewSession } = useShell();
   const [greeting, setGreeting] = useState<string | null>(null);
-  const reduceMotion = useReducedMotion();
+  const reduceMotion = useReducedMotion() ?? false;
   const [orbState, setOrbState] = useState<OrbState>("idle");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [provider, setProvider] = useState<ProviderChoice>("gemini");
@@ -333,6 +340,8 @@ export default function HomePage() {
   const [sendError, setSendError] = useState<string | null>(null);
   const [chatErrorRendered, setChatErrorRendered] = useState(false);
   const [approvalBusy, setApprovalBusy] = useState<number | null>(null);
+  const [pendingRejectAction, setPendingRejectAction] =
+    useState<PendingApprovalRejection | null>(null);
   const [resetting, setResetting] = useState(false);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
@@ -752,6 +761,7 @@ export default function HomePage() {
       // off-topic and interruptive. Inline follow-up now lives in the reply
       // itself (prompt rules). The /api/chat/followup route + scheduleFollowup()
       // remain available but are no longer auto-fired here.
+      return true;
     } catch (err) {
       // No final answer → stop any pending/playing acknowledgement immediately.
       cancelAck();
@@ -779,6 +789,7 @@ export default function HomePage() {
         title: "ส่งข้อความไม่สำเร็จ",
         description: message,
       });
+      return false;
     } finally {
       setSending(false);
       setOrbState("idle");
@@ -944,8 +955,11 @@ export default function HomePage() {
     });
   }
 
-  async function runApproval(id: number, decision: "approve" | "reject") {
-    if (approvalBusy) return;
+  async function runApproval(
+    id: number,
+    decision: "approve" | "reject",
+  ): Promise<boolean> {
+    if (approvalBusy) return false;
     clearFollowup();
     setApprovalBusy(id);
     setSendError(null);
@@ -964,6 +978,7 @@ export default function HomePage() {
             ? "ดำเนินการที่อนุมัติแล้ว"
             : "ยกเลิกงานที่รออนุมัติแล้ว",
       });
+      return true;
     } catch (err) {
       try {
         mergeApprovals(await listApprovals());
@@ -976,6 +991,7 @@ export default function HomePage() {
         title: "ทำรายการไม่สำเร็จ",
         description: err instanceof ApiError ? err.message : String(err),
       });
+      return false;
     } finally {
       setApprovalBusy(null);
     }
@@ -1047,7 +1063,9 @@ export default function HomePage() {
               </h1>
               <p>วันนี้ให้ Friday ช่วยอะไรดีคะ</p>
               <WelcomeAgenda
-                onPrompt={doSend}
+                onPrompt={(text) => {
+                  void doSend(text);
+                }}
                 disabled={sending || briefBusy !== null}
               />
             </motion.div>
@@ -1065,6 +1083,7 @@ export default function HomePage() {
               <ChatMessageGroup
                 key={group.key}
                 group={group}
+                reduceMotion={reduceMotion}
                 messageProvider={messageProvider}
                 approvalMap={approvalMap}
                 approvalBusy={approvalBusy}
@@ -1078,6 +1097,9 @@ export default function HomePage() {
                   })
                 }
                 onApproval={runApproval}
+                onRequestReject={(id, question, rejectLabel) =>
+                  setPendingRejectAction({ id, question, rejectLabel })
+                }
                 activeClarification={activeClarification}
                 onClarificationChoice={doSend}
                 onClarificationSkip={() => setActiveClarification(null)}
@@ -1221,7 +1243,9 @@ export default function HomePage() {
         }
       >
         <JarvisInput
-          onSubmit={doSend}
+          onSubmit={(text) => {
+            void doSend(text);
+          }}
           onBrief={runBrief}
           onAttach={onAttach}
           attachments={pendingAttachments}
@@ -1260,6 +1284,27 @@ export default function HomePage() {
           onConfirm={confirmNewSession}
         />
       )}
+      <ConfirmDialog
+        open={pendingRejectAction !== null}
+        onCancel={() => setPendingRejectAction(null)}
+        onConfirm={async () => {
+          if (!pendingRejectAction) return;
+          const ok = await runApproval(pendingRejectAction.id, "reject");
+          if (ok) setPendingRejectAction(null);
+        }}
+        busy={
+          pendingRejectAction !== null &&
+          approvalBusy === pendingRejectAction.id
+        }
+        title="ไม่อนุมัติรายการนี้?"
+        description={pendingRejectAction?.question}
+        confirmLabel={pendingRejectAction?.rejectLabel ?? "ปฏิเสธ"}
+        confirmVariant="danger"
+      >
+        <p className="muted u-text-sm">
+          Friday จะไม่ดำเนินการรายการนี้จนกว่าจะมีการเสนอใหม่
+        </p>
+      </ConfirmDialog>
     </div>
   );
 }
@@ -1335,17 +1380,12 @@ function SessionConfirmDialog({
           </p>
         </div>
         <div className="jarvis-dialog-actions">
-          <button type="button" onClick={onCancel} disabled={busy} autoFocus>
+          <Button variant="secondary" onClick={onCancel} disabled={busy} autoFocus>
             ยกเลิก
-          </button>
-          <button
-            type="button"
-            className="primary"
-            onClick={onConfirm}
-            disabled={busy}
-          >
-            {busy ? "กำลังเริ่ม..." : "เริ่มใหม่"}
-          </button>
+          </Button>
+          <Button variant="primary" onClick={onConfirm} disabled={busy} loading={busy}>
+            เริ่มใหม่
+          </Button>
         </div>
       </section>
     </div>
@@ -1466,23 +1506,31 @@ function groupMessages(messages: ChatMessage[]): ChatGroup[] {
 
 function ChatMessageGroup({
   group,
+  reduceMotion,
   messageProvider,
   approvalMap,
   approvalBusy,
   revealingMessageIds,
   onRevealDone,
   onApproval,
+  onRequestReject,
   activeClarification,
   onClarificationChoice,
   onClarificationSkip,
 }: {
   group: ChatGroup;
+  reduceMotion: boolean;
   messageProvider: Record<number, AiProviderId>;
   approvalMap: ApprovalMap;
   approvalBusy: number | null;
   revealingMessageIds: Set<number>;
   onRevealDone: (id: number) => void;
   onApproval: (id: number, decision: "approve" | "reject") => void;
+  onRequestReject: (
+    id: number,
+    question: string,
+    rejectLabel: string,
+  ) => void;
   activeClarification: ClarificationPrompt | null;
   onClarificationChoice: (text: string) => void;
   onClarificationSkip: () => void;
@@ -1518,11 +1566,13 @@ function ChatMessageGroup({
             key={msg.id}
             msg={msg}
             groupedIndex={index}
+            reduceMotion={reduceMotion}
             approvalMap={approvalMap}
             approvalBusy={approvalBusy}
             revealing={revealingMessageIds.has(msg.id)}
             onRevealDone={onRevealDone}
             onApproval={onApproval}
+            onRequestReject={onRequestReject}
             clarification={
               activeClarification?.messageId === msg.id
                 ? activeClarification
@@ -1540,22 +1590,30 @@ function ChatMessageGroup({
 function ChatBubble({
   msg,
   groupedIndex,
+  reduceMotion,
   approvalMap,
   approvalBusy,
   revealing,
   onRevealDone,
   onApproval,
+  onRequestReject,
   clarification,
   onClarificationChoice,
   onClarificationSkip,
 }: {
   msg: ChatMessage;
   groupedIndex: number;
+  reduceMotion: boolean;
   approvalMap: ApprovalMap;
   approvalBusy: number | null;
   revealing: boolean;
   onRevealDone: (id: number) => void;
   onApproval: (id: number, decision: "approve" | "reject") => void;
+  onRequestReject: (
+    id: number,
+    question: string,
+    rejectLabel: string,
+  ) => void;
   clarification: ClarificationPrompt | null;
   onClarificationChoice: (text: string) => void;
   onClarificationSkip: () => void;
@@ -1590,6 +1648,7 @@ function ChatBubble({
         )}
         <RichText
           text={msg.content}
+          reduceMotion={reduceMotion}
           reveal={revealing && !isUser}
           onRevealDone={() => onRevealDone(msg.id)}
         />
@@ -1602,6 +1661,7 @@ function ChatBubble({
                 approval={approvalMap[action.id]}
                 busy={approvalBusy === action.id}
                 onApproval={onApproval}
+                onRequestReject={onRequestReject}
               />
             ))}
           </div>
@@ -1632,18 +1692,13 @@ function ClarificationPanel({
       <span>{prompt.question}</span>
       <div className="chat-clarification-actions">
         {prompt.choices.map((choice) => (
-          <button
-            type="button"
-            className="primary"
-            key={choice}
-            onClick={() => onChoice(choice)}
-          >
+          <Button variant="primary" size="sm" key={choice} onClick={() => onChoice(choice)}>
             {choice}
-          </button>
+          </Button>
         ))}
-        <button type="button" onClick={onSkip}>
+        <Button variant="ghost" size="sm" onClick={onSkip}>
           ข้าม
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -1662,17 +1717,24 @@ function InlineApproval({
   approval,
   busy,
   onApproval,
+  onRequestReject,
 }: {
   action: ActionRef;
   approval: Approval | undefined;
   busy: boolean;
   onApproval: (id: number, decision: "approve" | "reject") => void;
+  onRequestReject: (
+    id: number,
+    question: string,
+    rejectLabel: string,
+  ) => void;
 }) {
   const status = approval?.status ?? "pending";
   const executionStatus = approval?.execution_status ?? "not_started";
   const copy = actionQuestion(approval ?? action);
   const disabled = status !== "pending" || busy;
   const failed = status === "pending" && executionStatus === "failed";
+  const approveLabel = failed ? "ลองใหม่" : copy.approve;
   const executionMessage = approval
     ? approvalExecutionMessage(approval)
     : null;
@@ -1686,23 +1748,31 @@ function InlineApproval({
         )}
       </span>
       {status === "pending" ? (
-        <div className="chat-approval-actions">
+        <div className="chat-approval-decision">
+          <div className="chat-approval-actions">
           {failed && <span className="badge failed">ไม่สำเร็จ</span>}
-          <button
-            type="button"
-            className="primary"
+          <Button
+            variant="primary"
+            size="sm"
+            loading={busy}
             disabled={disabled}
             onClick={() => onApproval(action.id, "approve")}
           >
-            {busy ? "..." : copy.approve}
-          </button>
-          <button
-            type="button"
+            {approveLabel}
+          </Button>
+          </div>
+          <div className="chat-approval-danger">
+          <Button
+            variant="link"
+            size="sm"
             disabled={disabled}
-            onClick={() => onApproval(action.id, "reject")}
+            onClick={() =>
+              onRequestReject(action.id, copy.question, copy.reject)
+            }
           >
             {copy.reject}
-          </button>
+          </Button>
+          </div>
         </div>
       ) : (
         <span className={`badge ${executionStatus === "succeeded" ? "succeeded" : status}`}>
@@ -1727,10 +1797,12 @@ function approvalExecutionMessage(approval: Approval): string | null {
 
 function RichText({
   text,
+  reduceMotion = false,
   reveal = false,
   onRevealDone,
 }: {
   text: string;
+  reduceMotion?: boolean;
   reveal?: boolean;
   onRevealDone?: () => void;
 }) {
@@ -1738,8 +1810,12 @@ function RichText({
   const displayText = reveal ? text.slice(0, visibleCount) : text;
 
   useEffect(() => {
-    if (!reveal) {
+    if (!reveal || reduceMotion) {
       setVisibleCount(text.length);
+      if (reveal && reduceMotion) {
+        const raf = window.requestAnimationFrame(() => onRevealDone?.());
+        return () => window.cancelAnimationFrame(raf);
+      }
       return;
     }
     setVisibleCount(0);

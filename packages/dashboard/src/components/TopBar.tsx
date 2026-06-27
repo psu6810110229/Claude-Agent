@@ -14,10 +14,14 @@ export function TopBar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const chipRef = useRef<HTMLButtonElement>(null);
-  const { setDrawerOpen, newSession } = useShell();
+  const menuRef = useRef<HTMLDivElement>(null);
+  const { drawerOpen, setDrawerOpen, newSession } = useShell();
 
   useEffect(() => {
     if (!menuOpen) return;
+    const raf = window.requestAnimationFrame(() => {
+      menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    });
     function onPointerDown(e: PointerEvent) {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
@@ -33,6 +37,7 @@ export function TopBar() {
     window.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
     return () => {
+      window.cancelAnimationFrame(raf);
       window.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
@@ -45,6 +50,8 @@ export function TopBar() {
         className="icon-btn mobile-menu-btn" 
         onClick={() => setDrawerOpen(true)}
         aria-label="เปิดเมนู"
+        aria-controls="app-sidebar"
+        aria-expanded={drawerOpen}
       >
         <Menu aria-hidden="true" strokeWidth={1.8} />
       </button>
@@ -77,6 +84,7 @@ export function TopBar() {
         onClick={() => setMenuOpen((v) => !v)}
         aria-expanded={menuOpen}
         aria-haspopup="menu"
+        aria-controls={menuOpen ? "topbar-profile-menu" : undefined}
       >
         <span className="avatar" aria-hidden="true">
           F
@@ -85,7 +93,13 @@ export function TopBar() {
       </button>
 
       {menuOpen && (
-        <div className="menu-pop" role="menu">
+        <div
+          ref={menuRef}
+          id="topbar-profile-menu"
+          className="menu-pop"
+          role="menu"
+          aria-label="เมนูโปรไฟล์"
+        >
           <Link href="/memory" role="menuitem" onClick={() => setMenuOpen(false)}>
             <Brain size={15} strokeWidth={1.8} aria-hidden="true" />
             ความจำ

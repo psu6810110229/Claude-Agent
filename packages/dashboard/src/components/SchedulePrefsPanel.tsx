@@ -11,6 +11,7 @@ import { ApiError, getSchedulePrefs, saveSchedulePrefs } from "@/lib/api";
 import { useData } from "@/lib/useData";
 import { ErrorBanner } from "@/components/States";
 import { useToast } from "@/components/ToastProvider";
+import { Button } from "@/components/ui/Button";
 import type { SchedulePrefs } from "@/lib/types";
 
 const DAY_LABELS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
@@ -135,9 +136,9 @@ export function SchedulePrefsPanel() {
       </div>
 
       <div className="sched-actions">
-        <button type="button" className="primary" onClick={save} disabled={busy}>
+        <Button variant="primary" onClick={save} loading={busy}>
           {busy ? "กำลังบันทึก…" : "บันทึก"}
-        </button>
+        </Button>
       </div>
     </div>
   );

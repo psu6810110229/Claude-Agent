@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, Check, RotateCw, X } from "lucide-react";
+import { AlertTriangle, Check, RotateCw } from "lucide-react";
 import {
   ApiError,
   approveApproval,
@@ -17,6 +17,7 @@ import {
   summarizePayload,
   summarizePayloadDetail,
 } from "@/lib/actionDisplay";
+import { Button, ConfirmDialog } from "@/components/ui";
 import type { Approval, ApprovalConflict } from "@/lib/types";
 
 const CLASH_LABEL: Record<ApprovalConflict["kind"], string> = {
@@ -107,11 +108,16 @@ export default function ApprovalsPage() {
   const conflicts = data?.conflicts ?? {};
 
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [pendingReject, setPendingReject] = useState<Approval | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const columns = useMemo(() => groupApprovals(approvals ?? []), [approvals]);
+  const pendingRejectSummary = pendingReject ? summarizePayload(pendingReject) : null;
 
-  async function run(approval: Approval, decision: ApprovalDecision) {
+  async function run(
+    approval: Approval,
+    decision: ApprovalDecision,
+  ): Promise<boolean> {
     setBusyId(approval.id);
     setActionError(null);
     try {
@@ -123,12 +129,13 @@ export default function ApprovalsPage() {
       reload();
       notify({
         kind: decision === "approve" ? "success" : "info",
-        title: decision === "approve" ? "Approved" : "Rejected",
+        title: decision === "approve" ? "อนุมัติแล้ว" : "ปฏิเสธแล้ว",
         description:
           decision === "approve"
-            ? "The approved action finished or updated its execution state."
-            : "The proposal was removed from the pending queue.",
+            ? "รายการถูกดำเนินการหรืออัปเดตสถานะแล้ว"
+            : "รายการถูกนำออกจากคิวรออนุมัติแล้ว",
       });
+      return true;
     } catch (err) {
       reload();
       const message = err instanceof ApiError ? err.message : String(err);
@@ -137,10 +144,11 @@ export default function ApprovalsPage() {
         kind: "error",
         title:
           decision === "approve" && approval.execution_status === "failed"
-            ? "Retry failed"
-            : "Approval failed",
+            ? "ลองใหม่ไม่สำเร็จ"
+            : "ทำรายการไม่สำเร็จ",
         description: message,
       });
+      return false;
     } finally {
       setBusyId(null);
     }
@@ -179,12 +187,37 @@ export default function ApprovalsPage() {
                 column={column}
                 conflicts={conflicts}
                 key={column.key}
+                onRequestReject={setPendingReject}
                 run={run}
               />
             ))}
           </div>
         )}
       </div>
+      <ConfirmDialog
+        open={pendingReject !== null}
+        onCancel={() => setPendingReject(null)}
+        onConfirm={async () => {
+          if (!pendingReject) return;
+          const ok = await run(pendingReject, "reject");
+          if (ok) setPendingReject(null);
+        }}
+        busy={pendingReject !== null && busyId === pendingReject.id}
+        title="ปฏิเสธข้อเสนอนี้?"
+        description={
+          pendingReject
+            ? `${humanLabel(pendingReject.action_type)} · ${
+                pendingRejectSummary ?? "รายการนี้จะถูกนำออกจากคิวรออนุมัติ"
+              }`
+            : undefined
+        }
+        confirmLabel="ปฏิเสธข้อเสนอ"
+        confirmVariant="danger"
+      >
+        <p className="muted u-text-sm">
+          Friday จะไม่ดำเนินการรายการนี้จนกว่าจะมีข้อเสนอใหม่
+        </p>
+      </ConfirmDialog>
     </>
   );
 }
@@ -194,13 +227,15 @@ function ApprovalColumn({
   busyId,
   column,
   conflicts,
+  onRequestReject,
   run,
 }: {
   approvals: Approval[];
   busyId: number | null;
   column: (typeof BOARD_COLUMNS)[number];
   conflicts: Record<number, ApprovalConflict[]>;
-  run: (approval: Approval, decision: ApprovalDecision) => Promise<void>;
+  onRequestReject: (approval: Approval) => void;
+  run: (approval: Approval, decision: ApprovalDecision) => Promise<boolean>;
 }) {
   return (
     <section
@@ -225,6 +260,7 @@ function ApprovalColumn({
               busy={busyId === approval.id}
               conflicts={conflicts[approval.id] ?? []}
               key={approval.id}
+              onRequestReject={onRequestReject}
               run={run}
             />
           ))
@@ -238,19 +274,21 @@ function ApprovalCard({
   approval,
   busy,
   conflicts,
+  onRequestReject,
   run,
 }: {
   approval: Approval;
   busy: boolean;
   conflicts: ApprovalConflict[];
-  run: (approval: Approval, decision: ApprovalDecision) => Promise<void>;
+  onRequestReject: (approval: Approval) => void;
+  run: (approval: Approval, decision: ApprovalDecision) => Promise<boolean>;
 }) {
   const pending = approval.status === "pending";
   const summary = summarizePayload(approval);
   const detail = summarizePayloadDetail(approval);
   const executionNote = approvalExecutionMessage(approval);
   const failed = approval.execution_status === "failed";
-  const primaryLabel = failed ? "Retry" : "Approve";
+  const primaryLabel = failed ? "ลองใหม่" : "อนุมัติ";
   const PrimaryIcon = failed ? RotateCw : Check;
 
   return (
@@ -290,25 +328,27 @@ function ApprovalCard({
       </div>
 
       {pending && (
-        <div className="approval-card-actions">
-          <button
-            type="button"
-            className="primary"
-            onClick={() => run(approval, "approve")}
-            disabled={busy}
-          >
-            <PrimaryIcon aria-hidden="true" strokeWidth={1.9} />
-            {busy ? "Working" : primaryLabel}
-          </button>
-          <button
-            type="button"
-            className="danger"
-            onClick={() => run(approval, "reject")}
-            disabled={busy}
-          >
-            <X aria-hidden="true" strokeWidth={1.9} />
-            Reject
-          </button>
+        <div className="approval-card-decision">
+          <div className="approval-card-actions">
+            <Button
+              variant="primary"
+              onClick={() => run(approval, "approve")}
+              disabled={busy}
+              iconLeading={<PrimaryIcon strokeWidth={1.9} />}
+            >
+              {busy ? "กำลังดำเนินการ..." : primaryLabel}
+            </Button>
+          </div>
+          <div className="approval-card-danger">
+            <Button
+              variant="link"
+              size="sm"
+              onClick={() => onRequestReject(approval)}
+              disabled={busy}
+            >
+              ปฏิเสธข้อเสนอนี้
+            </Button>
+          </div>
         </div>
       )}
 

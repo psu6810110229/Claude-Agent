@@ -18,7 +18,6 @@
  * desktop; modals are centered overlays.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   CalendarDays,
   Check,
@@ -35,6 +34,9 @@ import {
   updateTask,
 } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
+import { Button } from "@/components/ui/Button";
+import { IconButton } from "@/components/ui/IconButton";
+import { Modal as OverlayModal } from "@/components/ui/Modal";
 import type { CalendarEvent, GoogleEvent, Reminder, Task } from "@/lib/types";
 
 const PREVIEW_CAP = 4;
@@ -275,14 +277,15 @@ export function WelcomeAgenda({
             {loading ? "กำลังโหลด…" : `${total} รายการ`}
           </span>
         </div>
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
           className="wa-cta"
+          iconLeading={<CalendarDays aria-hidden="true" strokeWidth={1.8} />}
           onClick={() => setPickerOpen(true)}
         >
-          <CalendarDays aria-hidden="true" strokeWidth={1.8} />
           เลือกวันที่
-        </button>
+        </Button>
       </div>
 
       <div className="welcome-agenda-list">
@@ -309,34 +312,42 @@ export function WelcomeAgenda({
       </div>
 
       {overflow > 0 && (
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
           className="welcome-agenda-more"
           onClick={() => setAllOpen(true)}
         >
           ดูทั้งหมด ({total} รายการ)
-        </button>
+        </Button>
       )}
 
       {!loading && total === 0 && (
         <div className="chat-empty-actions" aria-label="ตัวอย่างคำถาม">
           {["วันนี้มีนัดอะไรบ้าง", "ขอดูงานที่ค้างอยู่", "ช่วยตั้งเตือนความจำหน่อย"].map(
             (prompt) => (
-              <button
-                type="button"
+              <Button
+                variant="secondary"
+                size="sm"
                 key={prompt}
                 onClick={() => onPrompt(prompt)}
                 disabled={disabled}
               >
                 {prompt}
-              </button>
+              </Button>
             ),
           )}
         </div>
       )}
 
       {pickerOpen && (
-        <Modal onClose={() => setPickerOpen(false)} labelledBy="wa-picker-title">
+        <OverlayModal
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          size="sm"
+          ariaLabel="เลือกวันที่"
+          hideClose
+        >
           <DatePicker
             value={selectedKey}
             marked={markedDates}
@@ -347,21 +358,28 @@ export function WelcomeAgenda({
               setAllOpen(false);
             }}
           />
-        </Modal>
+        </OverlayModal>
       )}
 
       {allOpen && (
-        <Modal onClose={() => setAllOpen(false)} labelledBy="wa-all-title">
+        <OverlayModal
+          open={allOpen}
+          onClose={() => setAllOpen(false)}
+          size="sm"
+          ariaLabel={dateLabel(selectedKey)}
+          hideClose
+        >
           <div className="wa-modal-head">
             <h3 id="wa-all-title">{dateLabel(selectedKey)}</h3>
-            <button
-              type="button"
+            <IconButton
+              variant="ghost"
+              size="sm"
               className="wa-modal-close"
               onClick={() => setAllOpen(false)}
               aria-label="ปิด"
             >
               <X aria-hidden="true" strokeWidth={1.8} />
-            </button>
+            </IconButton>
           </div>
           <div className="wa-modal-list">
             {items.map((item) => (
@@ -373,7 +391,7 @@ export function WelcomeAgenda({
               />
             ))}
           </div>
-        </Modal>
+        </OverlayModal>
       )}
     </div>
   );
@@ -402,8 +420,9 @@ function AgendaRow({
         <span className="wa-sub">{item.sub}</span>
       </span>
       {item.taskId !== undefined ? (
-        <button
-          type="button"
+        <IconButton
+          variant="ghost"
+          size="sm"
           className="wa-check"
           onClick={() => onComplete(item.taskId as number)}
           disabled={busy}
@@ -411,61 +430,13 @@ function AgendaRow({
           title="ทำเครื่องหมายว่าเสร็จแล้ว"
         >
           <Check aria-hidden="true" strokeWidth={2.4} />
-        </button>
+        </IconButton>
       ) : item.urgency === "done" ? (
         <span className="wa-check is-done" aria-label="เสร็จแล้ว">
           <Check aria-hidden="true" strokeWidth={2.4} />
         </span>
       ) : null}
     </div>
-  );
-}
-
-/** Centered overlay; closes on backdrop click and Escape. */
-function Modal({
-  children,
-  onClose,
-  labelledBy,
-}: {
-  children: React.ReactNode;
-  onClose: () => void;
-  labelledBy: string;
-}) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
-
-  if (!mounted) return null;
-
-  // Portal to <body>: the agenda lives inside a framer-motion div whose
-  // transform creates a containing block, which would otherwise anchor this
-  // position:fixed overlay to that box (off-center, clipped at the screen
-  // edge on mobile) instead of the viewport.
-  return createPortal(
-    <div
-      className="jarvis-dialog-backdrop"
-      role="presentation"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <section
-        className="wa-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={labelledBy}
-      >
-        {children}
-      </section>
-    </div>,
-    document.body,
   );
 }
 
@@ -509,13 +480,13 @@ function DatePicker({
   return (
     <div className="wa-cal">
       <div className="wa-cal-head">
-        <button type="button" className="wa-cal-nav" onClick={() => step(-1)} aria-label="เดือนก่อนหน้า">
+        <IconButton variant="ghost" size="sm" className="wa-cal-nav" onClick={() => step(-1)} aria-label="เดือนก่อนหน้า">
           <ChevronLeft aria-hidden="true" strokeWidth={1.8} />
-        </button>
+        </IconButton>
         <h3 id="wa-picker-title">{title}</h3>
-        <button type="button" className="wa-cal-nav" onClick={() => step(1)} aria-label="เดือนถัดไป">
+        <IconButton variant="ghost" size="sm" className="wa-cal-nav" onClick={() => step(1)} aria-label="เดือนถัดไป">
           <ChevronRight aria-hidden="true" strokeWidth={1.8} />
-        </button>
+        </IconButton>
       </div>
 
       <div className="wa-cal-grid wa-cal-wd-row" aria-hidden="true">
