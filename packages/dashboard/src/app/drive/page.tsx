@@ -4,6 +4,8 @@ import { useState, useRef, useCallback } from "react";
 import useSWR from "swr";
 import { getDriveFiles, getDriveFileContent, uploadToDrive } from "@/lib/api";
 import { Loading, Empty, ErrorBanner } from "@/components/States";
+import { Button } from "@/components/ui/Button";
+import { Modal } from "@/components/ui/Modal";
 import type { DriveFile } from "@/lib/types";
 
 // ---- helpers ----------------------------------------------------------------
@@ -43,7 +45,6 @@ function fileToBase64(file: File): Promise<string> {
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result as string;
-      // strip "data:<mime>;base64," prefix
       resolve(result.split(",")[1] ?? "");
     };
     reader.onerror = () => reject(new Error("Failed to read file"));
@@ -51,94 +52,45 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-// ---- sub-components ---------------------------------------------------------
+// ---- file content body (rendered inside Modal) ------------------------------
 
-function ContentModal({
-  fileId,
-  fileName,
-  onClose,
-}: {
-  fileId: string;
-  fileName: string;
-  onClose: () => void;
-}) {
+function FileContentBody({ fileId }: { fileId: string }) {
   const { data, error, isLoading } = useSWR(
     `/api/drive/files/${fileId}/content`,
     () => getDriveFileContent(fileId),
   );
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.55)",
-        zIndex: 100,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-      }}
-      onClick={onClose}
-    >
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
       <div
         style={{
-          background: "var(--surface-1)",
-          borderRadius: 12,
-          padding: 24,
-          maxWidth: 680,
-          width: "100%",
-          maxHeight: "80vh",
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-          gap: 12,
+          flex: 1,
+          overflow: "auto",
+          fontSize: "var(--text-xs)",
+          color: "var(--muted)",
+          whiteSpace: "pre-wrap",
+          fontFamily: "monospace",
+          background: "var(--glass)",
+          borderRadius: "var(--radius)",
+          padding: "var(--space-3)",
+          minHeight: 200,
         }}
-        onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontWeight: 700, fontSize: 14 }}>{fileName}</span>
-          <button
-            onClick={onClose}
-            style={{
-              border: "none",
-              background: "none",
-              cursor: "pointer",
-              fontSize: 18,
-              color: "var(--text-3)",
-            }}
-          >
-            ✕
-          </button>
-        </div>
-        <div
-          style={{
-            flex: 1,
-            overflow: "auto",
-            fontSize: 12,
-            color: "var(--text-2)",
-            whiteSpace: "pre-wrap",
-            fontFamily: "monospace",
-            background: "var(--surface-2)",
-            borderRadius: 8,
-            padding: 12,
-            minHeight: 200,
-          }}
-        >
-          {isLoading && "กำลังโหลด..."}
-          {error && `ไม่สามารถอ่านไฟล์ได้: ${(error as Error).message}`}
-          {data && !data.available && (data.message ?? "ไม่สามารถอ่านไฟล์นี้ได้")}
-          {data?.available && data.content}
-        </div>
-        {data?.truncated && (
-          <p style={{ fontSize: 11, color: "var(--text-3)", margin: 0 }}>
-            ⚠️ เนื้อหาถูกตัดให้สั้นลงเพราะไฟล์ใหญ่เกินขีดจำกัด
-          </p>
-        )}
+        {isLoading && "กำลังโหลด..."}
+        {error && `ไม่สามารถอ่านไฟล์ได้: ${(error as Error).message}`}
+        {data && !data.available && (data.message ?? "ไม่สามารถอ่านไฟล์นี้ได้")}
+        {data?.available && data.content}
       </div>
+      {data?.truncated && (
+        <p style={{ fontSize: "var(--text-xs)", color: "var(--muted)", margin: 0 }}>
+          ⚠️ เนื้อหาถูกตัดให้สั้นลงเพราะไฟล์ใหญ่เกินขีดจำกัด
+        </p>
+      )}
     </div>
   );
 }
+
+// ---- sub-components ---------------------------------------------------------
 
 function FileRow({
   file,
@@ -153,19 +105,19 @@ function FileRow({
       style={{
         display: "grid",
         gridTemplateColumns: "auto 1fr auto",
-        gap: "6px 12px",
-        padding: "10px 0",
-        borderBottom: "1px solid var(--surface-2)",
+        gap: "var(--space-1) var(--space-3)",
+        padding: "var(--space-2) 0",
+        borderBottom: "1px solid var(--border)",
         alignItems: "center",
       }}
     >
-      <span style={{ fontSize: 18 }}>{mimeIcon(file.mimeType)}</span>
+      <span style={{ fontSize: "var(--text-lg)" }}>{mimeIcon(file.mimeType)}</span>
       <div style={{ minWidth: 0 }}>
         <div
           style={{
-            fontSize: 13,
+            fontSize: "var(--text-sm)",
             fontWeight: 600,
-            color: "var(--text-1)",
+            color: "var(--text)",
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
@@ -173,45 +125,25 @@ function FileRow({
         >
           {file.name}
         </div>
-        <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>
+        <div style={{ fontSize: "var(--text-xs)", color: "var(--muted)", marginTop: "var(--space-1)" }}>
           {file.owners?.[0]?.displayName ?? ""}{" "}
           {file.modifiedTime ? `· ${formatDate(file.modifiedTime)}` : ""}
           {file.size ? ` · ${Math.round(Number(file.size) / 1024)} KB` : ""}
         </div>
       </div>
-      <div style={{ display: "flex", gap: 6 }}>
+      <div style={{ display: "flex", gap: "var(--space-1)" }}>
         {readable && (
-          <button
-            onClick={() => onRead(file)}
-            style={{
-              fontSize: 11,
-              padding: "4px 8px",
-              borderRadius: 6,
-              border: "1px solid var(--surface-3)",
-              background: "none",
-              cursor: "pointer",
-              color: "var(--text-2)",
-            }}
-          >
+          <Button size="sm" variant="ghost" onClick={() => onRead(file)}>
             อ่าน
-          </button>
+          </Button>
         )}
         {file.webViewLink && (
           <a
             href={file.webViewLink}
             target="_blank"
             rel="noopener noreferrer"
-            style={{
-              fontSize: 11,
-              padding: "4px 8px",
-              borderRadius: 6,
-              border: "1px solid var(--surface-3)",
-              background: "none",
-              cursor: "pointer",
-              color: "var(--text-2)",
-              textDecoration: "none",
-              display: "inline-block",
-            }}
+            className="btn btn-ghost btn-sm"
+            style={{ textDecoration: "none" }}
           >
             เปิด ↗
           </a>
@@ -275,8 +207,8 @@ function UploadPanel() {
   };
 
   return (
-    <div style={{ marginTop: 24 }}>
-      <p style={{ fontSize: 13, fontWeight: 700, color: "var(--text-1)", marginBottom: 10 }}>
+    <div style={{ marginTop: "var(--space-6)" }}>
+      <p style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--text)", marginBottom: "var(--space-2)" }}>
         อัปโหลดไฟล์
       </p>
       <div
@@ -285,20 +217,20 @@ function UploadPanel() {
         onDragOver={(e) => e.preventDefault()}
         onClick={() => !pending && inputRef.current?.click()}
         style={{
-          border: "2px dashed var(--surface-3)",
-          borderRadius: 10,
-          padding: "20px 16px",
+          border: "2px dashed var(--border-strong)",
+          borderRadius: "var(--radius)",
+          padding: "var(--space-5) var(--space-4)",
           textAlign: "center",
           cursor: pending ? "default" : "pointer",
-          color: "var(--text-3)",
-          fontSize: 13,
+          color: "var(--muted)",
+          fontSize: "var(--text-sm)",
           transition: "border-color 0.15s",
         }}
       >
         {pending ? (
-          <div style={{ color: "var(--text-1)" }}>
-            <div style={{ fontWeight: 600, marginBottom: 4 }}>{pending.name}</div>
-            <div style={{ fontSize: 11, color: "var(--text-3)" }}>
+          <div style={{ color: "var(--text)" }}>
+            <div style={{ fontWeight: 600, marginBottom: "var(--space-1)" }}>{pending.name}</div>
+            <div style={{ fontSize: "var(--text-xs)", color: "var(--muted)" }}>
               {Math.round(pending.size / 1024)} KB · {pending.type || "ไม่ทราบประเภท"}
             </div>
           </div>
@@ -314,96 +246,55 @@ function UploadPanel() {
       </div>
 
       {pending && status === "idle" && (
-        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-          <button
-            onClick={confirmUpload}
-            style={{
-              flex: 1,
-              padding: "8px 0",
-              borderRadius: 8,
-              border: "none",
-              background: "var(--accent)",
-              color: "#fff",
-              cursor: "pointer",
-              fontSize: 13,
-              fontWeight: 600,
-            }}
-          >
+        <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-2)" }}>
+          <Button variant="primary" fullWidth onClick={confirmUpload}>
             ยืนยันอัปโหลด
-          </button>
-          <button
-            onClick={() => setPending(null)}
-            style={{
-              padding: "8px 14px",
-              borderRadius: 8,
-              border: "1px solid var(--surface-3)",
-              background: "none",
-              cursor: "pointer",
-              fontSize: 13,
-              color: "var(--text-2)",
-            }}
-          >
+          </Button>
+          <Button variant="ghost" onClick={() => setPending(null)}>
             ยกเลิก
-          </button>
+          </Button>
         </div>
       )}
 
       {status === "uploading" && (
-        <p style={{ fontSize: 12, color: "var(--text-3)", marginTop: 8 }}>กำลังอัปโหลด...</p>
+        <p style={{ fontSize: "var(--text-xs)", color: "var(--muted)", marginTop: "var(--space-2)" }}>
+          กำลังอัปโหลด...
+        </p>
       )}
 
       {status === "done" && (
-        <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-2)" }}>
+        <div style={{ marginTop: "var(--space-2)", fontSize: "var(--text-xs)", color: "var(--muted-strong)", display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
           ✅ {message}
           {driveLink && (
-            <>
-              {" "}
-              <a
-                href={driveLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ color: "var(--accent)" }}
-              >
-                เปิดใน Drive ↗
-              </a>
-            </>
+            <a
+              href={driveLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "var(--accent)" }}
+            >
+              เปิดใน Drive ↗
+            </a>
           )}
-          <button
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={() => { setStatus("idle"); setMessage(""); setDriveLink(null); }}
-            style={{
-              marginLeft: 10,
-              fontSize: 11,
-              padding: "2px 8px",
-              borderRadius: 6,
-              border: "1px solid var(--surface-3)",
-              background: "none",
-              cursor: "pointer",
-              color: "var(--text-3)",
-            }}
           >
             อัปโหลดอีก
-          </button>
+          </Button>
         </div>
       )}
 
       {status === "error" && (
-        <div style={{ marginTop: 10, fontSize: 12, color: "var(--error, #e55)" }}>
+        <div style={{ marginTop: "var(--space-2)", fontSize: "var(--text-xs)", color: "var(--rose)", display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
           ⚠️ {message}
-          <button
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={() => { setStatus("idle"); setMessage(""); }}
-            style={{
-              marginLeft: 10,
-              fontSize: 11,
-              padding: "2px 8px",
-              borderRadius: 6,
-              border: "1px solid var(--surface-3)",
-              background: "none",
-              cursor: "pointer",
-              color: "var(--text-3)",
-            }}
           >
             ลองใหม่
-          </button>
+          </Button>
         </div>
       )}
     </div>
@@ -434,7 +325,7 @@ export default function DrivePage() {
   if (data && !data.available) {
     return (
       <div>
-        <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>Google Drive</h1>
+        <h1 style={{ fontSize: "var(--text-xl)", fontWeight: 700, marginBottom: "var(--space-4)" }}>Google Drive</h1>
         <Empty
           label={
             "Drive ยังไม่ได้เชื่อมต่อ — ตั้งค่า GOOGLE_DRIVE_ENABLED=1 " +
@@ -447,71 +338,41 @@ export default function DrivePage() {
 
   return (
     <div>
-      {readingFile && (
-        <ContentModal
-          fileId={readingFile.id}
-          fileName={readingFile.name}
-          onClose={() => setReadingFile(null)}
-        />
-      )}
+      <Modal
+        open={!!readingFile}
+        onClose={() => setReadingFile(null)}
+        size="md"
+        title={readingFile?.name}
+      >
+        {readingFile && <FileContentBody fileId={readingFile.id} />}
+      </Modal>
 
-      <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Google Drive</h1>
-      <p style={{ fontSize: 13, color: "var(--text-3)", marginBottom: 16 }}>
+      <h1 style={{ fontSize: "var(--text-xl)", fontWeight: 700, marginBottom: "var(--space-1)" }}>Google Drive</h1>
+      <p style={{ fontSize: "var(--text-sm)", color: "var(--muted)", marginBottom: "var(--space-4)" }}>
         ค้นหาและอ่านไฟล์ · อัปโหลดผ่านหน้านี้ · ดาวน์โหลดผ่าน Drive โดยตรง
       </p>
 
-      {/* Search bar */}
-      <form onSubmit={handleSearch} style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+      <form onSubmit={handleSearch} style={{ display: "flex", gap: "var(--space-2)", marginBottom: "var(--space-4)" }}>
         <input
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="ค้นหาไฟล์... (ชื่อ, เนื้อหา, หรือชื่อคนที่แชร์)"
-          style={{
-            flex: 1,
-            padding: "8px 12px",
-            borderRadius: 8,
-            border: "1px solid var(--surface-3)",
-            background: "var(--surface-1)",
-            color: "var(--text-1)",
-            fontSize: 13,
-          }}
+          className="field field-md"
+          style={{ flex: 1 }}
         />
-        <button
-          type="submit"
-          style={{
-            padding: "8px 16px",
-            borderRadius: 8,
-            border: "none",
-            background: "var(--accent)",
-            color: "#fff",
-            cursor: "pointer",
-            fontSize: 13,
-            fontWeight: 600,
-          }}
-        >
-          ค้นหา
-        </button>
+        <Button type="submit" variant="primary">ค้นหา</Button>
         {submitted && (
-          <button
+          <Button
             type="button"
+            variant="ghost"
             onClick={() => { setQuery(""); setSubmitted(""); }}
-            style={{
-              padding: "8px 12px",
-              borderRadius: 8,
-              border: "1px solid var(--surface-3)",
-              background: "none",
-              cursor: "pointer",
-              fontSize: 13,
-              color: "var(--text-3)",
-            }}
           >
             ล้าง
-          </button>
+          </Button>
         )}
       </form>
 
-      {/* File list */}
       {!data || data.files.length === 0 ? (
         <Empty label={submitted ? `ไม่พบไฟล์สำหรับ "${submitted}"` : "ยังไม่มีไฟล์"} />
       ) : (
@@ -522,7 +383,6 @@ export default function DrivePage() {
         </div>
       )}
 
-      {/* Upload */}
       <UploadPanel />
     </div>
   );
