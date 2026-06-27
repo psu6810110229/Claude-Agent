@@ -13,11 +13,15 @@ export interface NewSessionControl {
 const ShellContext = createContext<{
   drawerOpen: boolean;
   setDrawerOpen: (v: boolean) => void;
+  collapsed: boolean;
+  setCollapsed: (v: boolean) => void;
   newSession: NewSessionControl | null;
   setNewSession: (c: NewSessionControl | null) => void;
 }>({
   drawerOpen: false,
   setDrawerOpen: () => {},
+  collapsed: false,
+  setCollapsed: () => {},
   newSession: null,
   setNewSession: () => {},
 });
@@ -28,6 +32,7 @@ export function useShell() {
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const [newSession, setNewSession] = useState<NewSessionControl | null>(null);
   const drawerReturnFocus = useRef<HTMLElement | null>(null);
   const pathname = usePathname();
@@ -83,8 +88,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <ShellContext.Provider value={{ drawerOpen, setDrawerOpen, newSession, setNewSession }}>
-      <div className={`shell ${drawerOpen ? 'drawer-open' : ''}`}>
+    <ShellContext.Provider value={{ drawerOpen, setDrawerOpen, collapsed, setCollapsed, newSession, setNewSession }}>
+      <div className={`shell ${drawerOpen ? 'drawer-open' : ''} ${collapsed ? 'sidebar-collapsed' : ''}`}>
         {children}
         {drawerOpen && (
           <div

@@ -548,6 +548,21 @@ h3 {
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: none;
+  transition: width 300ms var(--ease-out-expo), margin 300ms var(--ease-out-expo),
+    opacity 200ms ease;
+}
+
+/* Desktop collapse: hamburger hides the sticky sidebar; main content reclaims
+   the space with a smooth width transition. Mobile uses the slide-in drawer
+   below and ignores this. */
+.sidebar-collapsed .sidebar {
+  width: 0;
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 0;
+  padding-right: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .sidebar::-webkit-scrollbar {
@@ -918,8 +933,8 @@ h3 {
   font-size: 11px;
 }
 
-.mobile-menu-btn {
-  display: none;
+.menu-btn {
+  display: flex;
 }
 
 .drawer-backdrop {
@@ -2579,6 +2594,7 @@ pre.payload {
   flex-direction: column;
   align-items: flex-start;
   min-width: 0;
+  width: 100%;
   max-width: 100%;
 }
 
@@ -2589,7 +2605,7 @@ pre.payload {
 .chat-bubble-frame {
   position: relative;
   width: fit-content;
-  max-width: 100%;
+  max-width: 85%;
 }
 
 .chat-bubble-footer {
@@ -2616,7 +2632,7 @@ pre.payload {
   box-shadow: 0 2px 4px rgba(0,0,0,0.2);
   color: rgba(255, 255, 255, 0.9);
   padding: 11px 18px;
-  max-width: 85%;
+  max-width: 100%;
 }
 
 .chat-bubble.assistant {
@@ -2678,7 +2694,7 @@ pre.payload {
 }
 
 .chat-content {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   max-width: 72ch;
   line-height: 1.72;
 }
@@ -4244,12 +4260,18 @@ pre.payload {
 .ji-provider.in-menu {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
   width: 100%;
   height: auto;
+  padding: 6px;
+  border-radius: 12px;
   margin-bottom: 4px;
 }
 
 .ji-provider.in-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   min-height: 34px;
   padding: 0 8px;
 }
@@ -4372,8 +4394,8 @@ pre.payload {
 }
 
 .ji-custom-menu button.active {
-  background: var(--accent-soft);
-  color: var(--accent-hover);
+  background: var(--accent);
+  color: #fff;
 }
 
 .ji-custom-menu button svg {
@@ -4471,7 +4493,7 @@ pre.payload {
     flex-direction: column;
   }
 
-  .mobile-menu-btn {
+  .menu-btn {
     display: flex;
   }
 

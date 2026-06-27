@@ -375,7 +375,7 @@ export function JarvisInput({
                       })}
                     </div>
 
-                    <AnimatePresence mode="popLayout">
+                    <AnimatePresence initial={false}>
                       {provider === "gemini" && onGeminiModelChange && (
                         <motion.div
                           initial={reduceMotion ? false : { opacity: 0, height: 0 }}
