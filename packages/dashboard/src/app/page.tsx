@@ -694,6 +694,11 @@ export default function HomePage() {
     abortControllerRef.current?.abort();
 
     let shouldFallThrough = false;
+    const settleVisualThinking = () => {
+      setSending(false);
+      setOrbState("idle");
+      setThinkingStatus(null);
+    };
     
     // Conversational Privacy Guard flow
     if (pendingVerificationPrompt && !isRetry) {
@@ -794,6 +799,7 @@ export default function HomePage() {
           .reverse()
           .find((message) => message.role === "assistant" && !previousIds.has(message.id));
 
+        settleVisualThinking();
         setMessages(updated);
 
         if (freshAssistant) {
@@ -823,8 +829,6 @@ export default function HomePage() {
           await settleAckForFinal(ackRequestId);
         }
 
-        setSending(false);
-        setOrbState("idle");
         return;
       }
       // Turn succeeded: promote staged files to conversation-active so follow-ups
@@ -852,6 +856,7 @@ export default function HomePage() {
       // prepareSpeech), so text + voice begin together. Fail-soft: muted /
       // disabled / slow TTS resolves fast and text shows anyway.
       if (speech) await speech.ready;
+      settleVisualThinking();
       setMessages(updated);
       if (freshAssistant) {
         setRevealingMessageIds((prev) => new Set(prev).add(freshAssistant.id));
@@ -1360,7 +1365,7 @@ export default function HomePage() {
             {/* One live bubble for the whole "thinking" phase — same chrome as
                 the answer. It fades out as the final answer reveals in its
                 place, so CoT → answer reads as a single morphing bubble. */}
-            <AnimatePresence>
+            <AnimatePresence mode="popLayout">
               {sending && (
                 <motion.div
                   key="live-think"
