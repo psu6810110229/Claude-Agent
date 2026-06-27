@@ -1,6 +1,13 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   ArrowDown,
@@ -64,7 +71,7 @@ import { ErrorBanner } from "@/components/States";
 import { Orb, type OrbState } from "@/components/Orb";
 import { JarvisInput } from "@/components/JarvisInput";
 import { ThinkingPanel } from "@/components/ThinkingPanel";
-import { Button, ConfirmDialog } from "@/components/ui";
+import { Button, ConfirmDialog, IconButton, Sheet } from "@/components/ui";
 import { WelcomeAgenda } from "@/components/WelcomeAgenda";
 import { useShell } from "@/components/Shell";
 import { useToast } from "@/components/ToastProvider";
@@ -340,6 +347,7 @@ export default function HomePage() {
   const { setNewSession } = useShell();
   const [greeting, setGreeting] = useState<string | null>(null);
   const reduceMotion = useReducedMotion() ?? false;
+  const isCoarsePointer = useCoarsePointer();
   const [orbState, setOrbState] = useState<OrbState>("idle");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [provider, setProvider] = useState<ProviderChoice>("gemini");
@@ -677,7 +685,7 @@ export default function HomePage() {
     const cleanText = text.trim().toLowerCase();
     const isVerificationKeyword = cleanText === "โอเค" || cleanText.startsWith("โอเค") || cleanText === "1234";
     if (isVerificationKeyword) {
-      setThinkingStatus("ผู้ใช้ไม่ได้พิมพ์คำสั่งเพิ่มเติม");
+      setThinkingStatus("สักครู่ค่ะ");
     } else {
       setThinkingStatus(null);
     }
@@ -1227,6 +1235,7 @@ export default function HomePage() {
               <ChatMessageGroup
                 key={group.key}
                 group={group}
+                isCoarsePointer={isCoarsePointer}
                 reduceMotion={reduceMotion}
                 messageProvider={messageProvider}
                 messageMeta={messageMeta}
@@ -1353,18 +1362,18 @@ export default function HomePage() {
                     text={streamThinking}
                     active={sending}
                     done={thinkingDone}
+                    onStop={stopStreaming}
                   />
                 </div>
               </div>
             )}
 
-            {sending && (
+            {sending && streamThinking.trim().length === 0 && (
               <div className="chat-bubble-wrapper assistant">
                 <div className="chat-avatar assistant-avatar" aria-hidden="true">
                   <span className="avatar-text">F</span>
                 </div>
                 <div className="chat-bubble assistant typing">
-                  <span className="chat-role-label">Friday</span>
                   <ThinkingContent status={thinkingStatus} />
                   <TypingSkeleton />
                   <Button
@@ -1385,7 +1394,6 @@ export default function HomePage() {
                   <span className="avatar-text">F</span>
                 </div>
                 <div className="chat-bubble assistant typing">
-                  <span className="chat-role-label">Friday</span>
                   <ThinkingContent
                     status={`กำลังสร้าง${briefBusy === "daily" ? "สรุปเช้า" : "สรุปเย็น"}`}
                   />
@@ -1696,6 +1704,7 @@ function groupMessages(messages: ChatMessage[]): ChatGroup[] {
 
 function ChatMessageGroup({
   group,
+  isCoarsePointer,
   reduceMotion,
   messageProvider,
   messageMeta,
@@ -1711,6 +1720,7 @@ function ChatMessageGroup({
   onRegenerate,
 }: {
   group: ChatGroup;
+  isCoarsePointer: boolean;
   reduceMotion: boolean;
   messageProvider: Record<number, AiProviderId>;
   messageMeta: Record<number, MessageMeta>;
@@ -1736,22 +1746,11 @@ function ChatMessageGroup({
       inferSourceHints(message, parseActions(message.actions_json)),
     ),
   );
-  const groupProvider = isUser
-    ? undefined
-    : group.messages
-        .map((message) => messageProvider[message.id])
-        .find((value): value is AiProviderId => Boolean(value));
-
   return (
     <section className={`chat-group ${isUser ? "user" : "assistant"}`}>
       <div className="chat-group-header">
         <span className="chat-role">{isUser ? "คุณ" : "Friday"}</span>
         <span className="ts">{formatTs(first.created_at)}</span>
-        {groupProvider && (
-          <span className="provider-badge" title="ผู้ให้บริการ AI">
-            {PROVIDER_LABELS[groupProvider]}
-          </span>
-        )}
         {!isUser && <SourceHintList hints={groupSources} />}
       </div>
       <div className="chat-group-stack">
@@ -1760,6 +1759,7 @@ function ChatMessageGroup({
             key={msg.id}
             msg={msg}
             groupedIndex={index}
+            isCoarsePointer={isCoarsePointer}
             reduceMotion={reduceMotion}
             approvalMap={approvalMap}
             meta={messageMeta[msg.id]}
@@ -1786,6 +1786,7 @@ function ChatMessageGroup({
 function ChatBubble({
   msg,
   groupedIndex,
+  isCoarsePointer,
   reduceMotion,
   meta,
   approvalMap,
@@ -1801,6 +1802,7 @@ function ChatBubble({
 }: {
   msg: ChatMessage;
   groupedIndex: number;
+  isCoarsePointer: boolean;
   reduceMotion: boolean;
   meta?: MessageMeta;
   approvalMap: ApprovalMap;
@@ -1820,6 +1822,9 @@ function ChatBubble({
 }) {
   const isUser = msg.role === "user";
   const [copied, setCopied] = useState(false);
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
   // Show approval cards ONLY for items still awaiting the user's explicit
   // confirmation. Anything Jarvis already handled itself (auto-executed →
   // approved, or rejected) is hidden — no noisy "done" cards. A failed
@@ -1829,15 +1834,185 @@ function ChatBubble({
     return !approval || approval.status === "pending";
   });
 
-  async function copyMessage() {
+  useEffect(
+    () => () => {
+      if (longPressTimerRef.current !== null) {
+        window.clearTimeout(longPressTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  function clearLongPress() {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressStartRef.current = null;
+  }
+
+  async function copyMessage(closeSheet: unknown = false) {
     try {
       await navigator.clipboard.writeText(msg.content);
       setCopied(true);
+      if (closeSheet === true) setMobileActionsOpen(false);
       window.setTimeout(() => setCopied(false), 1200);
     } catch {
       setCopied(false);
     }
   }
+
+  function handleBubblePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (isUser || !isCoarsePointer || event.pointerType !== "touch") return;
+    if (isInteractiveTarget(event.target)) return;
+    clearLongPress();
+    longPressStartRef.current = { x: event.clientX, y: event.clientY };
+    longPressTimerRef.current = window.setTimeout(() => {
+      setMobileActionsOpen(true);
+      clearLongPress();
+    }, 420);
+  }
+
+  function handleBubblePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!longPressStartRef.current) return;
+    const dx = event.clientX - longPressStartRef.current.x;
+    const dy = event.clientY - longPressStartRef.current.y;
+    if (Math.hypot(dx, dy) > 10) clearLongPress();
+  }
+
+  function handleMobileRegenerate() {
+    setMobileActionsOpen(false);
+    onRegenerate(msg.id);
+  }
+
+  const bubbleLayout = (
+    <>
+      <div className={`chat-bubble-wrapper ${isUser ? "user" : "assistant"}`}>
+        {!isUser && groupedIndex === 0 && (
+          <div className="chat-avatar assistant-avatar" aria-hidden="true">
+            <span className="avatar-text">F</span>
+          </div>
+        )}
+        {!isUser && groupedIndex > 0 && <div className="chat-avatar-spacer" />}
+        <div className={`chat-bubble-column ${isUser ? "user" : "assistant"}`}>
+          <div
+            className={`chat-bubble-frame ${isUser ? "user" : "assistant"}`}
+            onPointerDown={handleBubblePointerDown}
+            onPointerMove={handleBubblePointerMove}
+            onPointerUp={clearLongPress}
+            onPointerCancel={clearLongPress}
+            onPointerLeave={clearLongPress}
+            onContextMenu={(event) => {
+              if (!isUser && isCoarsePointer) event.preventDefault();
+            }}
+          >
+            <div
+              className={`chat-bubble ${isUser ? "user" : "assistant"} ${
+                groupedIndex > 0 ? "grouped" : ""
+              }`}
+            >
+              <RichText
+                text={msg.content}
+                reduceMotion={reduceMotion}
+                reveal={revealing && !isUser}
+                onRevealDone={() => onRevealDone(msg.id)}
+              />
+              {actions.length > 0 && (
+                <div className="chat-approval-stack">
+                  {actions.map((action) => (
+                    <InlineApproval
+                      key={action.id}
+                      action={action}
+                      approval={approvalMap[action.id]}
+                      busy={approvalBusy === action.id}
+                      onApproval={onApproval}
+                      onRequestReject={onRequestReject}
+                    />
+                  ))}
+                </div>
+              )}
+              {!isUser && clarification && (
+                <ClarificationPanel
+                  prompt={clarification}
+                  onChoice={onClarificationChoice}
+                  onSkip={onClarificationSkip}
+                />
+              )}
+            </div>
+            {!isUser && !isCoarsePointer && (
+              <div className="chat-bubble-tools" aria-label="เครื่องมือข้อความ">
+                <IconButton
+                  className="chat-tool-btn"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onRegenerate(msg.id)}
+                  aria-label="สร้างคำตอบใหม่"
+                  title="สร้างคำตอบใหม่"
+                >
+                  <RotateCcw aria-hidden="true" strokeWidth={1.8} />
+                </IconButton>
+                <IconButton
+                  className="chat-tool-btn"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void copyMessage()}
+                  aria-label={copied ? "คัดลอกแล้ว" : "คัดลอกข้อความ"}
+                  title={copied ? "คัดลอกแล้ว" : "คัดลอกข้อความ"}
+                >
+                  {copied ? (
+                    <Check aria-hidden="true" strokeWidth={1.9} />
+                  ) : (
+                    <Copy aria-hidden="true" strokeWidth={1.8} />
+                  )}
+                </IconButton>
+              </div>
+            )}
+          </div>
+          {!isUser && meta && (
+            <div className="chat-bubble-footer">
+              <MessageMetaBadge meta={meta} />
+            </div>
+          )}
+        </div>
+      </div>
+      {!isUser && isCoarsePointer && (
+        <Sheet
+          open={mobileActionsOpen}
+          onClose={() => setMobileActionsOpen(false)}
+          side="bottom"
+          size="sm"
+          title="จัดการข้อความ"
+          className="chat-message-sheet"
+        >
+          <div className="chat-message-sheet-meta">
+            {meta ? <MessageMetaBadge meta={meta} /> : <span>ข้อความจาก Friday</span>}
+          </div>
+          <div className="chat-message-sheet-actions">
+            <Button
+              variant="secondary"
+              size="lg"
+              fullWidth
+              iconLeading={copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+              onClick={() => void copyMessage(true)}
+            >
+              {copied ? "คัดลอกแล้ว" : "คัดลอกข้อความ"}
+            </Button>
+            <Button
+              variant="secondary"
+              size="lg"
+              fullWidth
+              iconLeading={<RotateCcw aria-hidden="true" />}
+              onClick={handleMobileRegenerate}
+            >
+              สร้างคำตอบใหม่
+            </Button>
+          </div>
+        </Sheet>
+      )}
+    </>
+  );
+
+  if (bubbleLayout) return bubbleLayout;
 
   return (
     <div className={`chat-bubble-wrapper ${isUser ? "user" : "assistant"}`}>
@@ -1854,18 +2029,15 @@ function ChatBubble({
           groupedIndex > 0 ? "grouped" : ""
         }`}
       >
-        {!isUser && groupedIndex === 0 && (
-          <span className="chat-role-label">Friday</span>
-        )}
         <RichText
           text={msg.content}
           reduceMotion={reduceMotion}
           reveal={revealing && !isUser}
           onRevealDone={() => onRevealDone(msg.id)}
         />
-        <div className="chat-bubble-tools">
-          {!isUser && meta && <MessageMetaBadge meta={meta} />}
-          {!isUser && (
+        {!isUser && (
+          <div className="chat-bubble-tools">
+            {meta && <MessageMetaBadge meta={meta} />}
             <button
               type="button"
               className="chat-tool-btn"
@@ -1875,21 +2047,21 @@ function ChatBubble({
             >
               <RotateCcw aria-hidden="true" strokeWidth={1.8} />
             </button>
-          )}
           <button
             type="button"
             className="chat-tool-btn"
             onClick={copyMessage}
             aria-label={copied ? "คัดลอกแล้ว" : "คัดลอกข้อความ"}
             title={copied ? "คัดลอกแล้ว" : "คัดลอกข้อความ"}
-          >
-            {copied ? (
-              <Check aria-hidden="true" strokeWidth={1.9} />
-            ) : (
-              <Copy aria-hidden="true" strokeWidth={1.8} />
-            )}
-          </button>
-        </div>
+            >
+              {copied ? (
+                <Check aria-hidden="true" strokeWidth={1.9} />
+              ) : (
+                <Copy aria-hidden="true" strokeWidth={1.8} />
+              )}
+            </button>
+          </div>
+        )}
         {actions.length > 0 && (
           <div className="chat-approval-stack">
             {actions.map((action) => (
@@ -1936,6 +2108,37 @@ function compactModelName(model: string): string {
 function formatLatency(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
+}
+
+function useCoarsePointer(): boolean {
+  const [isCoarsePointer, setIsCoarsePointer] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(hover: none), (pointer: coarse)");
+    const update = () => setIsCoarsePointer(media.matches);
+    update();
+
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
+
+  return isCoarsePointer;
+}
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    Boolean(
+      target.closest(
+        "button, a, input, textarea, select, summary, [role='button'], [role='menuitem']",
+      ),
+    )
+  );
 }
 
 function ClarificationPanel({

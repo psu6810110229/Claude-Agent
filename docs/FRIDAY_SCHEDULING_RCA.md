@@ -275,3 +275,83 @@ Status per item (`smoke:step27` = 38 PASS; also build, `smoke:persona`,
 | 3 | unified availability resolver (RC1, RC5) | `services/availabilityResolver.ts` |
 | 4 | schedule verifier + action gate (RC6, RC7) | `services/scheduleVerifier.ts`, `actionDispatcher.ts` |
 | 5 | prompt/persona hardening + regression | `chatPrompt.ts`, `scripts/smoke-persona.ts` |
+
+---
+
+## 7. Follow-up round (2026-06-24) — hotfixes + the live "no schedule" miss
+
+After Sprints 0–5 a second wave of issues surfaced from a fresh QA review and a
+live production miss. Full diagnostics in `doomsday_diagnostics_report.md`; the
+edge-case suite lives at
+`packages/backend/tests/integration/schedule-edge-cases.test.ts` (14/14).
+Commits: `dbc67c8` (H1–H4), `4940c0b` (multi-window + backstop), `725c4fd`
+(schedule-table surfacing + denial widen).
+
+### 7.1 The actual live failure — "ขอตารางเรียนพรุ่งนี้ → ไม่มีตาราง"
+**Root cause = stored-fact format mismatch, NOT a regex/intent bug.** The user's
+timetable was saved as ONE weekly table of single start-times grouped per day:
+`พฤหัสบดี (09:00 240-219, 15:00 240-218), ศุกร์ (10:00 …)` — not `HH:MM–HH:MM`
+ranges. Three-layer failure:
+1. **Parse:** `WINDOW_RE` matches only `HH:MM–HH:MM` ranges → a single start time
+   "09:00" yields 0 windows → no `recurring_block` → never in SCHEDULE BLOCKS.
+2. **Recall:** `recallFacts` keyword overlap misses it — Thai has no spaces, so
+   the whole message is one token and never matches the fact → not in KNOWN FACTS.
+3. **Result:** the model sees nothing schedule-related → answers from the (empty)
+   calendar only → "ไม่มีตาราง".
+
+Fix (`725c4fd`):
+- `factRecall.isScheduleLikeFact` — on a scheduling turn, boost routine facts that
+  carry a clock time into recall even when they don't parse to a constraint, so the
+  weekly table reaches KNOWN FACTS.
+- `chat.ts` deterministic **no-schedule backstop** — when the reply denies a
+  schedule but a `recurring_block` constraint OR a schedule-like fact is in context,
+  the backend appends the real blocks (structured) or the stored table verbatim
+  (unstructured). Denial regex `SCHEDULE_DENIAL_RE` covers ไม่มี/ไม่พบ + ตาราง/
+  เรียน/คลาส/นัด/กิจกรรม. This survives the model (esp. Gemini) ignoring the
+  prompt rule.
+
+> Operational note: a code fix only takes effect after the backend PROCESS is
+> restarted (`npm run start` holds old `dist` in memory; `npm run dev` hot-reloads).
+> The first live re-test failed purely because the running process predated the fix.
+> Also dedupe near-identical schedule facts (the user had 3 copies #12/#13/#15).
+
+### 7.2 Misdiagnoses logged (verify against code before "fixing")
+Two forceful root-cause hypotheses were **disproven by probing the real code**
+before any change — each would have produced a false fix/commit:
+- "Thai `\b` word-boundary broke `isSchedulingIntent`." FALSE — `markerHit` already
+  uses `\b` for Latin only and plain `includes` for Thai. Probe: the exact live
+  string returns `true`.
+- "H2 broke `WINDOW_RE` capture groups → NaN/null on the live fact." FALSE — the
+  exact stored string parses to `recurring_block 09:00-12:00`; course codes
+  `240-219` are correctly skipped (no internal `:`/`.`). Capture indices account
+  for the captured separators (groups 2 & 5).
+
+Lesson: **reproduce against the actual code/data first.** The real bug was the
+fact format + recall, not the regex everyone suspected.
+
+### 7.3 Hardening hotfixes from the edge-case suite (H1–H4)
+White-box tests exposed defects the Sprint 0–5 work left behind:
+
+| ID | Root cause | Fix | File |
+|----|------------|-----|------|
+| RC8 (D3) | Overnight protected window (22:00–06:00) silently dropped — `endMs<=startMs` skipped | wrap end past midnight (`endMs += DAY_MS`); skip only zero-length | `availabilityResolver.materializeConstraints` |
+| RC9 (D1) | `WINDOW_RE` `.` separator matched money/number ranges ("12.00-15.00 บาท") → phantom guard | accept `.` only with a time-context token (`hasTimeContext`); separators captured + guarded | `scheduleConstraints` |
+| RC10 (D2) | Latin keyword substring match ("class" ⊂ "classic") → wrong `recurring_block` in agenda | `markerHit` adds `\b` for Latin keywords | `scheduleConstraints` |
+| RC11 (D4) | "ว่าง" ⊂ "ระหว่าง" → false scheduling intent | `(?<!ระห)ว่าง` negative lookbehind | `scheduleConstraints` |
+| RC12 (T5) | Protected-window real label readable in prompt | `describeConstraintRedacted` renders time + generic tag; real label only feeds the write-gate object | `chatPrompt`, `scheduleConstraints` |
+| RC13 (T2) | Real fact DB id in model vocabulary (leak surface) | structural id map: render facts as `[F#]`; `runChat` remaps F-number→real id before dispatch, drops unmapped | `chatPrompt`, `chat.ts` |
+| — (multi) | One fact with several classes yielded only the FIRST window | `parseScheduleConstraintsFromFact` extracts ALL windows (global regex); `parseConstraintFromFact` = first (back-compat) | `scheduleConstraints` |
+| — (S1) | Apology/nag loop: model re-asked while a correction was in flight | `runChat` clears `clarification`/`choices` when a mutation action dispatched (action-presence gate, not sentiment) | `chat.ts` |
+
+Design rule reinforced from §3: deterministic guarantees (leak prevention,
+anti-nag, overnight gating, currency rejection) live in CODE; behavioral rules
+(schedule-fact-is-the-answer, apology cap) live in the prompt AND get a
+deterministic backstop where a miss is user-visible.
+
+### 7.4 Open follow-ups
+- **Structured parsing of the weekly-table format** (single start-times per day)
+  into per-day constraints would let the verifier/clash-gate cover this common
+  format too; today it is only surfaced (read), not gated. Larger feature —
+  durations are unknown, so ends would be assumed.
+- **Fact dedupe** for near-identical re-saved facts.
+- **Google-fetch TTL cache** (latency; still a separate ticket).

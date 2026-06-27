@@ -198,6 +198,9 @@ export function JarvisInput({
   return (
     <form
       className={`jarvis-input${dragging ? " dragging" : ""}`}
+      data-gramm="false"
+      data-gramm_editor="false"
+      data-enable-grammarly="false"
       onSubmit={handleSubmit}
       onDragOver={(e) => {
         if (!onAttach) return;
@@ -277,6 +280,10 @@ export function JarvisInput({
         onBlur={() => onFocusChange?.(false)}
         placeholder="ถาม Friday"
         aria-label="ถาม Friday"
+        data-gramm="false"
+        data-gramm_editor="false"
+        data-enable-grammarly="false"
+        spellCheck={false}
         disabled={disabled}
         rows={1}
         autoFocus

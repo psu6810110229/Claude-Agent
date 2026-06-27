@@ -16,19 +16,14 @@ export function ThinkingPanel({
   done: boolean;
   onStop?: () => void;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const reduceMotion = useReducedMotion() ?? false;
   const hasText = text.trim().length > 0;
+  const summary = summarizeThought(text);
 
   useEffect(() => {
-    if (active) setOpen(true);
-  }, [active]);
-
-  useEffect(() => {
-    if (!done) return;
-    const timer = window.setTimeout(() => setOpen(false), 900);
-    return () => window.clearTimeout(timer);
-  }, [done]);
+    if (!hasText) setOpen(false);
+  }, [hasText]);
 
   if (!active && !hasText) return null;
 
@@ -46,10 +41,10 @@ export function ThinkingPanel({
         >
           <span className="thinking-orb" aria-hidden="true" />
           <span className="thinking-panel-title">
-            {done ? "คิดเสร็จแล้ว" : "กำลังคิด…"}
+            {done ? "คิดเสร็จแล้ว" : "กำลังคิด"}
           </span>
           <span className="thinking-panel-meta">
-            {hasText ? "ดูความคิดสด" : "รอสัญญาณจากโมเดล"}
+            {hasText ? summary : "รอสัญญาณจากโมเดล"}
           </span>
           <ChevronDown
             className={`thinking-panel-chevron${open ? " open" : ""}`}
@@ -85,4 +80,21 @@ export function ThinkingPanel({
       </AnimatePresence>
     </section>
   );
+}
+
+function summarizeThought(text: string): string {
+  const firstLine = text
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .replace(/[`*_>#-]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
+    .find((line) => line.length > 0);
+
+  if (!firstLine) return "รอสัญญาณจากโมเดล";
+  return firstLine.length > 96
+    ? `${firstLine.slice(0, 93).trimEnd()}...`
+    : firstLine;
 }

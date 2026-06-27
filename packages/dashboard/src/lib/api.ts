@@ -388,6 +388,24 @@ function parseSseFrame(frame: string): { event: string; data: string } | null {
   return { event, data: data.join("\n") };
 }
 
+function isChatResult(value: unknown): value is ChatResult {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<ChatResult>;
+  return candidate.kind === "chat" && typeof candidate.reply === "string" && Array.isArray(candidate.approvals);
+}
+
+function errorFromPayload(payload: unknown, fallback: string): ApiError {
+  const details =
+    payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>)
+      : undefined;
+  const message =
+    typeof details?.error === "string" && details.error.length > 0
+      ? details.error
+      : fallback;
+  return new ApiError(message, 502, details);
+}
+
 /**
  * Streaming chat client. Success is SSE: live `thinking` chunks followed by one
  * final `done` payload matching `sendChat`. Prep failures are plain JSON, so
@@ -457,7 +475,13 @@ export async function sendChatStream(
       return;
     }
     if (parsed.event === "done") {
-      callbacks.onDone(JSON.parse(parsed.data) as ChatResult);
+      const payload = JSON.parse(parsed.data) as unknown;
+      if (!isChatResult(payload)) {
+        const error = errorFromPayload(payload, "Chat stream ended without a valid reply");
+        callbacks.onError?.(error.message);
+        throw error;
+      }
+      callbacks.onDone(payload);
       return;
     }
     if (parsed.event === "error") {
