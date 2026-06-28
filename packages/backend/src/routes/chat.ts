@@ -513,8 +513,17 @@ async function handleChatStream(
     raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
+  // Diagnostic: count thinking deltas per turn so we can confirm WHICH provider
+  // actually streamed reasoning. Counts + char total only — never the content
+  // (privacy rule: no reasoning bodies in logs).
+  let thinkingDeltas = 0;
+  let thinkingChars = 0;
   const sink: ThinkingSink = (e) => {
-    if (e.type === "thinking") send("thinking", { delta: e.delta });
+    if (e.type === "thinking") {
+      thinkingDeltas += 1;
+      thinkingChars += e.delta.length;
+      send("thinking", { delta: e.delta });
+    }
   };
 
   // A vision turn has no native thinking stream → adapt the (non-stream) vision
@@ -534,6 +543,10 @@ async function handleChatStream(
       attachments: prep.attachmentDescriptors,
     });
     const { body } = chatResultResponse(result, prep);
+    logActivity(
+      "chat.stream.thinking",
+      `provider=${prep.resolved.selection.selectedProvider} model=${prep.effectiveModel ?? "default"} deltas=${thinkingDeltas} chars=${thinkingChars}`,
+    );
     send("done", body);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

@@ -132,15 +132,27 @@ export const realGeminiInvoker: ClaudeInvoker = async (prompt, opts) => {
 };
 
 /**
+ * Default streaming thinking budget (tokens) when the caller passes none. A
+ * manual Gemini pick (esp. flash-lite) leaves the budget undefined; "lite"
+ * models default to ~0 thinking, so they'd stream NO thought parts. Setting a
+ * floor makes the live-thinking UI actually populate for manual turns. The auto
+ * router always passes an explicit budget (0 / 1024 / 2048), so this only
+ * affects the manual/undefined path.
+ */
+const DEFAULT_STREAM_THINKING_BUDGET = 1024;
+
+/**
  * Streaming thinkingConfig: for the live-thinking UI we DO want thought parts,
  * so includeThoughts is on unless thinking is explicitly disabled (budget 0).
+ * An undefined budget falls back to DEFAULT_STREAM_THINKING_BUDGET so manual
+ * picks still produce visible thinking.
  */
 function streamThinkingConfig(
   budget?: number,
-): { thinkingBudget?: number; includeThoughts: boolean } {
+): { thinkingBudget: number; includeThoughts: boolean } {
   if (budget === 0) return { thinkingBudget: 0, includeThoughts: false };
-  if (budget === undefined) return { includeThoughts: true };
-  return { thinkingBudget: budget, includeThoughts: true };
+  const effective = budget ?? DEFAULT_STREAM_THINKING_BUDGET;
+  return { thinkingBudget: effective, includeThoughts: true };
 }
 
 /**

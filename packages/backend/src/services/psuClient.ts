@@ -180,13 +180,21 @@ export function makePsuInvoker(defaultModel: string): ClaudeInvoker {
 
 interface StreamChunk {
   choices?: Array<{
-    delta?: { reasoning?: string | null; content?: string | null };
+    // OpenAI-compat reasoning gateways differ on the delta field name: OpenRouter
+    // uses `reasoning`; DeepSeek / Qwen / vLLM / SGLang use `reasoning_content`.
+    // Accept BOTH so live thinking surfaces regardless of which the PSU upstream emits.
+    delta?: {
+      reasoning?: string | null;
+      reasoning_content?: string | null;
+      content?: string | null;
+    };
   }>;
 }
 
 /**
- * Streaming variant: `stream:true` SSE. Maps `delta.reasoning` → live thinking
- * and `delta.content` → answer text (accumulated + emitted). Resolves with the
+ * Streaming variant: `stream:true` SSE. Maps the reasoning delta
+ * (`delta.reasoning` OR `delta.reasoning_content`) → live thinking and
+ * `delta.content` → answer text (accumulated + emitted). Resolves with the
  * full answer for the JSON pipeline. Same model allowlist + timeout + fail-closed
  * discipline as the non-streaming invoker; the key is never logged.
  */
@@ -270,8 +278,12 @@ export function makePsuStreamInvoker(defaultModel: string): StreamInvoker {
           }
           const delta = chunk.choices?.[0]?.delta;
           if (!delta) continue;
-          if (typeof delta.reasoning === "string" && delta.reasoning) {
-            sink({ type: "thinking", delta: delta.reasoning });
+          const reasoning =
+            (typeof delta.reasoning === "string" && delta.reasoning) ||
+            (typeof delta.reasoning_content === "string" && delta.reasoning_content) ||
+            "";
+          if (reasoning) {
+            sink({ type: "thinking", delta: reasoning });
           }
           if (typeof delta.content === "string" && delta.content) {
             answer += delta.content;
