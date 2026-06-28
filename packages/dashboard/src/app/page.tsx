@@ -67,7 +67,6 @@ import {
   settleAckForFinal,
   startAck,
 } from "@/lib/voiceAcks";
-import { formatTs } from "@/lib/format";
 import { actionQuestion, isActionType } from "@/lib/actionDisplay";
 import { ErrorBanner } from "@/components/States";
 import { Orb, type OrbState } from "@/components/Orb";
@@ -1659,16 +1658,48 @@ function ChatSkeleton() {
  */
 const THINKING_PHASES = ["สักครู่ค่ะ"];
 
+function formatChatTs(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+
+  const now = new Date();
+  const dateKey = new Intl.DateTimeFormat("en-CA").format(date);
+  const todayKey = new Intl.DateTimeFormat("en-CA").format(now);
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const yesterdayKey = new Intl.DateTimeFormat("en-CA").format(yesterday);
+  const time = new Intl.DateTimeFormat("th-TH-u-ca-gregory", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+
+  if (dateKey === todayKey) return `วันนี้ ${time}`;
+  if (dateKey === yesterdayKey) return `เมื่อวาน ${time}`;
+
+  const dayMonth = new Intl.DateTimeFormat("th-TH-u-ca-gregory", {
+    day: "numeric",
+    month: "short",
+  }).format(date);
+  if (date.getFullYear() === now.getFullYear()) return `${dayMonth} ${time}`;
+
+  const withYear = new Intl.DateTimeFormat("th-TH-u-ca-gregory", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+  return `${withYear} ${time}`;
+}
+
 function AssistantOrbAvatar({
   thinking = false,
 }: {
   thinking?: boolean;
 }) {
   return (
-    <div
-      className={`chat-avatar assistant-avatar${thinking ? " thinking" : ""}`}
-      aria-hidden="true"
-    />
+    <div className="chat-avatar assistant-avatar" aria-hidden="true">
+      <Orb state={thinking ? "thinking" : "idle"} variant="avatar" />
+    </div>
   );
 }
 
@@ -1792,7 +1823,7 @@ function ChatMessageGroup({
     <section className={`chat-group ${isUser ? "user" : "assistant"}`}>
       <div className="chat-group-header">
         <span className="chat-role">{isUser ? "คุณ" : "Friday"}</span>
-        <span className="ts">{formatTs(first.created_at)}</span>
+        <span className="ts">{formatChatTs(first.created_at)}</span>
         {!isUser && <SourceHintList hints={groupSources} />}
       </div>
       <div className="chat-group-stack">

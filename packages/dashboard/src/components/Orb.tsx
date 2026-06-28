@@ -3,17 +3,24 @@
 import { motion, useReducedMotion } from "framer-motion";
 
 export type OrbState = "idle" | "listening" | "thinking";
+export type OrbVariant = "hero" | "compact" | "avatar";
 
 /**
  * The visual heart of the interface: a floating, breathing liquid-glass orb.
  * Pure CSS layers (conic + radial gradients, blur) animated slowly; the
  * `state` prop nudges pace and brightness so it reads as alive, never blinking.
  */
-export function Orb({ state = "idle" }: { state?: OrbState }) {
+export function Orb({
+  state = "idle",
+  variant = "hero",
+}: {
+  state?: OrbState;
+  variant?: OrbVariant;
+}) {
   const reduceMotion = useReducedMotion();
   return (
     <motion.div
-      className="orb-wrap"
+      className={`orb-wrap orb-${variant}`}
       data-state={state}
       initial={reduceMotion ? false : { opacity: 0, scale: 0.92, y: 14 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -26,9 +33,12 @@ export function Orb({ state = "idle" }: { state?: OrbState }) {
     >
       <div className="orb-halo" />
       <div className="orb">
+        <div className="orb-rim" />
         <div className="orb-layer swirl" />
         <div className="orb-layer veil" />
+        <div className="orb-layer caustic" />
         <div className="orb-layer core" />
+        <div className="orb-sheen" />
         <div className="orb-highlight" />
         <div className="orb-particles">
           {Array.from({ length: 7 }, (_, i) => (
