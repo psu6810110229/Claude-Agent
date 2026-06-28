@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Friday Orange Palette v2</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family:
+          "IBM Plex Sans",
+          Inter,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        background: #050608;
+        color: #f6f3ee;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        padding: 40px;
+        background:
+          radial-gradient(circle at 20% 0%, rgba(255, 138, 61, 0.14), transparent 30%),
+          radial-gradient(circle at 80% 10%, rgba(139, 92, 246, 0.12), transparent 28%),
+          #050608;
+      }
+
+      h1 {
+        margin: 0 0 28px;
+        font-size: 28px;
+        font-weight: 520;
+        letter-spacing: 0;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 18px;
+      }
+
+      .palette {
+        padding: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.055);
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+        backdrop-filter: blur(22px);
+      }
+
+      .name {
+        margin: 0 0 14px;
+        font-size: 16px;
+        font-weight: 560;
+      }
+
+      .swatches {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+      }
+
+      .swatch {
+        min-height: 118px;
+        display: flex;
+        align-items: end;
+        padding: 12px;
+        border-radius: 8px;
+        color: #fff;
+      }
+
+      .code {
+        font-family: "IBM Plex Mono", Consolas, monospace;
+        font-size: 12px;
+        font-weight: 650;
+        text-shadow: 0 1px 5px rgba(0, 0, 0, 0.45);
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Friday Orange Palette v2</h1>
+    <main class="grid">
+      <section class="palette">
+        <h2 class="name">Web Product Orange</h2>
+        <div class="swatches">
+          <div class="swatch" style="background: #e96f1a"><span class="code">#e96f1a</span></div>
+          <div class="swatch" style="background: #f47a1f"><span class="code">#f47a1f</span></div>
+          <div class="swatch" style="background: rgba(233, 111, 26, 0.15)"><span class="code">rgba(233,111,26,.15)</span></div>
+          <div class="swatch" style="background: rgba(244, 122, 31, 0.4)"><span class="code">rgba(244,122,31,.4)</span></div>
+        </div>
+      </section>
+
+      <section class="palette">
+        <h2 class="name">Product Orange Bright</h2>
+        <div class="swatches">
+          <div class="swatch" style="background: #f5791d"><span class="code">#f5791d</span></div>
+          <div class="swatch" style="background: #ff8428"><span class="code">#ff8428</span></div>
+          <div class="swatch" style="background: rgba(245, 121, 29, 0.15)"><span class="code">rgba(245,121,29,.15)</span></div>
+          <div class="swatch" style="background: rgba(255, 132, 40, 0.4)"><span class="code">rgba(255,132,40,.4)</span></div>
+        </div>
+      </section>
+
+      <section class="palette">
+        <h2 class="name">Product Orange Deep - Truer Orange</h2>
+        <div class="swatches">
+          <div class="swatch" style="background: #e85f18"><span class="code">#e85f18</span></div>
+          <div class="swatch" style="background: #f2691f"><span class="code">#f2691f</span></div>
+          <div class="swatch" style="background: rgba(232, 95, 24, 0.15)"><span class="code">rgba(232,95,24,.15)</span></div>
+          <div class="swatch" style="background: rgba(242, 105, 31, 0.4)"><span class="code">rgba(242,105,31,.4)</span></div>
+        </div>
+      </section>
+
+      <section class="palette">
+        <h2 class="name">Product Orange Soft</h2>
+        <div class="swatches">
+          <div class="swatch" style="background: #ee7b2a"><span class="code">#ee7b2a</span></div>
+          <div class="swatch" style="background: #f08a3f"><span class="code">#f08a3f</span></div>
+          <div class="swatch" style="background: rgba(238, 123, 42, 0.15)"><span class="code">rgba(238,123,42,.15)</span></div>
+          <div class="swatch" style="background: rgba(240, 138, 63, 0.38)"><span class="code">rgba(240,138,63,.38)</span></div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
