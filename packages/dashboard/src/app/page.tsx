@@ -48,6 +48,7 @@ import {
   discardCalendarPlan,
 } from "@/lib/api";
 import { ScheduleImportCard } from "@/components/ScheduleImportCard";
+import { ThinkingPanel } from "@/components/ThinkingPanel";
 import { CalendarPlanCard } from "@/components/CalendarPlanCard";
 import { WeekHourGrid, type GridBlock } from "@/components/WeekHourGrid";
 import { DayAgendaCard, type DayItem } from "@/components/DayAgendaCard";
@@ -1373,30 +1374,41 @@ export default function HomePage() {
               </div>
             )}
 
-            {/* One live bubble for the whole "thinking" phase — same chrome as
-                the answer. It fades out as the final answer reveals in its
-                place, so CoT → answer reads as a single morphing bubble. */}
-            <AnimatePresence mode="popLayout">
-              {sending && (
-                <motion.div
-                  key="live-think"
-                  initial={false}
-                  exit={
-                    reduceMotion
-                      ? undefined
-                      : { opacity: 0, y: -6, filter: "blur(8px)" }
-                  }
-                  transition={{ duration: 0.5, ease: [0.22, 0.61, 0.36, 1] }}
-                >
-                  <LiveThinkingBubble
-                    thinking={streamThinking}
-                    status={thinkingStatus}
-                    done={thinkingDone}
-                    reduceMotion={reduceMotion}
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {/* Live thinking: a scrollable, expandable panel that ACCUMULATES the
+                model's reasoning (not a single rolling line) so high-frequency
+                token streams (qwen/glm: hundreds of deltas) stay readable instead
+                of thrashing. Open while thinking, auto-collapses when done. */}
+            {sending && (
+              <div className="chat-bubble-wrapper assistant">
+                <AssistantOrbAvatar thinking />
+                <div className="chat-import-slot">
+                  {streamThinking.trim().length > 0 ? (
+                    <ThinkingPanel
+                      text={streamThinking}
+                      active={sending}
+                      done={thinkingDone}
+                      onStop={stopStreaming}
+                    />
+                  ) : (
+                    <div className="chat-bubble assistant typing">
+                      <ThinkingContent status={thinkingStatus} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Persisted CoT for the latest turn: once thinking ends (sending
+                false) the accumulated reasoning stays as a COLLAPSED panel the
+                user can expand to review, until the next send clears it. */}
+            {!sending && streamThinking.trim().length > 0 && (
+              <div className="chat-bubble-wrapper assistant">
+                <AssistantOrbAvatar />
+                <div className="chat-import-slot">
+                  <ThinkingPanel text={streamThinking} active={false} done />
+                </div>
+              </div>
+            )}
 
             {briefBusy && (
               <div className="chat-bubble-wrapper assistant">
@@ -1641,71 +1653,6 @@ function ChatSkeleton() {
  */
 const THINKING_PHASES = ["สักครู่ค่ะ"];
 
-/**
- * Lifecycle-ordered status lines for the no-CoT case. Honest about the *reasoning*
- * lifecycle (understand → think → weigh → draft → refine → wrap up) — never a
- * fabricated tool action ("reading your calendar"). Shown in order so it reads
- * like real progress, each held for its own dwell time (see LIVE_DWELL_MS).
- */
-const LIVE_PHASES = [
-  "รับคำถามแล้วค่ะ",
-  "กำลังอ่านคำถาม…",
-  "ทำความเข้าใจสิ่งที่ถาม…",
-  "กำลังคิด…",
-  "ตั้งหลักความคิด…",
-  "ชั่งน้ำหนักตัวเลือก…",
-  "กำลังเชื่อมโยงเหตุผล…",
-  "ประมวลผลในใจ…",
-  "กำลังเรียบเรียงความคิด…",
-  "จัดลำดับคำตอบ…",
-  "กำลังร่างคำตอบ…",
-  "เลือกถ้อยคำให้เหมาะ…",
-  "ขัดเกลาคำตอบ…",
-  "ตรวจทานอีกครั้ง…",
-  "ใกล้เรียบร้อยแล้ว…",
-  "อีกสักครู่ค่ะ…",
-];
-
-/** Dwell pool (ms) — long and uneven so each line lingers and the cadence feels
- *  human, not metronomic. A fresh value is drawn per shown line. */
-const LIVE_DWELL_POOL = [2800, 3600, 4400, 3200, 5000, 4000];
-
-/**
- * Build one thinking session's script: up to 3 distinct lines, kept in lifecycle
- * order, each paired with an uneven dwell. Picking a small ordered subset means
- * a single think shows ≤3 different lines, but they vary across requests.
- */
-function buildLiveScript(): { line: string; dwell: number }[] {
-  const count = 2 + Math.floor(Math.random() * 2); // 2–3 lines
-  const picked = new Set<number>([0]); // always open with "รับคำถามแล้วค่ะ"
-  while (picked.size < count) {
-    picked.add(1 + Math.floor(Math.random() * (LIVE_PHASES.length - 1)));
-  }
-  return [...picked]
-    .sort((a, b) => a - b)
-    .map((i) => ({
-      line: LIVE_PHASES[i],
-      dwell: LIVE_DWELL_POOL[Math.floor(Math.random() * LIVE_DWELL_POOL.length)],
-    }));
-}
-
-/** Latest meaningful CoT line, stripped of markdown and capped — a rolling
- *  one-liner, never a multi-line dump. */
-function summarizeCot(text: string): string {
-  const line = text
-    .split(/\r?\n/)
-    .map((l) =>
-      l
-        .replace(/[`*_>#~-]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim(),
-    )
-    .filter((l) => l.length > 0)
-    .at(-1);
-  if (!line) return "";
-  return line.length > 80 ? `${line.slice(0, 79).trimEnd()}…` : line;
-}
-
 function AssistantOrbAvatar({
   thinking = false,
 }: {
@@ -1716,72 +1663,6 @@ function AssistantOrbAvatar({
       className={`chat-avatar assistant-avatar${thinking ? " thinking" : ""}`}
       aria-hidden="true"
     />
-  );
-}
-
-/**
- * Unified live "thinking" bubble. Same chrome as an answer bubble so that, when
- * the real answer lands and this fades out in its place, the whole CoT → answer
- * sequence reads as one morphing bubble. While thinking it shows either a
- * rolling one-line CoT summary (if the model streamed reasoning) or a rotating
- * generic status (if it did not). Each line swap fades out/in.
- */
-function LiveThinkingBubble({
-  thinking,
-  status,
-  done,
-  reduceMotion,
-}: {
-  thinking: string;
-  status?: string | null;
-  done: boolean;
-  reduceMotion: boolean;
-}) {
-  const hasCot = thinking.trim().length > 0;
-  // One fixed ≤3-line script per mount (per thinking session).
-  const [script] = useState(buildLiveScript);
-  const [phase, setPhase] = useState(0);
-
-  // Step through this session's script, each line held for its own dwell, then
-  // settle on the last until the answer arrives.
-  useEffect(() => {
-    if (hasCot || status || done) return;
-    if (phase >= script.length - 1) return;
-    const timer = window.setTimeout(
-      () => setPhase((current) => current + 1),
-      script[phase].dwell,
-    );
-    return () => window.clearTimeout(timer);
-  }, [hasCot, status, done, phase, script]);
-
-  const line = hasCot
-    ? summarizeCot(thinking)
-    : (status ?? script[Math.min(phase, script.length - 1)].line);
-
-  return (
-    <div className="chat-bubble-wrapper assistant">
-      <AssistantOrbAvatar thinking />
-      <div className="chat-bubble assistant typing">
-        <div className="chat-live-think" aria-live="polite">
-          {reduceMotion ? (
-            <span className="chat-live-think-text">{line}</span>
-          ) : (
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.span
-                key={line}
-                className="chat-live-think-text"
-                initial={{ opacity: 0, y: 8, filter: "blur(7px)" }}
-                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                exit={{ opacity: 0, y: -8, filter: "blur(7px)" }}
-                transition={{ duration: 0.46, ease: [0.22, 0.61, 0.36, 1] }}
-              >
-                {line}
-              </motion.span>
-            </AnimatePresence>
-          )}
-        </div>
-      </div>
-    </div>
   );
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui";
@@ -20,10 +20,28 @@ export function ThinkingPanel({
   const reduceMotion = useReducedMotion() ?? false;
   const hasText = text.trim().length > 0;
   const summary = summarizeThought(text);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Expand automatically while the model is actively thinking so the live
+  // reasoning is readable without a click; collapse once it finishes (the
+  // user can still re-open the persisted panel to review).
+  useEffect(() => {
+    if (active && hasText) setOpen(true);
+  }, [active, hasText]);
+  useEffect(() => {
+    if (done) setOpen(false);
+  }, [done]);
   useEffect(() => {
     if (!hasText) setOpen(false);
   }, [hasText]);
+
+  // Keep the newest reasoning in view as tokens stream in (high-frequency
+  // append for qwen/glm). Only auto-scrolls while open + active.
+  useEffect(() => {
+    if (!open || !active) return;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [text, open, active]);
 
   if (!active && !hasText) return null;
 
@@ -72,7 +90,7 @@ export function ThinkingPanel({
             exit={reduceMotion ? { opacity: 1, height: "auto" } : { opacity: 0, height: 0 }}
             transition={reduceMotion ? { duration: 0 } : { duration: 0.18 }}
           >
-            <div className="thinking-panel-scroll" aria-live="polite">
+            <div ref={scrollRef} className="thinking-panel-scroll" aria-live="polite">
               {hasText ? (
                 reduceMotion ? (
                   text
