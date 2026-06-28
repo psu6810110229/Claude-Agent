@@ -5131,7 +5131,23 @@ pre.payload {
 
   .ji-unified-btn {
     height: 40px;
-    padding: 0 16px 0 18px;
+    /* Mobile: keep the model pill compact (~1/4 of its desktop sprawl) so it
+       no longer dominates the composer toolbar. Tight padding + a small gap;
+       the label truncates with an ellipsis instead of stretching the pill. */
+    gap: 4px;
+    padding: 0 8px 0 12px;
+    max-width: 96px;
+  }
+
+  .ji-unified-btn .ji-unified-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .ji-unified-btn .ji-unified-chevron {
+    flex-shrink: 0;
   }
 
   /* Touch ≥44px for the provider/model menu rows. */
