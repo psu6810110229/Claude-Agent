@@ -51,7 +51,7 @@ async function main(): Promise<void> {
   const { closeDb } = await import("../src/db/connection.js");
   const { classifyIntent, routeChat, selectProvider, ProviderError } =
     await import("../src/services/aiProvider.js");
-  const { GEMINI_MODEL, PSU_QWEN_MODEL, PSU_GPT4O_MODEL } = await import(
+  const { GEMINI_MODEL, PSU_GPT4O_MODEL } = await import(
     "../src/config.js"
   );
 
@@ -106,11 +106,10 @@ async function main(): Promise<void> {
       "ช่วยวิเคราะห์และวางแผนว่าควรส่งงานไหนก่อนเพราะมีหลายเดดไลน์ชนกัน",
   });
   assert(
-    deep.selection.selectedProvider === "qwen" &&
-      deep.selection.selectedModel === PSU_QWEN_MODEL &&
-      deep.selection.thinkingBudget === undefined &&
+    deep.selection.selectedProvider === "gemini" &&
+      deep.selection.thinkingBudget === 2048 &&
       deep.selection.stream === true,
-    "deep → qwen (reasoning), no gemini budget, stream",
+    "deep → gemini, budget 2048, stream",
   );
 
   const files = routeChat({ message: "อันนี้คืออะไร", hasFiles: true });

@@ -298,7 +298,7 @@ const TIER_PREFERENCE: Record<ChatIntent, AiProviderId[]> = {
   casual: ["gpt4o", "gemini", "claude"],
   trivial: ["gemini", "gpt4o", "claude"],
   schedule: ["gemini", "qwen", "glm", "claude"],
-  deep: ["qwen", "glm", "gemini", "claude"],
+  deep: ["gemini", "qwen", "glm", "claude"],
 };
 
 /** First available provider in an ordered preference list. */
