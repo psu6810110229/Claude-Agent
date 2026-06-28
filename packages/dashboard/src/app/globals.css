@@ -2683,6 +2683,7 @@ pre.payload {
 .chat-bubble.typing {
   position: relative;
   overflow: hidden;
+  width: fit-content;
   min-width: 0;
   padding: 14px 20px 15px !important;
   animation: thinking-bubble 2.4s ease-in-out infinite;
@@ -3058,7 +3059,7 @@ pre.payload {
   position: relative;
   z-index: 1;
   display: grid;
-  min-width: 240px;
+  min-width: 0;
   gap: 7px;
 }
 
@@ -3112,6 +3113,83 @@ pre.payload {
 
 .thinking-panel.done {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.035));
+}
+
+/* In-bubble chain-of-thought: lives inside the assistant reply bubble, below
+   the answer, divided by a hairline. The toggle is a small control pinned to
+   the bubble's right corner — never a full-width bar. Expanding reveals the
+   reasoning. Never a separate card. */
+.chat-bubble-cot {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.chat-bubble-cot-bar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Compact: hugs its label + chevron only (not the row). No hover background,
+   no white flash, no press spring — reads as a quiet inline control. */
+.chat-bubble-cot-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--muted-strong);
+  padding: 4px 4px;
+  cursor: pointer;
+  transition: color 160ms var(--ease-out-quart);
+}
+
+.chat-bubble-cot-toggle:hover {
+  background: transparent;
+  color: var(--text);
+}
+
+.chat-bubble-cot-toggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.34);
+  border-radius: var(--radius-sm);
+}
+
+.chat-bubble-cot-title {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+
+.chat-bubble-cot-chevron {
+  width: 15px;
+  height: 15px;
+  transition: transform 180ms var(--ease-out-quart);
+}
+
+.chat-bubble-cot-chevron.open {
+  transform: rotate(-180deg);
+}
+
+.chat-bubble-cot-body {
+  overflow: hidden;
+}
+
+.chat-bubble-cot-text {
+  margin-top: 6px;
+  padding: 0 2px;
+  /* Match the bubble width, which is set by the reply — NOT the full screen.
+     width:0 + min-width:100% makes the reasoning contribute ZERO to the
+     bubble's shrink-to-fit sizing (so a long line can't widen it), then fill
+     the resolved bubble width and wrap inside it. */
+  width: 0;
+  min-width: 100%;
+  color: var(--muted-strong);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .thinking-panel-head {

@@ -15,6 +15,7 @@ import {
   CalendarDays,
   Check,
   CheckSquare,
+  ChevronDown,
   Clock3,
   Copy,
   Database,
@@ -48,7 +49,6 @@ import {
   discardCalendarPlan,
 } from "@/lib/api";
 import { ScheduleImportCard } from "@/components/ScheduleImportCard";
-import { ThinkingPanel } from "@/components/ThinkingPanel";
 import { CalendarPlanCard } from "@/components/CalendarPlanCard";
 import { WeekHourGrid, type GridBlock } from "@/components/WeekHourGrid";
 import { DayAgendaCard, type DayItem } from "@/components/DayAgendaCard";
@@ -424,6 +424,13 @@ export default function HomePage() {
   const [thinkingStatus, setThinkingStatus] = useState<string | null>(null);
   const [streamThinking, setStreamThinking] = useState("");
   const [thinkingDone, setThinkingDone] = useState(false);
+  // Ref mirror of streamThinking so doSend can read the FULL accumulated
+  // reasoning after awaits (state closure would be stale = "").
+  const streamThinkingRef = useRef("");
+  // Persisted CoT per assistant message id (session-scoped, like messageMeta):
+  // once a turn finishes, its reasoning attaches to that bubble as a collapsed
+  // expandable panel instead of floating in a separate orphan bubble.
+  const [messageThinking, setMessageThinking] = useState<Record<number, string>>({});
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -544,7 +551,9 @@ export default function HomePage() {
     if (!stickToBottomRef.current) return;
     bottomRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth" });
     setShowScrollBottom(false);
-  }, [messages, sending, briefBusy, streamThinking, reduceMotion]);
+    // Intentionally NOT keyed on streamThinking: reasoning tokens must not
+    // nudge the viewport. Scroll fires on send start + when the answer lands.
+  }, [messages, sending, briefBusy, reduceMotion]);
 
   function clearFollowup() {
     if (followupTimerRef.current !== null) {
@@ -617,6 +626,7 @@ export default function HomePage() {
       turnAttachmentIds.length > 0 ? turnAttachmentIds : undefined,
       {
         onThinking: (delta) => {
+          streamThinkingRef.current += delta;
           setStreamThinking((prev) => `${prev}${delta}`);
         },
         onDone: (result) => {
@@ -713,6 +723,7 @@ export default function HomePage() {
       setThinkingStatus(null);
     }
     setStreamThinking("");
+    streamThinkingRef.current = "";
     setThinkingDone(false);
     abortControllerRef.current?.abort();
 
@@ -826,6 +837,10 @@ export default function HomePage() {
         setMessages(updated);
 
         if (freshAssistant) {
+          const reasoning = streamThinkingRef.current.trim();
+          if (reasoning) {
+            setMessageThinking((prev) => ({ ...prev, [freshAssistant.id]: reasoning }));
+          }
           setRevealingMessageIds((prev) => new Set(prev).add(freshAssistant.id));
           setMessageProvider((prev) => ({
             ...prev,
@@ -882,6 +897,10 @@ export default function HomePage() {
       settleVisualThinking();
       setMessages(updated);
       if (freshAssistant) {
+        const reasoning = streamThinkingRef.current.trim();
+        if (reasoning) {
+          setMessageThinking((prev) => ({ ...prev, [freshAssistant.id]: reasoning }));
+        }
         setRevealingMessageIds((prev) => new Set(prev).add(freshAssistant.id));
         // Record which provider answered so the bubble can show it (provider is
         // not persisted server-side, so this is session-scoped).
@@ -1272,6 +1291,7 @@ export default function HomePage() {
                 reduceMotion={reduceMotion}
                 messageProvider={messageProvider}
                 messageMeta={messageMeta}
+                messageThinking={messageThinking}
                 approvalMap={approvalMap}
                 approvalBusy={approvalBusy}
                 revealingMessageIds={revealingMessageIds}
@@ -1374,41 +1394,27 @@ export default function HomePage() {
               </div>
             )}
 
-            {/* Live thinking: a scrollable, expandable panel that ACCUMULATES the
-                model's reasoning (not a single rolling line) so high-frequency
-                token streams (qwen/glm: hundreds of deltas) stay readable instead
-                of thrashing. Open while thinking, auto-collapses when done. */}
+            {/* Live thinking: a COMPACT fixed-size indicator only. We no longer
+                stream the growing reasoning here — an expanding bubble during
+                thinking caused the viewport to jump on every token. The full
+                reasoning is still accumulated (streamThinking) and attaches to
+                the reply bubble afterward as the expandable in-bubble CoT, so
+                the page scrolls exactly once, when the answer lands. */}
             {sending && (
               <div className="chat-bubble-wrapper assistant">
                 <AssistantOrbAvatar thinking />
                 <div className="chat-import-slot">
-                  {streamThinking.trim().length > 0 ? (
-                    <ThinkingPanel
-                      text={streamThinking}
-                      active={sending}
-                      done={thinkingDone}
-                      onStop={stopStreaming}
-                    />
-                  ) : (
-                    <div className="chat-bubble assistant typing">
-                      <ThinkingContent status={thinkingStatus} />
-                    </div>
-                  )}
+                  <div className="chat-bubble assistant typing">
+                    <ThinkingContent status={thinkingStatus} />
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* Persisted CoT for the latest turn: once thinking ends (sending
-                false) the accumulated reasoning stays as a COLLAPSED panel the
-                user can expand to review, until the next send clears it. */}
-            {!sending && streamThinking.trim().length > 0 && (
-              <div className="chat-bubble-wrapper assistant">
-                <AssistantOrbAvatar />
-                <div className="chat-import-slot">
-                  <ThinkingPanel text={streamThinking} active={false} done />
-                </div>
-              </div>
-            )}
+            {/* Persisted CoT no longer floats as its own orphan bubble. Once the
+                turn lands, the accumulated reasoning attaches to the assistant
+                message bubble itself (messageThinking) as a collapsed, expandable
+                panel — seamless with the reply instead of a leftover box. */}
 
             {briefBusy && (
               <div className="chat-bubble-wrapper assistant">
@@ -1742,6 +1748,7 @@ function ChatMessageGroup({
   reduceMotion,
   messageProvider,
   messageMeta,
+  messageThinking,
   approvalMap,
   approvalBusy,
   revealingMessageIds,
@@ -1758,6 +1765,7 @@ function ChatMessageGroup({
   reduceMotion: boolean;
   messageProvider: Record<number, AiProviderId>;
   messageMeta: Record<number, MessageMeta>;
+  messageThinking: Record<number, string>;
   approvalMap: ApprovalMap;
   approvalBusy: number | null;
   revealingMessageIds: Set<number>;
@@ -1797,6 +1805,7 @@ function ChatMessageGroup({
             reduceMotion={reduceMotion}
             approvalMap={approvalMap}
             meta={messageMeta[msg.id]}
+            thinking={messageThinking[msg.id]}
             approvalBusy={approvalBusy}
             revealing={revealingMessageIds.has(msg.id)}
             onRevealDone={onRevealDone}
@@ -1817,12 +1826,63 @@ function ChatMessageGroup({
   );
 }
 
+// In-bubble chain-of-thought: lives INSIDE the assistant reply bubble (same
+// card), separated by a thin divider. The toggle is a small control pinned to
+// the bubble's right corner — only the "ดูที่ friday คิด" text or the chevron
+// is clickable (not the whole row). Reasoning stays hidden until expanded.
+function BubbleThinking({
+  text,
+  reduceMotion,
+}: {
+  text: string;
+  reduceMotion: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="chat-bubble-cot">
+      <div className="chat-bubble-cot-bar">
+        <button
+          type="button"
+          className="chat-bubble-cot-toggle"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <span className="chat-bubble-cot-title">ดูที่ friday คิด</span>
+          <ChevronDown
+            className={`chat-bubble-cot-chevron${open ? " open" : ""}`}
+            aria-hidden="true"
+            strokeWidth={2}
+          />
+        </button>
+      </div>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            className="chat-bubble-cot-body"
+            initial={reduceMotion ? false : { opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={
+              reduceMotion
+                ? { opacity: 1, height: "auto" }
+                : { opacity: 0, height: 0 }
+            }
+            transition={reduceMotion ? { duration: 0 } : { duration: 0.18 }}
+          >
+            <div className="chat-bubble-cot-text">{text}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function ChatBubble({
   msg,
   groupedIndex,
   isCoarsePointer,
   reduceMotion,
   meta,
+  thinking,
   approvalMap,
   approvalBusy,
   revealing,
@@ -1839,6 +1899,7 @@ function ChatBubble({
   isCoarsePointer: boolean;
   reduceMotion: boolean;
   meta?: MessageMeta;
+  thinking?: string;
   approvalMap: ApprovalMap;
   approvalBusy: number | null;
   revealing: boolean;
@@ -2017,6 +2078,9 @@ function ChatBubble({
                   onChoice={onClarificationChoice}
                   onSkip={onClarificationSkip}
                 />
+              )}
+              {!isUser && thinking && (
+                <BubbleThinking text={thinking} reduceMotion={reduceMotion} />
               )}
             </div>
           </div>
