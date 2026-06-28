@@ -1295,11 +1295,8 @@ export default function HomePage() {
 
             {attachBusy && (
               <div className="chat-bubble-wrapper assistant">
-                <div className="chat-avatar assistant-avatar" aria-hidden="true">
-                  <span className="avatar-text">F</span>
-                </div>
+                <AssistantOrbAvatar thinking />
                 <div className="chat-bubble assistant typing">
-                  <span className="chat-role-label">Friday</span>
                   <ThinkingContent status="กำลังเตรียมไฟล์" />
                 </div>
               </div>
@@ -1307,9 +1304,7 @@ export default function HomePage() {
 
             {importCard && (
               <div className="chat-bubble-wrapper assistant">
-                <div className="chat-avatar assistant-avatar" aria-hidden="true">
-                  <span className="avatar-text">F</span>
-                </div>
+                <AssistantOrbAvatar />
                 <div className="chat-import-slot">
                   <ScheduleImportCard
                     importId={importCard.import.id}
@@ -1327,9 +1322,7 @@ export default function HomePage() {
 
             {planCard && (
               <div className="chat-bubble-wrapper assistant">
-                <div className="chat-avatar assistant-avatar" aria-hidden="true">
-                  <span className="avatar-text">F</span>
-                </div>
+                <AssistantOrbAvatar />
                 <div className="chat-import-slot">
                   <CalendarPlanCard
                     planId={planCard.plan.id}
@@ -1344,9 +1337,7 @@ export default function HomePage() {
 
             {timetableBlocks && (
               <div className="chat-bubble-wrapper assistant">
-                <div className="chat-avatar assistant-avatar" aria-hidden="true">
-                  <span className="avatar-text">F</span>
-                </div>
+                <AssistantOrbAvatar />
                 <div className="chat-import-slot">
                   <div className="si-card">
                     <div className="si-head-title">
@@ -1373,9 +1364,7 @@ export default function HomePage() {
 
             {dayAgenda && dayAgenda.length > 0 && (
               <div className="chat-bubble-wrapper assistant">
-                <div className="chat-avatar assistant-avatar" aria-hidden="true">
-                  <span className="avatar-text">F</span>
-                </div>
+                <AssistantOrbAvatar />
                 <div className="chat-import-slot chat-day-stack">
                   {dayAgenda.map((day) => (
                     <DayAgendaCard key={day.dateLabel} dateLabel={day.dateLabel} items={day.items} />
@@ -1411,9 +1400,7 @@ export default function HomePage() {
 
             {briefBusy && (
               <div className="chat-bubble-wrapper assistant">
-                <div className="chat-avatar assistant-avatar" aria-hidden="true">
-                  <span className="avatar-text">F</span>
-                </div>
+                <AssistantOrbAvatar thinking />
                 <div className="chat-bubble assistant typing">
                   <ThinkingContent
                     status={`กำลังสร้าง${briefBusy === "daily" ? "สรุปเช้า" : "สรุปเย็น"}`}
@@ -1719,6 +1706,19 @@ function summarizeCot(text: string): string {
   return line.length > 80 ? `${line.slice(0, 79).trimEnd()}…` : line;
 }
 
+function AssistantOrbAvatar({
+  thinking = false,
+}: {
+  thinking?: boolean;
+}) {
+  return (
+    <div
+      className={`chat-avatar assistant-avatar${thinking ? " thinking" : ""}`}
+      aria-hidden="true"
+    />
+  );
+}
+
 /**
  * Unified live "thinking" bubble. Same chrome as an answer bubble so that, when
  * the real answer lands and this fades out in its place, the whole CoT → answer
@@ -1760,13 +1760,9 @@ function LiveThinkingBubble({
 
   return (
     <div className="chat-bubble-wrapper assistant">
-      <div className="chat-avatar assistant-avatar" aria-hidden="true">
-        <span className="avatar-text">F</span>
-      </div>
+      <AssistantOrbAvatar thinking />
       <div className="chat-bubble assistant typing">
-        <span className="chat-role-label">Friday</span>
         <div className="chat-live-think" aria-live="polite">
-          <span className="thinking-orb" aria-hidden="true" />
           {reduceMotion ? (
             <span className="chat-live-think-text">{line}</span>
           ) : (
@@ -1811,7 +1807,6 @@ function ThinkingContent({
   return (
     <div className="thinking-content" aria-live="polite">
       <div className="thinking-line">
-        <span className="thinking-orb" aria-hidden="true" />
         <span className="thinking-label" key={label}>
           {label}
         </span>
@@ -2087,11 +2082,7 @@ function ChatBubble({
         transition={reduceMotion ? { duration: 0 } : CHAT_BUBBLE_PHYSICS}
         style={{ transformOrigin: isUser ? "right top" : "left top" }}
       >
-        {!isUser && groupedIndex === 0 && (
-          <div className="chat-avatar assistant-avatar" aria-hidden="true">
-            <span className="avatar-text">F</span>
-          </div>
-        )}
+        {!isUser && groupedIndex === 0 && <AssistantOrbAvatar />}
         {!isUser && groupedIndex > 0 && <div className="chat-avatar-spacer" />}
         <div className={`chat-bubble-column ${isUser ? "user" : "assistant"}`}>
           <div
@@ -2197,11 +2188,7 @@ function ChatBubble({
 
   return (
     <div className={`chat-bubble-wrapper ${isUser ? "user" : "assistant"}`}>
-      {!isUser && groupedIndex === 0 && (
-        <div className="chat-avatar assistant-avatar" aria-hidden="true">
-          <span className="avatar-text">F</span>
-        </div>
-      )}
+      {!isUser && groupedIndex === 0 && <AssistantOrbAvatar />}
       {!isUser && groupedIndex > 0 && (
         <div className="chat-avatar-spacer" />
       )}

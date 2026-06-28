@@ -2573,15 +2573,19 @@ pre.payload {
 }
 
 .chat-avatar.assistant-avatar {
-  background: radial-gradient(circle at 50% 60%, #0b1024, #060608 75%);
-  box-shadow: 0 4px 12px rgba(10, 132, 255, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(10, 132, 255, 0.3);
+  background: radial-gradient(
+    circle at 32% 30%,
+    #d7e9ff,
+    var(--accent) 58%,
+    var(--violet)
+  );
+  box-shadow:
+    0 0 14px rgba(10, 132, 255, 0.5),
+    inset 0 0 6px rgba(255, 255, 255, 0.35);
 }
 
-.avatar-text {
-  font-size: 14px;
-  font-weight: 700;
-  color: #add8ff;
+.chat-avatar.assistant-avatar.thinking {
+  animation: thinking-orb-pulse 1.6s ease-in-out infinite;
 }
 
 .chat-avatar-spacer {
