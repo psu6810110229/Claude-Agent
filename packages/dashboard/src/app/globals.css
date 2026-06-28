@@ -2427,8 +2427,8 @@ pre.payload {
   gap: 18px;
   min-height: 46vh;
   max-height: none;
-  overflow-y: auto;
-  padding: 10px 4px 24px;
+  overflow: visible;
+  padding: 10px 4px 24px 18px;
 }
 
 .chat-empty {
@@ -2484,7 +2484,7 @@ pre.payload {
   width: 100%;
   max-width: 1120px;
   margin: 0 auto;
-  gap: 10px;
+  gap: 8px;
 }
 
 .chat-group.user {
@@ -2499,8 +2499,12 @@ pre.payload {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px 8px;
+  gap: 5px 7px;
   padding: 0 6px;
+}
+
+.chat-group.assistant .chat-group-header {
+  padding-left: 56px;
 }
 
 .chat-group.user .chat-group-header {
@@ -2517,10 +2521,15 @@ pre.payload {
   background: rgba(255, 255, 255, 0.045);
   box-shadow: var(--inner-light);
   color: var(--muted);
-  padding: 3px 7px;
+  padding: 3px 8px;
   font-size: 11px;
   font-weight: var(--weight-medium);
   letter-spacing: 0;
+  line-height: 1.15;
+}
+
+.chat-group.user .chat-group-header .ts {
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .chat-group-stack {
@@ -2537,7 +2546,7 @@ pre.payload {
   display: inline-flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 4px;
 }
 
 .source-hint {
@@ -2549,7 +2558,7 @@ pre.payload {
   background: rgba(255, 255, 255, 0.055);
   box-shadow: var(--inner-light);
   color: var(--muted);
-  padding: 3px 7px;
+  padding: 3px 8px;
   font-size: 11px;
   line-height: 1;
 }
@@ -2563,9 +2572,13 @@ pre.payload {
 
 .chat-bubble-wrapper {
   display: flex;
-  gap: 18px;
+  gap: 14px;
   width: 100%;
   max-width: 100%;
+}
+
+.chat-bubble-wrapper.grouped {
+  margin-top: -2px;
 }
 
 .chat-bubble-wrapper.user {
@@ -2580,7 +2593,7 @@ pre.payload {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-top: 6px;
+  margin-top: 5px;
 }
 
 .chat-avatar.assistant-avatar {
@@ -2622,8 +2635,11 @@ pre.payload {
 .chat-bubble-footer {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
   max-width: 100%;
-  padding: 7px 12px 0;
+  width: min(100%, 1080px);
+  padding: 7px 4px 0 8px;
 }
 
 .chat-bubble {
@@ -2685,7 +2701,7 @@ pre.payload {
   width: fit-content;
   min-width: 0;
   padding: 14px 20px 15px !important;
-  animation: thinking-bubble 2.4s ease-in-out infinite;
+  animation: thinking-bubble-float 3.8s ease-in-out infinite;
 }
 
 .chat-bubble.typing::after {
@@ -2695,9 +2711,10 @@ pre.payload {
 .chat-role {
   color: var(--muted-strong);
   font-size: var(--text-xs);
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-medium);
   letter-spacing: 0;
   text-transform: none;
+  line-height: 1.2;
 }
 
 .chat-group.assistant .chat-role,
@@ -2817,7 +2834,7 @@ pre.payload {
   align-items: center;
   align-self: flex-start;
   gap: 5px;
-  margin: 7px 0 0 8px;
+  margin: 0;
   opacity: 0.58;
   transition:
     opacity 180ms var(--ease-out-quart),
@@ -3091,7 +3108,23 @@ pre.payload {
 
 .thinking-label {
   display: inline-block;
-  animation: thinking-label-in 360ms var(--ease-out-quart, ease-out);
+  background: linear-gradient(
+    90deg,
+    var(--muted-strong) 0%,
+    var(--muted-strong) 34%,
+    #ffd8c2 44%,
+    #ffffff 50%,
+    #b9dcff 56%,
+    var(--muted-strong) 66%,
+    var(--muted-strong) 100%
+  );
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation:
+    thinking-label-in 360ms var(--ease-out-quart, ease-out),
+    thinking-label-shimmer 2.8s var(--ease-out-quart) infinite;
 }
 
 .chat-thinking-slot {
@@ -3114,38 +3147,35 @@ pre.payload {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.035));
 }
 
-/* In-bubble chain-of-thought: lives inside the assistant reply bubble, below
-   the answer, divided by a hairline. The toggle is a small control pinned to
-   the bubble's right corner — never a full-width bar. Expanding reveals the
-   reasoning. Never a separate card. */
 .chat-bubble-cot {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  width: fit-content;
+  max-width: min(100%, 720px);
+  margin: 7px 0 0 8px;
 }
 
-.chat-bubble-cot-bar {
-  display: flex;
-  justify-content: flex-end;
-}
-
-/* Compact: hugs its label + chevron only (not the row). No hover background,
-   no white flash, no press spring — reads as a quiet inline control. */
 .chat-bubble-cot-toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: none;
-  background: transparent;
-  color: var(--muted-strong);
-  padding: 4px 4px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--muted);
+  padding: 0;
   cursor: pointer;
-  transition: color 160ms var(--ease-out-quart);
 }
 
-.chat-bubble-cot-toggle:hover {
-  background: transparent;
-  color: var(--text);
+.chat-bubble-cot-toggle:hover,
+.chat-bubble-cot-toggle:active,
+.chat-bubble-cot-toggle:hover:not(:disabled),
+.chat-bubble-cot-toggle:active:not(:disabled) {
+  background: transparent !important;
+  color: var(--muted);
+  box-shadow: none !important;
+  transform: none !important;
 }
 
 .chat-bubble-cot-toggle:focus-visible {
@@ -3155,8 +3185,8 @@ pre.payload {
 }
 
 .chat-bubble-cot-title {
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semibold);
+  font-size: 11px;
+  font-weight: var(--weight-medium);
   white-space: nowrap;
 }
 
@@ -3175,15 +3205,9 @@ pre.payload {
 }
 
 .chat-bubble-cot-text {
-  margin-top: 6px;
-  padding: 0 2px;
-  /* Match the bubble width, which is set by the reply — NOT the full screen.
-     width:0 + min-width:100% makes the reasoning contribute ZERO to the
-     bubble's shrink-to-fit sizing (so a long line can't widen it), then fill
-     the resolved bubble width and wrap inside it. */
-  width: 0;
-  min-width: 100%;
+  margin-top: 5px;
   color: var(--muted-strong);
+  padding: 0;
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
   white-space: pre-wrap;
@@ -3403,13 +3427,22 @@ pre.payload {
   animation: thinking-progress 1.7s var(--ease-out-quart) infinite;
 }
 
-@keyframes thinking-bubble {
+@keyframes thinking-label-shimmer {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -120% 0;
+  }
+}
+
+@keyframes thinking-bubble-float {
   0%,
   100% {
-    box-shadow: var(--inner-light), 0 0 0 rgba(232, 95, 24, 0);
+    transform: translateY(3px);
   }
   50% {
-    box-shadow: var(--inner-light), 0 0 34px rgba(232, 95, 24, 0.12);
+    transform: translateY(-1px);
   }
 }
 
@@ -3524,19 +3557,16 @@ pre.payload {
   position: relative;
   width: clamp(110px, 15vw, 160px);
   aspect-ratio: 1;
-  animation: orb-float 9s ease-in-out infinite;
 }
 
 .orb-compact {
   width: 56px;
   flex: 0 0 auto;
-  animation-duration: 11s;
 }
 
 .orb-avatar {
   width: 32px;
   flex: 0 0 auto;
-  animation-duration: 12s;
 }
 
 @keyframes orb-float {
@@ -3718,6 +3748,42 @@ pre.payload {
   }
 }
 
+@keyframes orb-color-mix {
+  0%,
+  100% {
+    background-position: 42% 42%, 58% 52%, 50% 50%;
+    transform: translate3d(0, 0, 0) scale(1.04);
+  }
+  25% {
+    background-position: 58% 36%, 44% 62%, 54% 46%;
+    transform: translate3d(2px, -1px, 0) scale(1.07);
+  }
+  50% {
+    background-position: 62% 58%, 36% 42%, 48% 58%;
+    transform: translate3d(0, 2px, 0) scale(1.05);
+  }
+  75% {
+    background-position: 38% 56%, 64% 38%, 44% 48%;
+    transform: translate3d(-2px, -1px, 0) scale(1.08);
+  }
+}
+
+@keyframes orb-cloud-mix {
+  0%,
+  100% {
+    background-position: 28% 32%, 44% 42%, 64% 38%, 70% 72%;
+    transform: translate3d(0, 0, 0) scale(1.03);
+  }
+  33% {
+    background-position: 36% 28%, 58% 48%, 50% 34%, 62% 66%;
+    transform: translate3d(2px, -2px, 0) scale(1.07);
+  }
+  66% {
+    background-position: 24% 46%, 38% 34%, 70% 54%, 76% 60%;
+    transform: translate3d(-2px, 2px, 0) scale(1.05);
+  }
+}
+
 @keyframes orb-sheen {
   0%,
   26%,
@@ -3787,34 +3853,97 @@ pre.payload {
   }
 }
 
-/* --- Orb states: listening / thinking nudge pace, never blink ------------- */
+/* --- Orb states: idle / thinking, expressed as pace and depth ------------- */
 
-.orb-wrap[data-state="listening"] .orb-layer.swirl {
-  animation-duration: 17s;
-  filter: blur(24px) saturate(1.4);
+.orb-wrap[data-state="idle"] .orb-layer.swirl {
+  animation: none;
+  filter: blur(30px) saturate(1.02);
+}
+
+.orb-wrap[data-state="idle"] .orb-layer.veil {
+  animation: none;
+}
+
+.orb-wrap[data-state="idle"] .orb-layer.caustic {
+  animation: none;
+  opacity: 0.24;
+}
+
+.orb-wrap[data-state="idle"] .orb-sheen {
+  animation: none;
+  opacity: 0.42;
+}
+
+.orb-wrap[data-state="idle"] .op {
+  animation: none;
+}
+
+.orb-wrap[data-state="idle"] .orb,
+.orb-wrap[data-state="idle"] .orb-halo,
+.orb-wrap[data-state="idle"] .orb-layer.core {
+  animation: none;
+}
+
+.orb-avatar[data-state="idle"] .orb-halo {
+  animation: orb-idle-glow 5.4s ease-in-out infinite;
+}
+
+@keyframes orb-idle-glow {
+  0%,
+  100% {
+    opacity: 0.48;
+    filter: blur(7px);
+  }
+  50% {
+    opacity: 0.78;
+    filter: blur(10px);
+  }
 }
 
 .orb-wrap[data-state="thinking"] .orb-layer.swirl {
-  animation-duration: 9s;
-  filter: blur(22px) saturate(1.55);
+  animation-duration: 8s;
+  filter: blur(21px) saturate(1.45);
 }
 
 .orb-wrap[data-state="thinking"] .orb-layer.caustic {
-  animation-duration: 7s;
-  opacity: 0.46;
+  animation-duration: 6s;
+  opacity: 0.52;
 }
 
 .orb-wrap[data-state="thinking"] .orb-sheen {
-  animation-duration: 4.8s;
+  animation-duration: 5.2s;
+  opacity: 0.72;
 }
 
 .orb-wrap[data-state="thinking"] .op {
-  animation-duration: 7s;
+  animation-duration: 6.8s;
 }
 
 .orb-wrap[data-state="thinking"] .orb,
 .orb-wrap[data-state="thinking"] .orb-halo {
   animation-duration: 3.2s;
+}
+
+.orb-wrap[data-state="thinking"] .orb-halo {
+  opacity: 0.95;
+  filter: blur(16px);
+}
+
+.orb-wrap[data-state="thinking"] .orb-rim {
+  opacity: 0.92;
+  filter: brightness(1.12) saturate(1.08);
+}
+
+.orb-wrap[data-state="thinking"] .orb {
+  box-shadow:
+    0 28px 86px rgba(232, 95, 24, 0.14),
+    0 20px 68px rgba(124, 184, 255, 0.14),
+    inset 0 1px 2px rgba(255, 255, 255, 0.24),
+    inset 0 -16px 38px rgba(31, 24, 92, 0.22);
+}
+
+.orb-hero[data-state="thinking"] {
+  animation: orb-float 6s ease-in-out infinite;
 }
 
 .orb-compact .orb-layer.caustic,
@@ -3840,13 +3969,84 @@ pre.payload {
 }
 
 .orb-avatar[data-state="thinking"] .orb-layer.swirl {
-  animation-duration: 7s;
-  filter: blur(18px) saturate(1.48);
+  z-index: 2;
+  background:
+    radial-gradient(ellipse 58% 42% at 42% 42%, rgba(232, 95, 24, 0.7), transparent 72%),
+    radial-gradient(ellipse 54% 40% at 58% 52%, rgba(124, 184, 255, 0.54), transparent 74%),
+    radial-gradient(ellipse 62% 48% at 50% 50%, rgba(91, 76, 190, 0.56), transparent 78%);
+  background-size: 150% 150%, 145% 145%, 160% 160%;
+  animation: orb-color-mix 2.2s ease-in-out infinite;
+  opacity: 0.94;
+  filter: blur(1.4px) saturate(1.9) contrast(1.18);
+}
+
+.orb-avatar[data-state="thinking"] .orb-layer.veil {
+  z-index: 3;
+  background:
+    radial-gradient(ellipse 38% 24% at 28% 32%, rgba(255, 255, 255, 0.22), transparent 72%),
+    radial-gradient(ellipse 46% 30% at 44% 42%, rgba(232, 95, 24, 0.34), transparent 70%),
+    radial-gradient(ellipse 44% 30% at 64% 38%, rgba(124, 184, 255, 0.3), transparent 70%),
+    radial-gradient(ellipse 52% 34% at 70% 72%, rgba(91, 76, 190, 0.38), transparent 72%);
+  background-size: 135% 135%, 150% 150%, 145% 145%, 150% 150%;
+  animation: orb-cloud-mix 2.6s ease-in-out infinite;
+  opacity: 0.9;
+  filter: blur(1.6px) saturate(1.62) contrast(1.16);
+}
+
+.orb-avatar[data-state="thinking"] .orb-layer.caustic {
+  animation-duration: 1.4s;
+  opacity: 0.58;
+  filter: blur(1.1px) contrast(1.2);
+}
+
+.orb-avatar[data-state="thinking"] .orb-rim {
+  opacity: 0.96;
+  filter: brightness(1.16) saturate(1.12);
+}
+
+.orb-avatar[data-state="thinking"] .orb-sheen {
+  animation-duration: 2.8s;
+  opacity: 0.48;
 }
 
 .orb-avatar[data-state="thinking"] .orb,
 .orb-avatar[data-state="thinking"] .orb-halo {
   animation-duration: 2.6s;
+}
+
+.orb-avatar[data-state="thinking"] .orb {
+  box-shadow:
+    0 0 18px rgba(232, 95, 24, 0.42),
+    0 0 34px rgba(124, 184, 255, 0.26),
+    0 0 48px rgba(91, 76, 190, 0.2),
+    inset 0 1px 2px rgba(255, 216, 194, 0.24),
+    inset 0 -16px 38px rgba(31, 24, 92, 0.22);
+}
+
+.orb-avatar[data-state="thinking"] .orb-halo {
+  background: radial-gradient(
+    circle,
+    rgba(232, 95, 24, 0.24) 0%,
+    rgba(124, 184, 255, 0.18) 38%,
+    rgba(91, 76, 190, 0.14) 58%,
+    transparent 72%
+  );
+  filter: blur(12px);
+  opacity: 0.98;
+}
+
+.orb-avatar[data-state="thinking"] {
+  animation: orb-thinking-float 3.8s ease-in-out infinite;
+}
+
+@keyframes orb-thinking-float {
+  0%,
+  100% {
+    transform: translateY(3px);
+  }
+  50% {
+    transform: translateY(-1px);
+  }
 }
 
 /* --- Greeting -------------------------------------------------------------- */
@@ -4707,9 +4907,11 @@ pre.payload {
   .orb-wrap,
   .orb,
   .orb-halo,
+  .orb-rim,
   .orb-layer,
   .orb-sheen,
   .op,
+  .thinking-label,
   .typing-skeleton span {
     animation: none;
   }
@@ -5095,6 +5297,15 @@ pre.payload {
 
   .chat-group {
     width: 100%;
+    gap: 7px;
+  }
+
+  .chat-group.assistant .chat-group-header {
+    padding-left: 42px;
+  }
+
+  .chat-group-header {
+    gap: 5px 6px;
   }
 
   .chat-bubble.typing {
@@ -5115,15 +5326,26 @@ pre.payload {
   /* --- Home: conversation reads full-width, calmer rhythm --- */
   .chat-messages {
     gap: 16px;
-    padding: 8px 2px 20px;
+    padding: 8px 2px 20px 14px;
   }
 
   .chat-bubble-wrapper {
-    gap: 10px;
+    gap: 9px;
   }
 
   .chat-bubble-column {
-    max-width: calc(100% - 42px);
+    max-width: calc(100% - 39px);
+  }
+
+  .chat-avatar,
+  .chat-avatar-spacer,
+  .orb-avatar {
+    width: 30px;
+  }
+
+  .chat-avatar {
+    height: 30px;
+    margin-top: 4px;
   }
 
   .chat-bubble.user {
@@ -5196,6 +5418,11 @@ pre.payload {
 
   .source-hints {
     flex-basis: 100%;
+  }
+
+  .source-hint {
+    flex: 0 0 auto;
+    white-space: nowrap;
   }
 
   /* --- Composer: near full-width card with a small side margin --- */

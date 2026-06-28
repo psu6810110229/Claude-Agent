@@ -511,7 +511,7 @@ export default function HomePage() {
   useEffect(() => {
     Promise.all([getChatHistory(100), listApprovals()])
       .then(([msgs, approvals]) => {
-        setMessages(msgs);
+        setMessages(chatVisibleMessages(msgs));
         setApprovalMap(indexApprovals(approvals));
         const pendingCount = approvals.filter((a) => a.status === "pending").length;
         if (pendingCount > 0) {
@@ -583,13 +583,14 @@ export default function HomePage() {
       }
       if (!mutedRef.current) void speak(result.spoken ?? result.reply);
       const updated = await getChatHistory(100);
-      const fresh = [...updated]
+      const visible = chatVisibleMessages(updated);
+      const fresh = [...visible]
         .reverse()
         .find(
           (message) =>
             message.role === "assistant" && !previousIds.has(message.id),
         );
-      setMessages(updated);
+      setMessages(visible);
       if (fresh) {
         setRevealingMessageIds((prev) => new Set(prev).add(fresh.id));
       }
@@ -827,13 +828,14 @@ export default function HomePage() {
         setPendingVerificationPrompt(text);
         
         const updated = await getChatHistory(100);
+        const visible = chatVisibleMessages(updated);
 
-        const freshAssistant = [...updated]
+        const freshAssistant = [...visible]
           .reverse()
           .find((message) => message.role === "assistant" && !previousIds.has(message.id));
 
         settleVisualThinking();
-        setMessages(updated);
+        setMessages(visible);
 
         if (freshAssistant) {
           const reasoning = streamThinkingRef.current.trim();
@@ -886,7 +888,8 @@ export default function HomePage() {
         notifyPendingApprovals(result.approvals.length);
       }
       const updated = await historyP;
-      const freshAssistant = [...updated]
+      const visible = chatVisibleMessages(updated);
+      const freshAssistant = [...visible]
         .reverse()
         .find((message) => message.role === "assistant" && !previousIds.has(message.id));
       // Hold the text reveal until the audio is buffered (capped inside
@@ -894,7 +897,7 @@ export default function HomePage() {
       // disabled / slow TTS resolves fast and text shows anyway.
       if (speech) await speech.ready;
       settleVisualThinking();
-      setMessages(updated);
+      setMessages(visible);
       if (freshAssistant) {
         const reasoning = streamThinkingRef.current.trim();
         if (reasoning) {
@@ -920,6 +923,13 @@ export default function HomePage() {
       // ack so the final answer never overlaps it (and cancel a pending long ack).
       await settleAckForFinal(ackRequestId);
       speech?.play(); // text and voice together (after ack, if one was speaking)
+      if (result.resultReport) {
+        notify({
+          kind: "success",
+          title: "ดำเนินการแล้ว",
+          description: result.resultReport.replace(/^[✅✔]\s*/, ""),
+        });
+      }
       if (!muted && result.resultSpoken) void speak(result.resultSpoken);
       // Visual schedule cards (deterministic — never depend on the model's text
       // formatting). Day-agenda takes precedence: "ตารางวันนี้" shows the whole day;
@@ -941,7 +951,7 @@ export default function HomePage() {
       // Bulk calendar add → show the review card (nothing on the calendar yet).
       if (result.calendarPlan) setPlanCard(result.calendarPlan);
       const clarification = buildClarificationPrompt(
-        updated,
+        visible,
         result.clarification,
         result.clarification_choices,
       );
@@ -1477,10 +1487,8 @@ export default function HomePage() {
             setGeminiModel(model);
             localStorage.setItem("jarvis.geminiModel", model);
           }}
-          onFocusChange={(focused) =>
-            setOrbState((s) =>
-              s === "thinking" ? s : focused ? "listening" : "idle",
-            )
+          onFocusChange={() =>
+            setOrbState((s) => (s === "thinking" ? s : "idle"))
           }
           muted={muted}
           onToggleMute={() =>
@@ -1538,6 +1546,21 @@ function buildClarificationPrompt(
     question,
     choices: (choices ?? []).slice(0, 4),
   };
+}
+
+function isActionResultMessage(message: ChatMessage): boolean {
+  if (message.role !== "assistant" || message.actions_json) return false;
+  const content = message.content.replace(/\s+/g, " ").trim();
+  return (
+    /^[✅✔]/.test(content) &&
+    (content.includes("เรียบร้อย") ||
+      content.includes("จัดการให้แล้ว") ||
+      content.includes("ดำเนินการสำเร็จ"))
+  );
+}
+
+function chatVisibleMessages(messages: ChatMessage[]): ChatMessage[] {
+  return messages.filter((message) => !isActionResultMessage(message));
 }
 
 function fallbackAssistantMessage(content: string): ChatMessage {
@@ -1656,7 +1679,16 @@ function ChatSkeleton() {
  * real request lifecycle (thinking → processing → composing) — never fabricated
  * specifics like "checking your calendar" that may not be happening.
  */
-const THINKING_PHASES = ["สักครู่ค่ะ"];
+const THINKING_PHASES = [
+  "สักครู่ค่ะ",
+  "กำลังเรียบเรียงคำตอบ",
+  "กำลังตรวจรายละเอียด",
+  "กำลังจัดคำตอบให้อ่านง่าย",
+  "กำลังเชื่อมโยงข้อมูลที่เกี่ยวข้อง",
+  "กำลังเลือกคำตอบที่เหมาะที่สุด",
+  "กำลังกลั่นให้กระชับ",
+  "กำลังเตรียมคำตอบให้คุณ",
+];
 
 function formatChatTs(iso: string): string {
   const date = new Date(iso);
@@ -1715,7 +1747,7 @@ function ThinkingContent({
     if (status) return;
     const timer = window.setInterval(
       () => setPhase((current) => (current + 1) % THINKING_PHASES.length),
-      2200,
+      4200,
     );
     return () => window.clearInterval(timer);
   }, [status]);
@@ -1857,35 +1889,20 @@ function ChatMessageGroup({
   );
 }
 
-// In-bubble chain-of-thought: lives INSIDE the assistant reply bubble (same
-// card), separated by a thin divider. The toggle is a small control pinned to
-// the bubble's right corner — only the "ดูที่ friday คิด" text or the chevron
-// is clickable (not the whole row). Reasoning stays hidden until expanded.
+// Chain-of-thought disclosure: a quiet control above the assistant bubble,
+// Claude-style. The reasoning panel opens below that control but above the
+// answer, so it does not become another message card.
 function BubbleThinking({
   text,
   reduceMotion,
+  open,
 }: {
   text: string;
   reduceMotion: boolean;
+  open: boolean;
 }) {
-  const [open, setOpen] = useState(false);
   return (
     <div className="chat-bubble-cot">
-      <div className="chat-bubble-cot-bar">
-        <button
-          type="button"
-          className="chat-bubble-cot-toggle"
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-        >
-          <span className="chat-bubble-cot-title">ดูที่ friday คิด</span>
-          <ChevronDown
-            className={`chat-bubble-cot-chevron${open ? " open" : ""}`}
-            aria-hidden="true"
-            strokeWidth={2}
-          />
-        </button>
-      </div>
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
@@ -1949,6 +1966,7 @@ function ChatBubble({
   const isUser = msg.role === "user";
   const [copied, setCopied] = useState(false);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
+  const [thinkingOpen, setThinkingOpen] = useState(false);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
   // Show approval cards ONLY for items still awaiting the user's explicit
@@ -2038,6 +2056,21 @@ function ChatBubble({
             <Copy aria-hidden="true" strokeWidth={1.8} />
           )}
         </IconButton>
+        {thinking && (
+          <button
+            type="button"
+            className="chat-bubble-cot-toggle"
+            aria-expanded={thinkingOpen}
+            onClick={() => setThinkingOpen((value) => !value)}
+          >
+            <span className="chat-bubble-cot-title">ดูที่ friday คิด</span>
+            <ChevronDown
+              className={`chat-bubble-cot-chevron${thinkingOpen ? " open" : ""}`}
+              aria-hidden="true"
+              strokeWidth={2}
+            />
+          </button>
+        )}
       </div>
     ) : null;
 
@@ -2045,7 +2078,9 @@ function ChatBubble({
     <>
       <motion.div
         layout={reduceMotion ? false : "position"}
-        className={`chat-bubble-wrapper ${isUser ? "user" : "assistant"}`}
+        className={`chat-bubble-wrapper ${isUser ? "user" : "assistant"} ${
+          groupedIndex > 0 ? "grouped" : ""
+        }`}
         initial={
           revealing && !isUser && !reduceMotion
             ? CHAT_BUBBLE_REVEAL_INITIAL
@@ -2110,16 +2145,20 @@ function ChatBubble({
                   onSkip={onClarificationSkip}
                 />
               )}
-              {!isUser && thinking && (
-                <BubbleThinking text={thinking} reduceMotion={reduceMotion} />
-              )}
             </div>
           </div>
-          {assistantTools}
-          {!isUser && meta && (
+          {!isUser && (
             <div className="chat-bubble-footer">
-              <MessageMetaBadge meta={meta} />
+              {assistantTools}
+              {meta && <MessageMetaBadge meta={meta} />}
             </div>
+          )}
+          {!isUser && thinking && (
+            <BubbleThinking
+              text={thinking}
+              reduceMotion={reduceMotion}
+              open={thinkingOpen}
+            />
           )}
         </div>
       </motion.div>
@@ -2163,7 +2202,11 @@ function ChatBubble({
   if (bubbleLayout) return bubbleLayout;
 
   return (
-    <div className={`chat-bubble-wrapper ${isUser ? "user" : "assistant"}`}>
+    <div
+      className={`chat-bubble-wrapper ${isUser ? "user" : "assistant"} ${
+        groupedIndex > 0 ? "grouped" : ""
+      }`}
+    >
       {!isUser && groupedIndex === 0 && <AssistantOrbAvatar />}
       {!isUser && groupedIndex > 0 && (
         <div className="chat-avatar-spacer" />

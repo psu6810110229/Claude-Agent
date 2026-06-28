@@ -2,7 +2,7 @@
 
 import { motion, useReducedMotion } from "framer-motion";
 
-export type OrbState = "idle" | "listening" | "thinking";
+export type OrbState = "idle" | "thinking";
 export type OrbVariant = "hero" | "compact" | "avatar";
 
 /**
