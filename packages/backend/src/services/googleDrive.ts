@@ -128,6 +128,75 @@ export async function searchDriveFiles(
   }));
 }
 
+/** Drive MIME type for folders. */
+export const DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder";
+
+/**
+ * Search Drive by a list of keywords (OR across name + fullText). Unlike
+ * searchDriveFiles (single literal `contains`), each term is matched
+ * independently, so multi-word / Thai-token queries actually hit. Includes
+ * folders. Has NO recency horizon — finds old files too.
+ */
+export async function searchDriveByKeywords(
+  terms: string[],
+  limit?: number,
+): Promise<DriveFile[]> {
+  if (!isDriveEnabled()) {
+    throw new DriveError("disabled", "Google Drive is not enabled.");
+  }
+  const clean = terms.map((t) => t.trim()).filter(Boolean).slice(0, 8);
+  if (clean.length === 0) return [];
+
+  const drive = buildDriveClient();
+  const pageSize = Math.min(limit ?? GOOGLE_DRIVE_MAX_RESULTS, 100);
+  const nameClause = clean
+    .map((t) => `name contains '${escapeDriveQuery(t)}'`)
+    .join(" or ");
+  const fullClause = clean
+    .map((t) => `fullText contains '${escapeDriveQuery(t)}'`)
+    .join(" or ");
+
+  const res = await drive.files.list({
+    q: `trashed = false and ((${nameClause}) or (${fullClause}))`,
+    pageSize,
+    orderBy: "modifiedTime desc",
+    fields: "files(id,name,mimeType,webViewLink,modifiedTime)",
+  });
+
+  return (res.data.files ?? []).map((f) => ({
+    id: f.id ?? "",
+    name: f.name ?? "(unnamed)",
+    mimeType: f.mimeType ?? "",
+    webViewLink: f.webViewLink ?? undefined,
+    modifiedTime: f.modifiedTime ?? undefined,
+  }));
+}
+
+/** List the direct children of a Drive folder. Fails soft → []. */
+export async function listFolderChildren(
+  folderId: string,
+  limit = 50,
+): Promise<DriveFile[]> {
+  if (!isDriveEnabled()) return [];
+  try {
+    const drive = buildDriveClient();
+    const res = await drive.files.list({
+      q: `'${escapeDriveQuery(folderId)}' in parents and trashed = false`,
+      pageSize: Math.min(limit, 100),
+      orderBy: "folder,name",
+      fields: "files(id,name,mimeType,modifiedTime)",
+    });
+    return (res.data.files ?? []).map((f) => ({
+      id: f.id ?? "",
+      name: f.name ?? "(unnamed)",
+      mimeType: f.mimeType ?? "",
+      modifiedTime: f.modifiedTime ?? undefined,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Read the text content of a Drive file.
  * - Google Docs/Sheets/Slides → exported as text/plain or text/csv.

@@ -184,7 +184,16 @@ export interface ChatContext {
    * nothing readable. Verified path only (redacted to null).
    */
   driveFocused:
-    | { id: string; name: string; content: string; truncated: boolean }[]
+    | {
+        id: string;
+        name: string;
+        mimeType: string;
+        /** File body (capped). null for folders / unreadable files. */
+        content: string | null;
+        truncated: boolean;
+        /** Folder children (name + id). null when the item is a file. */
+        children: { id: string; name: string }[] | null;
+      }[]
     | null;
   /**
    * Step 20 — recent LINE messages across all exported chats (read-only),
@@ -636,20 +645,29 @@ export function buildChatPrompt(ctx: ChatContext): string {
           .join("\n")
       : "  (none or Drive disabled)";
 
-  // Friday deeper awareness — file content, only present on a file-read turn.
+  // Friday deeper awareness — file content / folder listing on a file-read turn.
   const driveFocused =
     ctx.driveFocused === null
       ? null
       : ctx.driveFocused.length > 0
         ? ctx.driveFocused
-            .map(
-              (f) =>
-                `  - id=${f.id} "${f.name}"${
+            .map((f) => {
+              if (f.children !== null) {
+                const kids =
+                  f.children.length > 0
+                    ? f.children.map((c) => `      • ${c.name}`).join("\n")
+                    : "      (empty folder)";
+                return `  - FOLDER "${f.name}" (id=${f.id}) contains:\n${kids}`;
+              }
+              if (f.content !== null) {
+                return `  - id=${f.id} "${f.name}"${
                   f.truncated ? " (content truncated)" : ""
-                }\n    content: ${f.content.replace(/\n/g, "\n    ")}`,
-            )
+                }\n    content: ${f.content.replace(/\n/g, "\n    ")}`;
+              }
+              return `  - id=${f.id} "${f.name}" (found, but content not readable here — open in Drive)`;
+            })
             .join("\n")
-        : "  (no matching readable file found)";
+        : "  (no matching file or folder found)";
 
   const lineChatsList =
     ctx.lineChats.length > 0
@@ -1398,10 +1416,14 @@ ${
   driveFocused === null
     ? ""
     : `
-GOOGLE DRIVE — FILE CONTENT (loaded because you asked about a file; the actual
-text. Answer ONLY from what the content ACTUALLY contains; never invent items,
-dates, or numbers not present. "(content truncated)" means it was cut for length
-— say so if the user needs the rest. If nothing matched, tell the user plainly):
+GOOGLE DRIVE — DEEP SEARCH (loaded because you asked about a file/folder; this is
+a FRESH keyword search across ALL of Drive incl. OLD files and folders — NOT
+limited to the recent list above. A "FOLDER ... contains:" block lists that
+folder's real children; a "content:" block is a file's actual text. Answer ONLY
+from what is shown; never invent files, items, dates, or numbers. "(content
+truncated)" = cut for length, say so if more is needed. If it says "(no matching
+file or folder found)", tell the user plainly it was not found — do NOT fall back
+to guessing from the recent-files list):
 ${driveFocused}
 `
 }

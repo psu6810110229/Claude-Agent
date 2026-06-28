@@ -56,9 +56,11 @@ import {
 } from "./googleContacts.js";
 import {
   getRecentDriveFiles,
-  searchDriveFiles,
+  searchDriveByKeywords,
+  listFolderChildren,
   getDriveFileContent,
   isDriveEnabled,
+  DRIVE_FOLDER_MIME,
 } from "./googleDrive.js";
 import {
   getLineChatSummariesSafe,
@@ -124,7 +126,8 @@ function detectGmailReadIntent(message: string): boolean {
 
 const DRIVE_READ_MARKERS = [
   "ไดร์ฟ", "ไดรฟ์", "drive", "ไฟล์", "file", "เอกสาร", "document", "doc",
-  "ชีท", "sheet", "สไลด์", "slide",
+  "ชีท", "sheet", "สไลด์", "slide", "โฟลเดอร์", "folder", "รูป", "ภาพ",
+  "photo", "image", "แชร์", "shared",
 ];
 function detectDriveReadIntent(message: string): boolean {
   const m = message.toLowerCase();
@@ -134,17 +137,41 @@ function detectDriveReadIntent(message: string): boolean {
 /** Recent Drive files whose (extension-stripped) name appears in the message. */
 function matchDriveFilesByName(
   message: string,
-  files: { id: string; name: string }[],
-): { id: string; name: string }[] {
+  files: { id: string; name: string; mimeType: string }[],
+): { id: string; name: string; mimeType: string }[] {
   const m = message.toLowerCase();
-  const hits: { id: string; name: string }[] = [];
+  const hits: { id: string; name: string; mimeType: string }[] = [];
   for (const f of files) {
     const base = f.name.toLowerCase().replace(/\.[a-z0-9]{1,5}$/, "");
     if (base.length >= 3 && m.includes(base)) {
-      hits.push({ id: f.id, name: f.name });
+      hits.push({ id: f.id, name: f.name, mimeType: f.mimeType });
     }
   }
   return hits;
+}
+
+// Drive search keywords: drop intent markers + common stop-words, keep the
+// distinctive terms (incl. numbers like a B.E. year). Thai has no spaces, so
+// glued tokens survive as harmless no-op OR clauses — name-contains is substring.
+const DRIVE_STOPWORDS = new Set([
+  ...DRIVE_READ_MARKERS,
+  "หา", "ค้นหา", "เปิด", "ดู", "ขอ", "ใน", "ที่", "ชื่อ", "เลย", "หน่อย",
+  "ให้", "มี", "ไหม", "อยู่", "อะไร", "บ้าง", "ด้วย", "คีย์เวิร์ด", "keyword",
+  "search", "find", "open", "the", "a", "an", "in", "my", "me", "of", "for",
+  "about", "เกี่ยวกับ", "ที", "ว่า",
+]);
+// Thai is space-less, so a natural sentence often collapses into ONE giant glued
+// token that matches nothing. Keep only space-separated terms that are short
+// enough to be a real name/keyword (users typically space out the keyword, e.g.
+// "...คีย์เวิร์ด สักการะ"); drop glued phrases (> 20 chars) that are pure noise.
+function extractDriveKeywords(message: string): string[] {
+  return message
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2 && t.length <= 20 && !DRIVE_STOPWORDS.has(t))
+    .slice(0, 6);
 }
 
 /**
@@ -977,41 +1004,74 @@ export async function buildChatContext(
     }
   }
 
-  // Friday deeper awareness (verified path only) — read Drive file CONTENT on a
-  // file-read turn. Prefer files NAMED in the message; else search by message
-  // text. Each read fails soft (unsupported/too_large/api skipped).
+  // Friday deeper awareness (verified path only) — on a file-read turn, surface
+  // Drive content. Prefer files NAMED in the message; else keyword-search (incl.
+  // OLD files + folders, no recency horizon). A folder → list its children; a
+  // file → read content; an unreadable file → still surface its existence.
   let driveFocused: ChatContext["driveFocused"] = null;
   if (isDriveEnabled() && detectDriveReadIntent(message)) {
     driveFocused = [];
     try {
-      let targets = matchDriveFilesByName(message, recentDriveFiles).slice(
-        0,
-        CHAT_DRIVE_FOCUSED_HITS,
-      );
+      let targets: { id: string; name: string; mimeType: string }[] =
+        matchDriveFilesByName(message, recentDriveFiles);
       if (targets.length === 0) {
-        const found = await searchDriveFiles(
-          message.slice(0, 80),
-          undefined,
-          CHAT_DRIVE_FOCUSED_HITS,
-        );
-        targets = found.map((f) => ({ id: f.id, name: f.name }));
+        const terms = extractDriveKeywords(message);
+        const found = await searchDriveByKeywords(terms, 10);
+        // Rank name-matches ahead of fullText-only matches.
+        found.sort((a, b) => {
+          const am = terms.some((t) => a.name.toLowerCase().includes(t)) ? 0 : 1;
+          const bm = terms.some((t) => b.name.toLowerCase().includes(t)) ? 0 : 1;
+          return am - bm;
+        });
+        targets = found.map((f) => ({
+          id: f.id,
+          name: f.name,
+          mimeType: f.mimeType,
+        }));
       }
+      targets = targets.slice(0, CHAT_DRIVE_FOCUSED_HITS);
+
       for (const t of targets) {
+        if (t.mimeType === DRIVE_FOLDER_MIME) {
+          const children = (await listFolderChildren(t.id, 50)).map((c) => ({
+            id: c.id,
+            name: c.name,
+          }));
+          driveFocused.push({
+            id: t.id,
+            name: t.name,
+            mimeType: t.mimeType,
+            content: null,
+            truncated: false,
+            children,
+          });
+          continue;
+        }
         try {
           const doc = await getDriveFileContent(t.id);
           driveFocused.push({
             id: t.id,
             name: doc.name,
+            mimeType: t.mimeType,
             content: doc.content.slice(0, CHAT_DRIVE_FOCUSED_CHARS),
             truncated:
               doc.truncated || doc.content.length > CHAT_DRIVE_FOCUSED_CHARS,
+            children: null,
           });
         } catch {
-          // skip this file, keep any others
+          // unreadable (binary/too large/api) — surface existence, no content
+          driveFocused.push({
+            id: t.id,
+            name: t.name,
+            mimeType: t.mimeType,
+            content: null,
+            truncated: false,
+            children: null,
+          });
         }
       }
     } catch {
-      // search failed — leave whatever we have (possibly empty)
+      // search failed — leave whatever we gathered (possibly empty)
     }
   }
 
