@@ -47,13 +47,19 @@ import {
 } from "./googleCalendarCache.js";
 import {
   fetchUnreadGmailMessages,
+  fetchGmailFullMessages,
   isGmailEnabled,
 } from "./gmail.js";
 import {
   fetchGoogleContacts,
   isContactsEnabled,
 } from "./googleContacts.js";
-import { getRecentDriveFiles } from "./googleDrive.js";
+import {
+  getRecentDriveFiles,
+  searchDriveFiles,
+  getDriveFileContent,
+  isDriveEnabled,
+} from "./googleDrive.js";
 import {
   getLineChatSummariesSafe,
   getRecentLineByChatSafe,
@@ -88,6 +94,12 @@ import {
   CHAT_GOOGLE_EVENT_CAP,
   CHAT_GOOGLE_PAST_DAYS,
   CHAT_HISTORY_LIMIT,
+  CHAT_GMAIL_UNREAD_CAP,
+  CHAT_GMAIL_FOCUSED_CAP,
+  CHAT_GMAIL_BODY_MAX_CHARS,
+  CHAT_DRIVE_RECENT_CAP,
+  CHAT_DRIVE_FOCUSED_HITS,
+  CHAT_DRIVE_FOCUSED_CHARS,
   LINE_CONTEXT_PER_CHAT,
   LINE_CONTEXT_MAX_CHATS,
   LINE_FOCUSED_MSG_CAP,
@@ -98,6 +110,42 @@ import {
 } from "../config.js";
 import { classifySensitivity } from "./privacyClassifier.js";
 import { isGuardEnabled } from "./identityVerifier.js";
+
+// Friday deeper awareness — intent detectors for on-demand Gmail/Drive reads.
+// Deterministic keyword match (no model call). Verified-path only at call site.
+const GMAIL_READ_MARKERS = [
+  "อีเมล", "อีเมล์", "เมล", "เมล์", "gmail", "email", "e-mail", "mail",
+  "inbox", "กล่องจดหมาย", "จดหมาย",
+];
+function detectGmailReadIntent(message: string): boolean {
+  const m = message.toLowerCase();
+  return GMAIL_READ_MARKERS.some((k) => m.includes(k));
+}
+
+const DRIVE_READ_MARKERS = [
+  "ไดร์ฟ", "ไดรฟ์", "drive", "ไฟล์", "file", "เอกสาร", "document", "doc",
+  "ชีท", "sheet", "สไลด์", "slide",
+];
+function detectDriveReadIntent(message: string): boolean {
+  const m = message.toLowerCase();
+  return DRIVE_READ_MARKERS.some((k) => m.includes(k));
+}
+
+/** Recent Drive files whose (extension-stripped) name appears in the message. */
+function matchDriveFilesByName(
+  message: string,
+  files: { id: string; name: string }[],
+): { id: string; name: string }[] {
+  const m = message.toLowerCase();
+  const hits: { id: string; name: string }[] = [];
+  for (const f of files) {
+    const base = f.name.toLowerCase().replace(/\.[a-z0-9]{1,5}$/, "");
+    if (base.length >= 3 && m.includes(base)) {
+      hits.push({ id: f.id, name: f.name });
+    }
+  }
+  return hits;
+}
 
 /**
  * Chat orchestration (Step 12). Proposal-only pipeline with conversation
@@ -594,7 +642,7 @@ export async function buildChatContext(
   let gmailUnread: ChatContext["gmailUnread"] = [];
   if (isGmailEnabled()) {
     try {
-      const msgs = await fetchUnreadGmailMessages(5);
+      const msgs = await fetchUnreadGmailMessages(CHAT_GMAIL_UNREAD_CAP);
       gmailUnread = msgs.map((m) => ({
         id: m.id,
         from: m.from,
@@ -622,8 +670,8 @@ export async function buildChatContext(
     }
   }
 
-  // Step 19 — Recent Drive files for AI awareness (capped at 10; fail silently).
-  const recentDriveFiles = await getRecentDriveFiles(10);
+  // Step 19 — Recent Drive files for AI awareness (fail silently).
+  const recentDriveFiles = await getRecentDriveFiles(CHAT_DRIVE_RECENT_CAP);
 
   // Step 20 / Part 1 — LINE: the full chat LIST (so Friday knows every chat) +
   // recent messages grouped per chat for the most-active chats. Fail-soft → [].
@@ -888,9 +936,11 @@ export async function buildChatContext(
       approvalOutcomes: [],
       history: [],
       gmailUnread: [],
+      gmailFocused: null,
       contacts: [],
       contactsStatus: "redacted",
       recentDriveFiles: [],
+      driveFocused: null,
       lineChats: [],
       lineMessages: [],
       lineFocusedChat: null,
@@ -912,6 +962,59 @@ export async function buildChatContext(
     };
   }
 
+  // Friday deeper awareness (verified path only) — fetch FULL Gmail bodies on an
+  // email-read turn so Friday answers from content, not just the snippet list.
+  let gmailFocused: ChatContext["gmailFocused"] = null;
+  if (isGmailEnabled() && detectGmailReadIntent(message)) {
+    try {
+      gmailFocused = await fetchGmailFullMessages(
+        "in:inbox",
+        CHAT_GMAIL_FOCUSED_CAP,
+        CHAT_GMAIL_BODY_MAX_CHARS,
+      );
+    } catch {
+      gmailFocused = [];
+    }
+  }
+
+  // Friday deeper awareness (verified path only) — read Drive file CONTENT on a
+  // file-read turn. Prefer files NAMED in the message; else search by message
+  // text. Each read fails soft (unsupported/too_large/api skipped).
+  let driveFocused: ChatContext["driveFocused"] = null;
+  if (isDriveEnabled() && detectDriveReadIntent(message)) {
+    driveFocused = [];
+    try {
+      let targets = matchDriveFilesByName(message, recentDriveFiles).slice(
+        0,
+        CHAT_DRIVE_FOCUSED_HITS,
+      );
+      if (targets.length === 0) {
+        const found = await searchDriveFiles(
+          message.slice(0, 80),
+          undefined,
+          CHAT_DRIVE_FOCUSED_HITS,
+        );
+        targets = found.map((f) => ({ id: f.id, name: f.name }));
+      }
+      for (const t of targets) {
+        try {
+          const doc = await getDriveFileContent(t.id);
+          driveFocused.push({
+            id: t.id,
+            name: doc.name,
+            content: doc.content.slice(0, CHAT_DRIVE_FOCUSED_CHARS),
+            truncated:
+              doc.truncated || doc.content.length > CHAT_DRIVE_FOCUSED_CHARS,
+          });
+        } catch {
+          // skip this file, keep any others
+        }
+      }
+    } catch {
+      // search failed — leave whatever we have (possibly empty)
+    }
+  }
+
   return {
     message,
     openTasks,
@@ -925,9 +1028,11 @@ export async function buildChatContext(
     approvalOutcomes,
     history,
     gmailUnread,
+    gmailFocused,
     contacts,
     contactsStatus,
     recentDriveFiles,
+    driveFocused,
     lineChats,
     lineMessages,
     lineFocusedChat,

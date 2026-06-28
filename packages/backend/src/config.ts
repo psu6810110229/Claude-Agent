@@ -533,6 +533,21 @@ export const GMAIL_ENABLED = /^(1|true)$/i.test(process.env.GMAIL_ENABLED ?? "")
 /** Cap on messages fetched per Gmail query. */
 export const GMAIL_MAX_RESULTS = Number(process.env.GMAIL_MAX_RESULTS ?? 20);
 
+/** Friday chat: unread Gmail surfaced for awareness (snippet only). */
+export const CHAT_GMAIL_UNREAD_CAP = Number(
+  process.env.CLAUDE_AGENT_CHAT_GMAIL_UNREAD_CAP ?? 8,
+);
+
+/** Friday chat: full-body Gmail messages fetched on an email-read turn. */
+export const CHAT_GMAIL_FOCUSED_CAP = Number(
+  process.env.CLAUDE_AGENT_CHAT_GMAIL_FOCUSED_CAP ?? 5,
+);
+
+/** Friday chat: per-message body char cap for focused Gmail reads. */
+export const CHAT_GMAIL_BODY_MAX_CHARS = Number(
+  process.env.CLAUDE_AGENT_CHAT_GMAIL_BODY_MAX_CHARS ?? 2000,
+);
+
 /** Gmail OAuth scopes. Combined with Calendar scopes in google-auth. */
 export const GOOGLE_GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
@@ -583,6 +598,21 @@ export const GOOGLE_DRIVE_MAX_RESULTS = Number(
 /** Max characters read from a single file's content before truncation. */
 export const GOOGLE_DRIVE_CONTENT_MAX_CHARS = Number(
   process.env.GOOGLE_DRIVE_CONTENT_MAX_CHARS ?? 30_000,
+);
+
+/** Friday chat: recent Drive files surfaced for awareness (name only). */
+export const CHAT_DRIVE_RECENT_CAP = Number(
+  process.env.CLAUDE_AGENT_CHAT_DRIVE_RECENT_CAP ?? 15,
+);
+
+/** Friday chat: max Drive files whose CONTENT is read on a file-read turn. */
+export const CHAT_DRIVE_FOCUSED_HITS = Number(
+  process.env.CLAUDE_AGENT_CHAT_DRIVE_FOCUSED_HITS ?? 2,
+);
+
+/** Friday chat: per-file content char cap injected for focused Drive reads. */
+export const CHAT_DRIVE_FOCUSED_CHARS = Number(
+  process.env.CLAUDE_AGENT_CHAT_DRIVE_FOCUSED_CHARS ?? 6000,
 );
 
 /** Drive OAuth scopes: read all files + create/upload files this app manages. */

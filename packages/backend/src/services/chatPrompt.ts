@@ -144,6 +144,21 @@ export interface ChatContext {
    */
   gmailUnread: { id: string; from: string; subject: string; snippet: string }[];
   /**
+   * Friday deeper awareness — FULL plain-text bodies of recent inbox messages,
+   * fetched only on an email-read turn. null = not requested this turn; []
+   * = requested but none/unavailable. Verified path only (redacted to null).
+   */
+  gmailFocused:
+    | {
+        id: string;
+        from: string;
+        subject: string;
+        body: string;
+        receivedAt: string;
+        truncated: boolean;
+      }[]
+    | null;
+  /**
    * Step 18 — Google Contacts (capped at 50, name + primary email). Empty when
    * Contacts is disabled or unavailable. Used for email auto-completion when
    * drafting or sending via gmail.draft / gmail.send.
@@ -163,6 +178,14 @@ export interface ChatContext {
    * recently modified files so it can reference them by name.
    */
   recentDriveFiles: { id: string; name: string; mimeType: string }[];
+  /**
+   * Friday deeper awareness — actual text CONTENT of Drive files, fetched only
+   * on a file-read turn. null = not requested this turn; [] = requested but
+   * nothing readable. Verified path only (redacted to null).
+   */
+  driveFocused:
+    | { id: string; name: string; content: string; truncated: boolean }[]
+    | null;
   /**
    * Step 20 — recent LINE messages across all exported chats (read-only),
    * newest first, capped to LINE_CHAT_CONTEXT_CAP. Empty when LINE is disabled
@@ -572,6 +595,21 @@ export function buildChatPrompt(ctx: ChatContext): string {
           .join("\n")
       : "  (none or Gmail disabled)";
 
+  // Friday deeper awareness — full bodies, only present on an email-read turn.
+  const gmailFocused =
+    ctx.gmailFocused === null
+      ? null
+      : ctx.gmailFocused.length > 0
+        ? ctx.gmailFocused
+            .map(
+              (m) =>
+                `  - id=${m.id} from="${m.from}" subject="${m.subject}"${
+                  m.truncated ? " (body truncated)" : ""
+                }\n    body: ${m.body.replace(/\n/g, "\n    ")}`,
+            )
+            .join("\n")
+        : "  (no readable inbox messages found)";
+
   // Distinct rendering per real connector state — never the old ambiguous
   // "(none or Contacts disabled)" that made Friday wrongly claim the connector
   // was off when contacts were merely empty or redacted for an unverified guest.
@@ -597,6 +635,21 @@ export function buildChatPrompt(ctx: ChatContext): string {
           })
           .join("\n")
       : "  (none or Drive disabled)";
+
+  // Friday deeper awareness — file content, only present on a file-read turn.
+  const driveFocused =
+    ctx.driveFocused === null
+      ? null
+      : ctx.driveFocused.length > 0
+        ? ctx.driveFocused
+            .map(
+              (f) =>
+                `  - id=${f.id} "${f.name}"${
+                  f.truncated ? " (content truncated)" : ""
+                }\n    content: ${f.content.replace(/\n/g, "\n    ")}`,
+            )
+            .join("\n")
+        : "  (no matching readable file found)";
 
   const lineChatsList =
     ctx.lineChats.length > 0
@@ -1315,10 +1368,20 @@ ${attachmentsSection}
 OPEN TASKS (for resolving task ids; do not invent ids):
 ${tasks}
 
-UNREAD GMAIL (up to 5 most recent; use id= for replyToMessageId in gmail.draft
-/ gmail.send to thread the reply correctly; do not invent ids):
+UNREAD GMAIL (most recent unread; snippet only; use id= for replyToMessageId in
+gmail.draft / gmail.send to thread the reply correctly; do not invent ids):
 ${gmailUnread}
-
+${
+  gmailFocused === null
+    ? ""
+    : `
+GMAIL — FULL BODIES (loaded because you asked about email; the actual message
+text, not just the snippet. Answer ONLY from what these bodies ACTUALLY contain;
+never invent senders, dates, links, amounts, or content not present here. A body
+marked "(body truncated)" was cut for length — say so if the user needs the rest):
+${gmailFocused}
+`
+}
 GOOGLE CONTACTS (your address book; use the email shown here when filling the
 "to" field in gmail.draft / gmail.send — do not guess or invent email addresses.
 REPORT THE STATE TRUTHFULLY: if this section lists contacts, answer from them; if
@@ -1328,9 +1391,20 @@ connected; if it says "withheld — requester not verified", do NOT mention Cont
 being disabled at all — use the generic identity-verification boundary instead):
 ${contacts}
 
-GOOGLE DRIVE (10 most recently modified files; search/read/upload on the /drive
-dashboard page; you can reference these by name or id when the user asks):
+GOOGLE DRIVE (most recently modified files; names only; you can reference these
+by name or id when the user asks; ask me to open one to read its content):
 ${driveFiles}
+${
+  driveFocused === null
+    ? ""
+    : `
+GOOGLE DRIVE — FILE CONTENT (loaded because you asked about a file; the actual
+text. Answer ONLY from what the content ACTUALLY contains; never invent items,
+dates, or numbers not present. "(content truncated)" means it was cut for length
+— say so if the user needs the rest. If nothing matched, tell the user plainly):
+${driveFocused}
+`
+}
 
 LINE CHATS (read-only; the COMPLETE list of LINE chats available to you, with
 size + last-activity time. Use this to answer "how many chats" / "which chats"

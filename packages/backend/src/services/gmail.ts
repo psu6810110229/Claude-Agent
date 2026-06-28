@@ -163,6 +163,130 @@ export async function fetchUnreadGmailMessages(
   return messages;
 }
 
+// --- Focused full-body read (Step: Friday deeper Gmail awareness) ---------
+// Used only by the chat context builder when the user actually asks about
+// email, so the prompt can answer from the BODY, not just the snippet.
+// NEVER logged: bodies stay in-memory and flow only into the (verified) prompt.
+
+function decodeB64Url(data: string): string {
+  return Buffer.from(
+    data.replace(/-/g, "+").replace(/_/g, "/"),
+    "base64",
+  ).toString("utf8");
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#39;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+type GmailPart = {
+  mimeType?: string | null;
+  body?: { data?: string | null } | null;
+  parts?: GmailPart[] | null;
+};
+
+function findPart(part: GmailPart, mime: string): GmailPart | null {
+  if (part.mimeType === mime && part.body?.data) return part;
+  for (const p of part.parts ?? []) {
+    const found = findPart(p, mime);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Best-effort plain-text body from a Gmail payload tree. */
+function extractPlainText(payload: GmailPart | null | undefined): string {
+  if (!payload) return "";
+  const plain = findPart(payload, "text/plain");
+  if (plain?.body?.data) return decodeB64Url(plain.body.data).trim();
+  const html = findPart(payload, "text/html");
+  if (html?.body?.data) return stripHtml(decodeB64Url(html.body.data));
+  if (payload.body?.data) return decodeB64Url(payload.body.data).trim();
+  return "";
+}
+
+export interface GmailFullMessage {
+  id: string;
+  threadId: string;
+  from: string;
+  subject: string;
+  /** Plain-text body, capped to bodyMaxChars by the caller's request. */
+  body: string;
+  receivedAt: string;
+  /** True when the body was longer than the cap and was sliced. */
+  truncated: boolean;
+}
+
+/**
+ * Fetch messages matching `query` WITH their plain-text bodies (capped).
+ * Fails closed exactly like fetchUnreadGmailMessages. For chat context only.
+ */
+export async function fetchGmailFullMessages(
+  query: string,
+  limit: number,
+  bodyMaxChars: number,
+): Promise<GmailFullMessage[]> {
+  if (!isGmailEnabled()) {
+    throw new GmailError("disabled", "Gmail is disabled.");
+  }
+  const gmail = buildGmailClient();
+  let messageIds: string[];
+  try {
+    const listRes = await gmail.users.messages.list({
+      userId: "me",
+      q: query,
+      maxResults: limit,
+    });
+    messageIds = (listRes.data.messages ?? [])
+      .map((m) => m.id ?? "")
+      .filter(Boolean);
+  } catch (err) {
+    if (err instanceof GmailError) throw err;
+    throw new GmailError(
+      "api",
+      `Failed to list Gmail messages.${gmailErrorDetail(err)}`,
+    );
+  }
+  if (messageIds.length === 0) return [];
+
+  const fetched = await Promise.allSettled(
+    messageIds.map((id) =>
+      gmail.users.messages.get({ userId: "me", id, format: "full" }),
+    ),
+  );
+
+  const out: GmailFullMessage[] = [];
+  for (const result of fetched) {
+    if (result.status !== "fulfilled") continue;
+    const raw = result.value.data;
+    const meta = parseMessage(raw);
+    if (!meta) continue;
+    const fullBody = extractPlainText(raw.payload as GmailPart);
+    const truncated = fullBody.length > bodyMaxChars;
+    out.push({
+      id: meta.id,
+      threadId: meta.threadId,
+      from: meta.from,
+      subject: meta.subject,
+      body: fullBody.slice(0, bodyMaxChars),
+      receivedAt: meta.receivedAt,
+      truncated,
+    });
+  }
+  return out;
+}
+
 /**
  * Build a minimal RFC 2822 email string and base64url-encode it for the
  * Gmail API `raw` field. Handles To / Cc / Bcc / Subject / body (plain text).
