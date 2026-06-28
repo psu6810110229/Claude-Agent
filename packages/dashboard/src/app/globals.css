@@ -3094,15 +3094,12 @@ pre.payload {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: radial-gradient(
-    circle at 32% 30%,
-    #d7e9ff,
-    var(--accent) 58%,
-    var(--violet)
-  );
+  background:
+    radial-gradient(circle at 38% 26%, rgba(255, 232, 205, 0.9), transparent 46%),
+    linear-gradient(158deg, #ff7a36 0%, #c85ca6 46%, #3f6fe2 100%);
   box-shadow:
     0 0 14px rgba(232, 95, 24, 0.5),
-    inset 0 0 6px rgba(255, 255, 255, 0.35);
+    inset 0 0 6px rgba(255, 255, 255, 0.3);
   animation: thinking-orb-pulse 1.6s ease-in-out infinite;
 }
 
@@ -3581,16 +3578,17 @@ pre.payload {
 
 .orb-halo {
   position: absolute;
-  inset: -18%;
+  inset: -22%;
   border-radius: 50%;
   background: radial-gradient(
     circle,
-    rgba(255, 112, 136, 0.055) 0%,
-    rgba(124, 184, 255, 0.08) 38%,
-    transparent 68%
+    rgba(232, 95, 24, 0.07) 0%,
+    rgba(139, 92, 246, 0.10) 38%,
+    rgba(120, 112, 210, 0.05) 58%,
+    transparent 72%
   );
-  filter: blur(14px);
-  animation: orb-breathe 6s ease-in-out infinite;
+  filter: blur(18px);
+  animation: orb-breathe 7s ease-in-out infinite;
 }
 
 .orb-compact .orb-halo {
@@ -3611,18 +3609,45 @@ pre.payload {
   border-radius: 50%;
   overflow: hidden;
   background:
-    radial-gradient(circle at 42% 38%, rgba(255, 255, 255, 0.18), transparent 26%),
-    radial-gradient(circle at 28% 28%, rgba(255, 112, 136, 0.36), transparent 38%),
-    radial-gradient(circle at 48% 42%, rgba(232, 95, 24, 0.51), transparent 48%),
-    radial-gradient(circle at 62% 48%, rgba(124, 184, 255, 0.27), transparent 44%),
-    radial-gradient(circle at 72% 70%, rgba(91, 76, 190, 0.82), transparent 48%),
-    linear-gradient(135deg, #bd5b64 0%, #e96a4f 42%, #7398c0 62%, #4b3a9e 100%);
+    radial-gradient(circle at 50% 15%, rgba(255, 255, 255, 0.26), transparent 32%),
+    radial-gradient(circle at 40% 32%, rgba(255, 120, 48, 0.98), transparent 60%),
+    radial-gradient(circle at 62% 80%, rgba(64, 116, 232, 0.95), transparent 62%),
+    linear-gradient(158deg, #ff7a36 0%, #c85ca6 44%, #3f6fe2 100%);
   box-shadow:
-    0 24px 72px rgba(255, 112, 136, 0.055),
-    0 18px 56px rgba(124, 184, 255, 0.08),
-    inset 0 1px 2px rgba(255, 255, 255, 0.2),
-    inset 0 -16px 38px rgba(31, 24, 92, 0.2);
-  animation: orb-breathe 6s ease-in-out infinite;
+    0 28px 80px rgba(232, 95, 24, 0.10),
+    0 20px 60px rgba(139, 92, 246, 0.12),
+    inset 0 1px 2px rgba(255, 255, 255, 0.30),
+    inset 0 -16px 38px rgba(108, 70, 150, 0.30);
+  animation: orb-breathe 7s ease-in-out infinite;
+}
+
+/* Hero: the canvas paints the whole organic, non-circular orb. Strip the
+   circular glass chrome so nothing re-imposes a perfect circle. */
+.orb-hero .orb {
+  background: none;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.orb-hero .orb-rim,
+.orb-hero .orb-sheen,
+.orb-hero .orb-highlight {
+  display: none;
+}
+
+.orb-hero .orb-halo {
+  inset: -34%;
+  filter: blur(28px);
+}
+
+/* Aurora Membrane canvas: hero-only flowing core, under the glass specular */
+.orb-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 1;
 }
 
 .orb-rim,
@@ -3683,29 +3708,30 @@ pre.payload {
 }
 
 .orb-layer.swirl {
-  inset: -12%;
+  inset: -14%;
   background: conic-gradient(
     from 200deg at 50% 52%,
-    rgba(255, 112, 136, 0.16),
+    rgba(255, 120, 48, 0.42),
     rgba(232, 95, 24, 0.36),
-    rgba(255, 255, 255, 0.12),
-    rgba(124, 184, 255, 0.22),
-    rgba(91, 76, 190, 0.34),
-    rgba(255, 112, 136, 0.16)
+    rgba(176, 96, 176, 0.32),
+    rgba(64, 116, 232, 0.34),
+    rgba(80, 140, 250, 0.20),
+    rgba(200, 100, 150, 0.30),
+    rgba(255, 120, 48, 0.42)
   );
-  filter: blur(28px) saturate(1.08);
-  animation: orb-spin 26s linear infinite;
+  filter: blur(30px) saturate(1.3);
+  animation: orb-spin 44s linear infinite;
 }
 
 .orb-layer.veil {
   background:
-    radial-gradient(ellipse 70% 42% at 27% 31%, rgba(255, 112, 136, 0.1), transparent 68%),
-    radial-gradient(ellipse 72% 42% at 45% 43%, rgba(232, 95, 24, 0.18), transparent 70%),
-    radial-gradient(ellipse 58% 34% at 56% 40%, rgba(124, 184, 255, 0.16), transparent 68%),
-    radial-gradient(ellipse 54% 38% at 76% 74%, rgba(91, 76, 190, 0.34), transparent 70%);
-  filter: blur(12px);
+    radial-gradient(ellipse 70% 42% at 38% 28%, rgba(240, 140, 88, 0.20), transparent 68%),
+    radial-gradient(ellipse 72% 42% at 50% 46%, rgba(176, 114, 176, 0.18), transparent 70%),
+    radial-gradient(ellipse 58% 34% at 60% 74%, rgba(64, 116, 232, 0.24), transparent 68%),
+    radial-gradient(ellipse 54% 38% at 30% 66%, rgba(80, 140, 250, 0.12), transparent 70%);
+  filter: blur(16px);
   mix-blend-mode: screen;
-  animation: orb-spin 38s linear infinite reverse;
+  animation: orb-spin 72s linear infinite reverse;
 }
 
 .orb-layer.caustic {
@@ -3726,10 +3752,10 @@ pre.payload {
 .orb-layer.core {
   inset: 16%;
   background: radial-gradient(
-    circle at 42% 36%,
-    rgba(255, 255, 255, 0.22),
-    rgba(124, 184, 255, 0.1) 34%,
-    rgba(255, 112, 136, 0.07) 55%,
+    circle at 46% 30%,
+    rgba(255, 226, 198, 0.30),
+    rgba(255, 170, 110, 0.20) 36%,
+    rgba(176, 96, 176, 0.10) 56%,
     transparent 75%
   );
   filter: blur(6px);
@@ -3808,7 +3834,7 @@ pre.payload {
   width: 44%;
   height: 26%;
   border-radius: 50%;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.08), transparent);
+  background: linear-gradient(180deg, rgba(255, 240, 224, 0.18), rgba(255, 240, 224, 0.05), transparent);
   filter: blur(8px);
 }
 
@@ -3855,37 +3881,96 @@ pre.payload {
 
 /* --- Orb states: idle / thinking, expressed as pace and depth ------------- */
 
+/* idle: slow aurora breathing — not frozen */
 .orb-wrap[data-state="idle"] .orb-layer.swirl {
-  animation: none;
-  filter: blur(30px) saturate(1.02);
+  animation-duration: 52s;
+  filter: blur(32px) saturate(1.14);
 }
 
 .orb-wrap[data-state="idle"] .orb-layer.veil {
-  animation: none;
+  animation-duration: 80s;
 }
 
 .orb-wrap[data-state="idle"] .orb-layer.caustic {
-  animation: none;
-  opacity: 0.24;
+  animation-duration: 32s;
+  opacity: 0.20;
 }
 
 .orb-wrap[data-state="idle"] .orb-sheen {
-  animation: none;
-  opacity: 0.42;
+  animation-duration: 11s;
+  opacity: 0.38;
 }
 
 .orb-wrap[data-state="idle"] .op {
-  animation: none;
+  animation-duration: 18s;
+  opacity: 0.52;
 }
 
 .orb-wrap[data-state="idle"] .orb,
-.orb-wrap[data-state="idle"] .orb-halo,
+.orb-wrap[data-state="idle"] .orb-halo {
+  animation-duration: 7s;
+}
+
 .orb-wrap[data-state="idle"] .orb-layer.core {
-  animation: none;
+  animation-duration: 8s;
 }
 
 .orb-avatar[data-state="idle"] .orb-halo {
   animation: orb-idle-glow 5.4s ease-in-out infinite;
+}
+
+/* --- Alert state: amber pulse, pending attention ----------------------- */
+
+.orb-wrap[data-state="alert"] .orb {
+  animation: orb-breathe 4.2s ease-in-out infinite;
+  box-shadow:
+    0 0 0 1px rgba(255, 159, 10, 0.14),
+    0 28px 80px rgba(255, 159, 10, 0.10),
+    0 20px 60px rgba(139, 92, 246, 0.08),
+    inset 0 1px 2px rgba(255, 255, 255, 0.16),
+    inset 0 -18px 42px rgba(6, 2, 22, 0.42);
+}
+
+.orb-wrap[data-state="alert"] .orb-halo {
+  animation: orb-alert-pulse 2.8s ease-in-out infinite;
+  background: radial-gradient(
+    circle,
+    rgba(255, 159, 10, 0.13) 0%,
+    rgba(255, 159, 10, 0.07) 40%,
+    transparent 70%
+  );
+  filter: blur(20px);
+}
+
+.orb-wrap[data-state="alert"] .orb-rim {
+  opacity: 0.82;
+  filter: sepia(0.55) hue-rotate(8deg) saturate(1.4) brightness(1.08);
+}
+
+.orb-wrap[data-state="alert"] .orb-layer.swirl {
+  animation-duration: 38s;
+  filter: blur(30px) saturate(1.18);
+}
+
+.orb-wrap[data-state="alert"] .orb-layer.caustic {
+  animation-duration: 22s;
+  opacity: 0.28;
+}
+
+.orb-wrap[data-state="alert"] .op {
+  animation-duration: 14s;
+  opacity: 0.64;
+}
+
+@keyframes orb-alert-pulse {
+  0%, 100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.10);
+  }
 }
 
 @keyframes orb-idle-glow {
@@ -5310,7 +5395,8 @@ pre.payload {
 
   .chat-bubble.typing {
     min-width: 0;
-    width: 100%;
+    width: fit-content;
+    max-width: 100%;
   }
 
   .panel-head {
@@ -5417,7 +5503,7 @@ pre.payload {
   }
 
   .source-hints {
-    flex-basis: 100%;
+    flex-basis: auto;
   }
 
   .source-hint {

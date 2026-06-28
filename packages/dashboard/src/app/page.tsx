@@ -520,6 +520,7 @@ export default function HomePage() {
             title: "มีงานรอ approve",
             description: `${pendingCount} รายการต้องตัดสินใจก่อนทำงานต่อ`,
           });
+          setOrbState("alert");
         }
         setLoading(false);
       })

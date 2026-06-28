@@ -1,8 +1,9 @@
 "use client";
 
 import { motion, useReducedMotion } from "framer-motion";
+import { OrbCanvas } from "./OrbCanvas";
 
-export type OrbState = "idle" | "thinking";
+export type OrbState = "idle" | "thinking" | "alert";
 export type OrbVariant = "hero" | "compact" | "avatar";
 
 /**
@@ -18,6 +19,7 @@ export function Orb({
   variant?: OrbVariant;
 }) {
   const reduceMotion = useReducedMotion();
+  const isHero = variant === "hero";
   return (
     <motion.div
       className={`orb-wrap orb-${variant}`}
@@ -34,17 +36,25 @@ export function Orb({
       <div className="orb-halo" />
       <div className="orb">
         <div className="orb-rim" />
-        <div className="orb-layer swirl" />
-        <div className="orb-layer veil" />
-        <div className="orb-layer caustic" />
-        <div className="orb-layer core" />
+        {isHero ? (
+          <OrbCanvas state={state} />
+        ) : (
+          <>
+            <div className="orb-layer swirl" />
+            <div className="orb-layer veil" />
+            <div className="orb-layer caustic" />
+            <div className="orb-layer core" />
+          </>
+        )}
         <div className="orb-sheen" />
         <div className="orb-highlight" />
-        <div className="orb-particles">
-          {Array.from({ length: 7 }, (_, i) => (
-            <span key={i} className={`op op-${i + 1}`} />
-          ))}
-        </div>
+        {!isHero && (
+          <div className="orb-particles">
+            {Array.from({ length: 7 }, (_, i) => (
+              <span key={i} className={`op op-${i + 1}`} />
+            ))}
+          </div>
+        )}
       </div>
     </motion.div>
   );
