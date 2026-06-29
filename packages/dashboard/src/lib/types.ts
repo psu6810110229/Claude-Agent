@@ -578,6 +578,48 @@ export interface ChatMessage {
   updated_at: string;
 }
 
+export type ActiveJobStatus =
+  | "queued"
+  | "understanding"
+  | "searching"
+  | "verifying"
+  | "needs_user"
+  | "reporting"
+  | "done"
+  | "failed"
+  | "cancelled";
+
+export interface ActiveJobProgressEvent {
+  id: number;
+  event_type:
+    | "created"
+    | "progress"
+    | "evidence"
+    | "status"
+    | "clarification"
+    | "result"
+    | "error";
+  status: ActiveJobStatus;
+  message: string;
+  created_at: string;
+  metadata: unknown | null;
+}
+
+export interface ActiveJobProgress {
+  job_id: number;
+  kind: string;
+  title: string;
+  status: ActiveJobStatus;
+  source: string | null;
+  source_ref: string | null;
+  result_summary: string | null;
+  error: string | null;
+  clarification: string | null;
+  evidence: unknown | null;
+  updated_at: string;
+  milestones: ActiveJobProgressEvent[];
+}
+
 /**
  * POST /api/chat success shape (201). `reply` is the conversational response;
  * `approvals` are any pending write proposals queued by this turn (may be
@@ -631,6 +673,8 @@ export interface ChatResult {
   requestedProvider: AiProviderId | null;
   providerReason?: string;
   approvals: Approval[];
+  /** Recent durable job milestones, sanitized for compact chat-native display. */
+  jobProgress?: ActiveJobProgress[];
   /** Staged bulk Google Calendar add for review; null on ordinary turns. */
   calendarPlan?: CalendarPlanResult | null;
   clarification?: string;

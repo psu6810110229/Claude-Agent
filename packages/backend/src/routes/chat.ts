@@ -38,6 +38,7 @@ import {
   loadChatAttachment,
   type ChatAttachment,
 } from "../services/attachmentService.js";
+import { getRecentChatJobProgress } from "../services/activeJob.js";
 import {
   geminiVisionExtract,
   isGeminiConfigured,
@@ -461,8 +462,17 @@ function chatResultResponse(
       notes: result.notes,
       verificationRequired: result.verificationRequired || undefined,
       sensitivity: result.sensitivity ?? "normal",
+      jobProgress: safeJobProgress(),
     },
   };
+}
+
+function safeJobProgress(): ReturnType<typeof getRecentChatJobProgress> {
+  try {
+    return getRecentChatJobProgress(5, 6);
+  } catch {
+    return [];
+  }
 }
 
 async function handleChat(

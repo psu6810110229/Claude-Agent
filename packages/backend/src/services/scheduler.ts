@@ -29,9 +29,20 @@ import {
   listDueActiveTopicsForLineCheck,
   updateActiveTopicCheck,
 } from "../db/repositories/activeTopicRepo.js";
-import { buildLineEvidenceForTopic } from "./lineEvidence.js";
+import {
+  buildLineEvidenceForTopic,
+  EVIDENCE_MAX_LINES,
+} from "./lineEvidence.js";
 import { verifyLineEvidenceAnswerIntent } from "./evidenceVerifier.js";
 import { searchLineMessages, isLineEnabled } from "./lineChat.js";
+import {
+  appendProgress,
+  attachEvidenceMetadata,
+  createJob,
+  markDone,
+  markFailed,
+  transitionJob,
+} from "./activeJob.js";
 import { logActivity } from "../db/repositories/activityRepo.js";
 import { bucketReminders } from "./agenda.js";
 import type { DesktopNotifier } from "./desktopNotifier.js";
@@ -238,12 +249,33 @@ export function runActiveTopicChecks(
   if (due.length === 0) return;
 
   for (const topic of due) {
+    const job = createJob({
+      kind: "line.active_topic.triage",
+      title: "LINE active topic triage",
+      source: "active_topic",
+      source_ref: String(topic.id),
+    });
+
+    try {
+      transitionJob(
+        job.id,
+        "understanding",
+        "กำลังเตรียมหัวข้อที่ติดตาม",
+        { topic_id: topic.id },
+      );
+
     // Only evidence newer than both the baseline and the last check counts.
     const sinceUtc =
       topic.last_checked_at && topic.last_checked_at > topic.baseline_at
         ? topic.last_checked_at
         : topic.baseline_at;
 
+    transitionJob(
+      job.id,
+      "searching",
+      "กำลังดู LINE export ล่าสุด...",
+      { topic_id: topic.id, since_utc: sinceUtc },
+    );
     const evidence = buildLineEvidenceForTopic(topic, { sinceUtc });
 
     // Always record the check so cooldown advances even on a no-match tick.
@@ -252,7 +284,35 @@ export function runActiveTopicChecks(
     const verdict = verifyLineEvidenceAnswerIntent({ userMessage: "", evidence });
 
     let fired = 0;
+    let jobDone = false;
     const matchCount = evidence.messages.length;
+    appendProgress(
+      job.id,
+      matchCount > 0
+        ? `เจอหลักฐาน ${matchCount} รายการ กำลังตรวจความสดของข้อมูล`
+        : "ยังไม่พบหลักฐานใหม่จาก LINE export",
+      { topic_id: topic.id, count: matchCount },
+    );
+    transitionJob(
+      job.id,
+      "verifying",
+      "กำลังตรวจ metadata ของหลักฐาน",
+      { topic_id: topic.id, count: matchCount },
+    );
+    attachEvidenceMetadata(job.id, {
+      source: "line_export",
+      source_ref: `active_topic:${topic.id}`,
+      fetched_at: nowUtc,
+      newest_at: evidence.newestAtUtc,
+      stale: evidence.staleCaveat,
+      capped: evidence.messages.length >= EVIDENCE_MAX_LINES,
+      partial: !evidence.available,
+      confidence: verdict.confidence,
+      limitations: evidence.available
+        ? ["export-based", "read-only", "message bodies omitted from job events"]
+        : ["line-disabled-or-unavailable", "export-based", "read-only"],
+      count: matchCount,
+    });
 
     if (
       evidence.available &&
@@ -283,6 +343,12 @@ export function runActiveTopicChecks(
         `จากเรื่องที่ให้ตามไว้ ตอนนี้ใน LINE export ล่าสุดมี ${matchCount} ` +
         `ข้อความใหม่เกี่ยวกับ "${topic.title}"\n${snippets}`;
 
+      transitionJob(
+        job.id,
+        "reporting",
+        "พบข้อมูลใหม่และกำลังส่งการแจ้งเตือน",
+        { topic_id: topic.id, count: matchCount, newest_at: newestAt },
+      );
       const inserted = insertNotificationWithDedupKey(
         "line.active_topic",
         sourceId,
@@ -300,14 +366,38 @@ export function runActiveTopicChecks(
           last_evidence_at: newestAt,
           last_summary: `${matchCount} new (export ${newestAt})`,
         });
+        markDone(job.id, `แจ้งเตือนข้อมูลใหม่ ${matchCount} รายการแล้ว`);
+        jobDone = true;
+      } else {
+        markDone(job.id, "หลักฐานนี้เคยแจ้งเตือนแล้ว");
+        jobDone = true;
       }
     }
 
     // id + counts + fired flag ONLY — never title/keywords/snippets/text.
+    if (!jobDone) {
+      transitionJob(
+        job.id,
+        "reporting",
+        "ยังไม่มีข้อมูลใหม่ที่มั่นใจพอจะแจ้งเตือน",
+        { topic_id: topic.id, count: matchCount, confidence: verdict.confidence },
+      );
+      markDone(job.id, "เช็กแล้ว ยังไม่มีข้อมูลใหม่ที่ต้องแจ้งเตือน");
+    }
+
     logActivity(
       "active_topic.checked",
       `id=${topic.id} matches=${matchCount} fired=${fired}`,
     );
+    } catch (err: unknown) {
+      const detail = err instanceof Error ? err.message : String(err);
+      try {
+        markFailed(job.id, detail);
+      } catch {
+        // keep original scheduler error path
+      }
+      throw err;
+    }
   }
 }
 
