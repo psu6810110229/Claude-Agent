@@ -38,6 +38,7 @@
     "smoke:scoped-rules": "npm run smoke:scoped-rules -w @claude-agent/backend",
     "smoke:active-job": "npm run smoke:active-job -w @claude-agent/backend",
     "smoke:worker-contract": "npm run smoke:worker-contract -w @claude-agent/backend",
+    "smoke:worker-verifier": "npm run smoke:worker-verifier -w @claude-agent/backend",
     "smoke:schedule-import": "npm run smoke:schedule-import -w @claude-agent/backend",
     "smoke:schedule-extract": "npm run smoke:schedule-extract -w @claude-agent/backend",
     "smoke:step15": "npm run smoke:step15 -w @claude-agent/backend",
