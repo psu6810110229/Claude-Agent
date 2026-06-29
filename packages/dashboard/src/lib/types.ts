@@ -678,6 +678,8 @@ export interface ChatResult {
   requestedProvider: AiProviderId | null;
   providerReason?: string;
   approvals: Approval[];
+  /** Gmail/Drive evidence previews read by the backend for this turn. */
+  sourcePreviews?: ChatSourcePreview[];
   /** Recent durable job milestones, sanitized for compact chat-native display. */
   jobProgress?: ActiveJobProgress[];
   /** Staged bulk Google Calendar add for review; null on ordinary turns. */
@@ -692,6 +694,36 @@ export interface ChatResult {
   /** Step 15: UX signal — "private" if user probed owner's private specifics. */
   sensitivity?: "private" | "normal";
 }
+
+export type ChatSourcePreview =
+  | {
+      kind: "gmail";
+      query: string;
+      status: "found" | "empty";
+      items: {
+        id: string;
+        from: string;
+        subject: string;
+        receivedAt: string;
+        preview: string;
+        truncated: boolean;
+      }[];
+    }
+  | {
+      kind: "drive";
+      query: string;
+      status: "found" | "empty";
+      items: {
+        id: string;
+        name: string;
+        mimeType: string;
+        webViewLink: string | null;
+        preview: string | null;
+        childNames: string[] | null;
+        truncated: boolean;
+        readable: boolean;
+      }[];
+    };
 
 /** Step 15 — POST /api/chat/verify response. */
 export type VerifyResult =

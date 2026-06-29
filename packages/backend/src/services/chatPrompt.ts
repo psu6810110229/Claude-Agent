@@ -139,7 +139,7 @@ export interface ChatContext {
   /** Prior conversation turns (oldest first), capped to CHAT_HISTORY_LIMIT. */
   history: { role: "user" | "assistant"; content: string }[];
   /**
-   * Step 17 — unread Gmail messages (capped at 5). Empty when Gmail is
+   * Step 17 — unread Gmail messages (capped by CHAT_GMAIL_UNREAD_CAP). Empty when Gmail is
    * disabled or unavailable. Never includes full body — snippet only.
    */
   gmailUnread: { id: string; from: string; subject: string; snippet: string }[];
@@ -158,6 +158,8 @@ export interface ChatContext {
         truncated: boolean;
       }[]
     | null;
+  /** Gmail search query used for gmailFocused. Null when no focused read ran. */
+  gmailFocusedQuery: string | null;
   /**
    * Step 18 — Google Contacts (capped at 50, name + primary email). Empty when
    * Contacts is disabled or unavailable. Used for email auto-completion when
@@ -173,7 +175,7 @@ export interface ChatContext {
    */
   contactsStatus: "disabled" | "empty" | "available" | "redacted";
   /**
-   * Step 19 — Recent Google Drive files (capped at 10, name + id + type).
+   * Step 19 — Recent Google Drive files (capped by CHAT_DRIVE_RECENT_CAP, name + id + type).
    * Empty when Drive is disabled or unavailable. Gives the AI awareness of
    * recently modified files so it can reference them by name.
    */
@@ -188,6 +190,7 @@ export interface ChatContext {
         id: string;
         name: string;
         mimeType: string;
+        webViewLink?: string | null;
         /** File body (capped). null for folders / unreadable files. */
         content: string | null;
         truncated: boolean;
@@ -195,6 +198,8 @@ export interface ChatContext {
         children: { id: string; name: string }[] | null;
       }[]
     | null;
+  /** Drive terms used for driveFocused. Empty when no focused read ran. */
+  driveFocusedTerms: string[];
   /**
    * Step 20 — recent LINE messages across all exported chats (read-only),
    * newest first, capped to LINE_CHAT_CONTEXT_CAP. Empty when LINE is disabled
@@ -1394,7 +1399,8 @@ ${
     ? ""
     : `
 GMAIL — FULL BODIES (loaded because you asked about email; the actual message
-text, not just the snippet. Answer ONLY from what these bodies ACTUALLY contain;
+text, not just the snippet. Focused Gmail search query: ${ctx.gmailFocusedQuery ?? "in:inbox"}.
+Answer ONLY from what these bodies ACTUALLY contain;
 never invent senders, dates, links, amounts, or content not present here. A body
 marked "(body truncated)" was cut for length — say so if the user needs the rest):
 ${gmailFocused}
@@ -1418,7 +1424,10 @@ ${
     : `
 GOOGLE DRIVE — DEEP SEARCH (loaded because you asked about a file/folder; this is
 a FRESH keyword search across ALL of Drive incl. OLD files and folders — NOT
-limited to the recent list above. A "FOLDER ... contains:" block lists that
+limited to the recent list above. Search terms: ${
+        ctx.driveFocusedTerms.length > 0 ? ctx.driveFocusedTerms.join(", ") : "(name match / no keyword)"
+      }.
+A "FOLDER ... contains:" block lists that
 folder's real children; a "content:" block is a file's actual text. Answer ONLY
 from what is shown; never invent files, items, dates, or numbers. "(content
 truncated)" = cut for length, say so if more is needed. If it says "(no matching

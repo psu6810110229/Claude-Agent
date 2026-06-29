@@ -457,6 +457,7 @@ function chatResultResponse(
       providerReason: resolved.selection.reason,
       approvals: result.approvals,
       calendarPlan: result.calendarPlan ?? null,
+      sourcePreviews: result.sourcePreviews ?? [],
       clarification: result.clarification,
       clarification_choices: result.clarificationChoices,
       notes: result.notes,

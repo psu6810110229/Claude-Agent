@@ -545,7 +545,7 @@ export const CHAT_GMAIL_FOCUSED_CAP = Number(
 
 /** Friday chat: per-message body char cap for focused Gmail reads. */
 export const CHAT_GMAIL_BODY_MAX_CHARS = Number(
-  process.env.CLAUDE_AGENT_CHAT_GMAIL_BODY_MAX_CHARS ?? 2000,
+  process.env.CLAUDE_AGENT_CHAT_GMAIL_BODY_MAX_CHARS ?? 4000,
 );
 
 /** Gmail OAuth scopes. Combined with Calendar scopes in google-auth. */
@@ -607,12 +607,12 @@ export const CHAT_DRIVE_RECENT_CAP = Number(
 
 /** Friday chat: max Drive files whose CONTENT is read on a file-read turn. */
 export const CHAT_DRIVE_FOCUSED_HITS = Number(
-  process.env.CLAUDE_AGENT_CHAT_DRIVE_FOCUSED_HITS ?? 2,
+  process.env.CLAUDE_AGENT_CHAT_DRIVE_FOCUSED_HITS ?? 3,
 );
 
 /** Friday chat: per-file content char cap injected for focused Drive reads. */
 export const CHAT_DRIVE_FOCUSED_CHARS = Number(
-  process.env.CLAUDE_AGENT_CHAT_DRIVE_FOCUSED_CHARS ?? 6000,
+  process.env.CLAUDE_AGENT_CHAT_DRIVE_FOCUSED_CHARS ?? 10000,
 );
 
 /** Drive OAuth scopes: read all files + create/upload files this app manages. */

@@ -124,6 +124,81 @@ function detectGmailReadIntent(message: string): boolean {
   return GMAIL_READ_MARKERS.some((k) => m.includes(k));
 }
 
+const GMAIL_QUERY_STOPWORDS = new Set([
+  ...GMAIL_READ_MARKERS,
+  "อ่าน", "ดู", "หา", "ค้นหา", "เช็ค", "ตรวจ", "ช่วย", "ให้", "หน่อย",
+  "ล่าสุด", "จาก", "เรื่อง", "เกี่ยวกับ", "มี", "ไหม", "อะไร", "บ้าง",
+  "read", "show", "find", "search", "check", "latest", "recent", "from",
+  "about", "subject", "the", "a", "an", "my", "me", "please",
+]);
+
+function extractSearchTerms(message: string, stopwords: Set<string>, cap = 6): string[] {
+  return Array.from(
+    new Set(
+      message
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}@._+\s-]/gu, " ")
+        .split(/\s+/)
+        .map((t) => t.trim())
+        .filter((t) => t.length >= 2 && t.length <= 30 && !stopwords.has(t)),
+    ),
+  ).slice(0, cap);
+}
+
+function gmailTerm(term: string): string {
+  const clean = term.replace(/["{}()[\]]/g, " ").trim();
+  if (!clean) return "";
+  return /\s/.test(clean) ? `"${clean}"` : clean;
+}
+
+function buildGmailFocusedQuery(
+  message: string,
+  contacts: { name: string; email?: string }[],
+): string {
+  const lower = message.toLowerCase();
+  const clauses = ["in:inbox"];
+
+  if (/(unread|ยังไม่อ่าน|ไม่ได้อ่าน|ยังไม่ได้อ่าน)/i.test(message)) {
+    clauses.push("is:unread");
+  }
+  if (/(วันนี้|today)/i.test(message)) clauses.push("newer_than:1d");
+  else if (/(สัปดาห์นี้|week|7\s*days?)/i.test(message)) clauses.push("newer_than:7d");
+  else if (/(เดือนนี้|month|30\s*days?)/i.test(message)) clauses.push("newer_than:30d");
+
+  const emails = Array.from(message.matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi))
+    .map((m) => m[0].toLowerCase())
+    .slice(0, 2);
+  for (const email of emails) clauses.push(`from:${email}`);
+
+  const matchedContact = contacts.find(
+    (c) =>
+      c.email &&
+      c.name.length >= 2 &&
+      lower.includes(c.name.toLowerCase()),
+  );
+  if (matchedContact?.email && !emails.includes(matchedContact.email.toLowerCase())) {
+    clauses.push(`from:${matchedContact.email}`);
+  }
+  const contactTokens = new Set(
+    matchedContact
+      ? matchedContact.name
+          .toLowerCase()
+          .split(/\s+/)
+          .map((t) => t.trim())
+          .filter((t) => t.length >= 2)
+      : [],
+  );
+
+  const terms = extractSearchTerms(message, GMAIL_QUERY_STOPWORDS, 5)
+    .filter((term) => !term.includes("@"))
+    .filter((term) => !contactTokens.has(term))
+    .map(gmailTerm)
+    .filter(Boolean);
+  clauses.push(...terms);
+
+  return clauses.join(" ");
+}
+
 const DRIVE_READ_MARKERS = [
   "ไดร์ฟ", "ไดรฟ์", "drive", "ไฟล์", "file", "เอกสาร", "document", "doc",
   "ชีท", "sheet", "สไลด์", "slide", "โฟลเดอร์", "folder", "รูป", "ภาพ",
@@ -137,14 +212,14 @@ function detectDriveReadIntent(message: string): boolean {
 /** Recent Drive files whose (extension-stripped) name appears in the message. */
 function matchDriveFilesByName(
   message: string,
-  files: { id: string; name: string; mimeType: string }[],
-): { id: string; name: string; mimeType: string }[] {
+  files: { id: string; name: string; mimeType: string; webViewLink?: string | null }[],
+): { id: string; name: string; mimeType: string; webViewLink?: string | null }[] {
   const m = message.toLowerCase();
-  const hits: { id: string; name: string; mimeType: string }[] = [];
+  const hits: { id: string; name: string; mimeType: string; webViewLink?: string | null }[] = [];
   for (const f of files) {
     const base = f.name.toLowerCase().replace(/\.[a-z0-9]{1,5}$/, "");
     if (base.length >= 3 && m.includes(base)) {
-      hits.push({ id: f.id, name: f.name, mimeType: f.mimeType });
+      hits.push({ id: f.id, name: f.name, mimeType: f.mimeType, webViewLink: f.webViewLink });
     }
   }
   return hits;
@@ -165,13 +240,42 @@ const DRIVE_STOPWORDS = new Set([
 // enough to be a real name/keyword (users typically space out the keyword, e.g.
 // "...คีย์เวิร์ด สักการะ"); drop glued phrases (> 20 chars) that are pure noise.
 function extractDriveKeywords(message: string): string[] {
-  return message
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter((t) => t.length >= 2 && t.length <= 20 && !DRIVE_STOPWORDS.has(t))
-    .slice(0, 6);
+  return extractSearchTerms(message, DRIVE_STOPWORDS, 6).filter((t) => t.length <= 20);
+}
+
+type DriveTarget = {
+  id: string;
+  name: string;
+  mimeType: string;
+  webViewLink?: string | null;
+};
+
+function driveNameBase(file: { name: string }): string {
+  return file.name.toLowerCase().replace(/\.[a-z0-9]{1,6}$/, "");
+}
+
+function scoreDriveFile(file: DriveTarget, terms: string[], message: string): number {
+  const lowerName = driveNameBase(file);
+  const lowerMessage = message.toLowerCase();
+  let score = 0;
+  if (lowerName.length >= 3 && lowerMessage.includes(lowerName)) score += 120;
+  for (const term of terms) {
+    if (lowerName.includes(term)) score += 45;
+    else if (file.name.toLowerCase().includes(term)) score += 25;
+  }
+  if (file.mimeType === DRIVE_FOLDER_MIME) score += 8;
+  return score;
+}
+
+function uniqueDriveTargets(files: DriveTarget[]): DriveTarget[] {
+  const seen = new Set<string>();
+  const out: DriveTarget[] = [];
+  for (const file of files) {
+    if (!file.id || seen.has(file.id)) continue;
+    seen.add(file.id);
+    out.push(file);
+  }
+  return out;
 }
 
 /**
@@ -200,8 +304,10 @@ export type ChatResult =
        * `calendar.bulk_create` action carrying many events). The dashboard renders
        * a review card from this; nothing is on the calendar until the user
        * approves the selected items. Absent for ordinary turns.
-       */
+      */
       calendarPlan?: { plan: CalendarPlan; items: CalendarPlanItem[] };
+      /** Deterministic source previews from Gmail/Drive evidence read this turn. */
+      sourcePreviews?: ChatSourcePreview[];
       clarification?: string;
       clarificationChoices?: string[];
       notes?: string;
@@ -214,6 +320,90 @@ export type ChatResult =
     }
   | { kind: "rejected"; message: string; detail?: string }
   | { kind: "failed"; reason: string; message: string; userMessage: string };
+
+export type ChatSourcePreview =
+  | {
+      kind: "gmail";
+      query: string;
+      status: "found" | "empty";
+      items: {
+        id: string;
+        from: string;
+        subject: string;
+        receivedAt: string;
+        preview: string;
+        truncated: boolean;
+      }[];
+    }
+  | {
+      kind: "drive";
+      query: string;
+      status: "found" | "empty";
+      items: {
+        id: string;
+        name: string;
+        mimeType: string;
+        webViewLink: string | null;
+        preview: string | null;
+        childNames: string[] | null;
+        truncated: boolean;
+        readable: boolean;
+      }[];
+    };
+
+function previewText(value: string, max = 260): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (compact.length <= max) return compact;
+  return `${compact.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+}
+
+function driveOpenLink(id: string, webViewLink?: string | null): string | null {
+  if (webViewLink) return webViewLink;
+  return id ? `https://drive.google.com/open?id=${encodeURIComponent(id)}` : null;
+}
+
+function buildChatSourcePreviews(ctx: ChatContext): ChatSourcePreview[] {
+  const previews: ChatSourcePreview[] = [];
+
+  if (ctx.gmailFocused !== null) {
+    previews.push({
+      kind: "gmail",
+      query: ctx.gmailFocusedQuery ?? "in:inbox",
+      status: ctx.gmailFocused.length > 0 ? "found" : "empty",
+      items: ctx.gmailFocused.slice(0, CHAT_GMAIL_FOCUSED_CAP).map((m) => ({
+        id: m.id,
+        from: m.from,
+        subject: m.subject,
+        receivedAt: m.receivedAt,
+        preview: previewText(m.body, 280),
+        truncated: m.truncated,
+      })),
+    });
+  }
+
+  if (ctx.driveFocused !== null) {
+    previews.push({
+      kind: "drive",
+      query:
+        ctx.driveFocusedTerms.length > 0
+          ? ctx.driveFocusedTerms.join(" ")
+          : "name match",
+      status: ctx.driveFocused.length > 0 ? "found" : "empty",
+      items: ctx.driveFocused.slice(0, CHAT_DRIVE_FOCUSED_HITS).map((f) => ({
+        id: f.id,
+        name: f.name,
+        mimeType: f.mimeType,
+        webViewLink: driveOpenLink(f.id, f.webViewLink),
+        preview: f.content ? previewText(f.content, 320) : null,
+        childNames: f.children ? f.children.slice(0, 8).map((c) => c.name) : null,
+        truncated: f.truncated,
+        readable: f.content !== null || f.children !== null,
+      })),
+    });
+  }
+
+  return previews.filter((preview) => preview.status === "found" || preview.items.length > 0);
+}
 
 /**
  * Build a TRUTHFUL, deterministic outcome message from the real dispatch
@@ -665,7 +855,7 @@ export async function buildChatContext(
     content: m.content,
   }));
 
-  // Step 17 — Gmail unread (capped at 5; fail gracefully when disabled/error).
+  // Step 17 — Gmail unread (capped by config; fail gracefully when disabled/error).
   let gmailUnread: ChatContext["gmailUnread"] = [];
   if (isGmailEnabled()) {
     try {
@@ -964,10 +1154,12 @@ export async function buildChatContext(
       history: [],
       gmailUnread: [],
       gmailFocused: null,
+      gmailFocusedQuery: null,
       contacts: [],
       contactsStatus: "redacted",
       recentDriveFiles: [],
       driveFocused: null,
+      driveFocusedTerms: [],
       lineChats: [],
       lineMessages: [],
       lineFocusedChat: null,
@@ -992,10 +1184,12 @@ export async function buildChatContext(
   // Friday deeper awareness (verified path only) — fetch FULL Gmail bodies on an
   // email-read turn so Friday answers from content, not just the snippet list.
   let gmailFocused: ChatContext["gmailFocused"] = null;
+  let gmailFocusedQuery: string | null = null;
   if (isGmailEnabled() && detectGmailReadIntent(message)) {
     try {
+      gmailFocusedQuery = buildGmailFocusedQuery(message, contacts);
       gmailFocused = await fetchGmailFullMessages(
-        "in:inbox",
+        gmailFocusedQuery,
         CHAT_GMAIL_FOCUSED_CAP,
         CHAT_GMAIL_BODY_MAX_CHARS,
       );
@@ -1009,26 +1203,38 @@ export async function buildChatContext(
   // OLD files + folders, no recency horizon). A folder → list its children; a
   // file → read content; an unreadable file → still surface its existence.
   let driveFocused: ChatContext["driveFocused"] = null;
+  let driveFocusedTerms: string[] = [];
   if (isDriveEnabled() && detectDriveReadIntent(message)) {
     driveFocused = [];
     try {
-      let targets: { id: string; name: string; mimeType: string }[] =
+      let targets: DriveTarget[] =
         matchDriveFilesByName(message, recentDriveFiles);
+      driveFocusedTerms = extractDriveKeywords(message);
       if (targets.length === 0) {
-        const terms = extractDriveKeywords(message);
-        const found = await searchDriveByKeywords(terms, 10);
-        // Rank name-matches ahead of fullText-only matches.
-        found.sort((a, b) => {
-          const am = terms.some((t) => a.name.toLowerCase().includes(t)) ? 0 : 1;
-          const bm = terms.some((t) => b.name.toLowerCase().includes(t)) ? 0 : 1;
-          return am - bm;
-        });
+        const found = await searchDriveByKeywords(driveFocusedTerms, 12);
         targets = found.map((f) => ({
           id: f.id,
           name: f.name,
           mimeType: f.mimeType,
+          webViewLink: f.webViewLink ?? null,
         }));
+      } else if (driveFocusedTerms.length > 0) {
+        const found = await searchDriveByKeywords(driveFocusedTerms, 12);
+        targets = uniqueDriveTargets([
+          ...targets,
+          ...found.map((f) => ({
+            id: f.id,
+            name: f.name,
+            mimeType: f.mimeType,
+            webViewLink: f.webViewLink ?? null,
+          })),
+        ]);
       }
+      targets = uniqueDriveTargets(targets).sort(
+        (a, b) =>
+          scoreDriveFile(b, driveFocusedTerms, message) -
+          scoreDriveFile(a, driveFocusedTerms, message),
+      );
       targets = targets.slice(0, CHAT_DRIVE_FOCUSED_HITS);
 
       for (const t of targets) {
@@ -1041,6 +1247,7 @@ export async function buildChatContext(
             id: t.id,
             name: t.name,
             mimeType: t.mimeType,
+            webViewLink: t.webViewLink ?? null,
             content: null,
             truncated: false,
             children,
@@ -1053,6 +1260,7 @@ export async function buildChatContext(
             id: t.id,
             name: doc.name,
             mimeType: t.mimeType,
+            webViewLink: t.webViewLink ?? null,
             content: doc.content.slice(0, CHAT_DRIVE_FOCUSED_CHARS),
             truncated:
               doc.truncated || doc.content.length > CHAT_DRIVE_FOCUSED_CHARS,
@@ -1064,6 +1272,7 @@ export async function buildChatContext(
             id: t.id,
             name: t.name,
             mimeType: t.mimeType,
+            webViewLink: t.webViewLink ?? null,
             content: null,
             truncated: false,
             children: null,
@@ -1089,10 +1298,12 @@ export async function buildChatContext(
     history,
     gmailUnread,
     gmailFocused,
+    gmailFocusedQuery,
     contacts,
     contactsStatus,
     recentDriveFiles,
     driveFocused,
+    driveFocusedTerms,
     lineChats,
     lineMessages,
     lineFocusedChat,
@@ -1331,6 +1542,7 @@ export async function runChat(
     resultSpoken: report?.spoken,
     approvals,
     calendarPlan,
+    sourcePreviews: buildChatSourcePreviews(ctx),
     clarification: check.data.clarification,
     clarificationChoices: check.data.clarification_choices,
     notes: check.data.notes,

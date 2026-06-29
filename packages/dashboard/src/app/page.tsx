@@ -19,6 +19,10 @@ import {
   Clock3,
   Copy,
   Database,
+  ExternalLink,
+  FileText,
+  Folder,
+  Mail,
   MessageCircle,
   RotateCcw,
 } from "lucide-react";
@@ -86,6 +90,7 @@ import {
   type BriefType,
   type ChatMessage,
   type ChatResult,
+  type ChatSourcePreview,
   type VerifyResult,
 } from "@/lib/types";
 
@@ -382,6 +387,9 @@ export default function HomePage() {
   const [messageJobProgress, setMessageJobProgress] = useState<
     Record<number, ActiveJobProgress[]>
   >({});
+  const [messageSourcePreviews, setMessageSourcePreviews] = useState<
+    Record<number, ChatSourcePreview[]>
+  >({});
   const [approvalMap, setApprovalMap] = useState<ApprovalMap>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -579,6 +587,18 @@ export default function HomePage() {
     setMessageJobProgress((prev) => ({
       ...prev,
       [messageId]: visibleJobs,
+    }));
+  }
+
+  function attachSourcePreviews(
+    messageId: number,
+    previews: ChatSourcePreview[] | undefined,
+  ) {
+    const visible = (previews ?? []).filter((preview) => preview.items.length > 0);
+    if (visible.length === 0) return;
+    setMessageSourcePreviews((prev) => ({
+      ...prev,
+      [messageId]: visible,
     }));
   }
 
@@ -870,6 +890,7 @@ export default function HomePage() {
             },
           }));
           attachJobProgress(freshAssistant.id, result.jobProgress);
+          attachSourcePreviews(freshAssistant.id, result.sourcePreviews);
         }
 
         const speechText = result.spoken ?? result.reply;
@@ -934,6 +955,7 @@ export default function HomePage() {
           },
         }));
         attachJobProgress(freshAssistant.id, result.jobProgress);
+        attachSourcePreviews(freshAssistant.id, result.sourcePreviews);
       }
       // Text is already revealed above; gate only the VOICE behind any playing
       // ack so the final answer never overlaps it (and cancel a pending long ack).
@@ -1236,6 +1258,8 @@ export default function HomePage() {
       setMessages([]);
       setMessageProvider({});
       setMessageMeta({});
+      setMessageSourcePreviews({});
+      setMessageJobProgress({});
       setActiveAttachmentIds([]);
       setPendingAttachments([]);
       setImportCard(null);
@@ -1318,6 +1342,7 @@ export default function HomePage() {
                 messageMeta={messageMeta}
                 messageThinking={messageThinking}
                 messageJobProgress={messageJobProgress}
+                messageSourcePreviews={messageSourcePreviews}
                 approvalMap={approvalMap}
                 approvalBusy={approvalBusy}
                 revealingMessageIds={revealingMessageIds}
@@ -1830,6 +1855,7 @@ function ChatMessageGroup({
   messageMeta,
   messageThinking,
   messageJobProgress,
+  messageSourcePreviews,
   approvalMap,
   approvalBusy,
   revealingMessageIds,
@@ -1848,6 +1874,7 @@ function ChatMessageGroup({
   messageMeta: Record<number, MessageMeta>;
   messageThinking: Record<number, string>;
   messageJobProgress: Record<number, ActiveJobProgress[]>;
+  messageSourcePreviews: Record<number, ChatSourcePreview[]>;
   approvalMap: ApprovalMap;
   approvalBusy: number | null;
   revealingMessageIds: Set<number>;
@@ -1867,7 +1894,11 @@ function ChatMessageGroup({
   const first = group.messages[0];
   const groupSources = mergeSourceHints(
     group.messages.flatMap((message) =>
-      inferSourceHints(message, parseActions(message.actions_json)),
+      inferSourceHints(
+        message,
+        parseActions(message.actions_json),
+        messageSourcePreviews[message.id],
+      ),
     ),
   );
   return (
@@ -1889,6 +1920,7 @@ function ChatMessageGroup({
             meta={messageMeta[msg.id]}
             thinking={messageThinking[msg.id]}
             jobProgress={messageJobProgress[msg.id]}
+            sourcePreviews={messageSourcePreviews[msg.id]}
             approvalBusy={approvalBusy}
             revealing={revealingMessageIds.has(msg.id)}
             onRevealDone={onRevealDone}
@@ -1976,6 +2008,95 @@ function compactChatJobProgress(
       return Number.isFinite(updated) && now - updated <= INLINE_JOB_WINDOW_MS;
     })
     .slice(0, 3);
+}
+
+function SourcePreviewPanel({ previews }: { previews: ChatSourcePreview[] }) {
+  return (
+    <div className="chat-source-previews" aria-label="หลักฐานจาก Gmail และ Drive">
+      {previews.map((preview) => {
+        const Icon = preview.kind === "gmail" ? Mail : Folder;
+        const title = preview.kind === "gmail" ? "Gmail ที่อ่านเจอ" : "ไฟล์ Drive ที่อ่านเจอ";
+        return (
+          <section className={`chat-source-preview ${preview.kind}`} key={preview.kind}>
+            <div className="chat-source-preview-head">
+              <span className="chat-source-preview-icon" aria-hidden="true">
+                <Icon strokeWidth={1.8} />
+              </span>
+              <div>
+                <strong>{title}</strong>
+                <span>{preview.query}</span>
+              </div>
+              <span className="chat-source-preview-count">
+                {preview.items.length} รายการ
+              </span>
+            </div>
+            <div className="chat-source-preview-list">
+              {preview.kind === "gmail"
+                ? preview.items.map((item) => (
+                    <article className="chat-source-item gmail" key={item.id}>
+                      <div className="chat-source-item-top">
+                        <strong>{item.subject || "(ไม่มีหัวข้อ)"}</strong>
+                        <span>{formatChatTs(item.receivedAt)}</span>
+                      </div>
+                      <div className="chat-source-item-meta">{formatMailSender(item.from)}</div>
+                      {item.preview && <p>{item.preview}</p>}
+                      {item.truncated && <span className="chat-source-note">ตัดให้สั้น</span>}
+                    </article>
+                  ))
+                : preview.items.map((item) => (
+                    <article className="chat-source-item drive" key={item.id}>
+                      <div className="chat-source-item-top">
+                        <span className="chat-source-file-icon" aria-hidden="true">
+                          {item.mimeType.includes("folder") ? (
+                            <Folder strokeWidth={1.8} />
+                          ) : (
+                            <FileText strokeWidth={1.8} />
+                          )}
+                        </span>
+                        <strong>{item.name}</strong>
+                        {item.webViewLink && (
+                          <a
+                            href={item.webViewLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            aria-label={`เปิด ${item.name} ใน Google Drive`}
+                          >
+                            <ExternalLink aria-hidden="true" strokeWidth={1.8} />
+                          </a>
+                        )}
+                      </div>
+                      <div className="chat-source-item-meta">
+                        {driveMimeLabel(item.mimeType)}
+                        {!item.readable ? " · อ่านเนื้อหาจากตรงนี้ไม่ได้" : ""}
+                      </div>
+                      {item.preview && <p>{item.preview}</p>}
+                      {item.childNames && item.childNames.length > 0 && (
+                        <p>มีไฟล์: {item.childNames.join(", ")}</p>
+                      )}
+                      {item.truncated && <span className="chat-source-note">ตัดให้สั้น</span>}
+                    </article>
+                  ))}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function formatMailSender(from: string): string {
+  const match = from.match(/^"?([^"<]+)"?\s*<?[^>]*>?$/);
+  return match?.[1]?.trim() || from || "ไม่ทราบผู้ส่ง";
+}
+
+function driveMimeLabel(mimeType: string): string {
+  if (mimeType.includes("google-apps.folder")) return "โฟลเดอร์";
+  if (mimeType.includes("google-apps.document")) return "Google Docs";
+  if (mimeType.includes("google-apps.spreadsheet")) return "Google Sheets";
+  if (mimeType.includes("google-apps.presentation")) return "Google Slides";
+  if (mimeType.includes("pdf")) return "PDF";
+  if (mimeType.startsWith("text/")) return "Text";
+  return mimeType.replace("application/vnd.google-apps.", "").replace("application/", "");
 }
 
 function JobProgressInline({ jobs }: { jobs: ActiveJobProgress[] }) {
@@ -2142,6 +2263,7 @@ function ChatBubble({
   meta,
   thinking,
   jobProgress,
+  sourcePreviews,
   approvalMap,
   approvalBusy,
   revealing,
@@ -2160,6 +2282,7 @@ function ChatBubble({
   meta?: MessageMeta;
   thinking?: string;
   jobProgress?: ActiveJobProgress[];
+  sourcePreviews?: ChatSourcePreview[];
   approvalMap: ApprovalMap;
   approvalBusy: number | null;
   revealing: boolean;
@@ -2327,6 +2450,9 @@ function ChatBubble({
                 reveal={revealing && !isUser}
                 onRevealDone={() => onRevealDone(msg.id)}
               />
+              {!isUser && sourcePreviews && sourcePreviews.length > 0 && (
+                <SourcePreviewPanel previews={sourcePreviews} />
+              )}
               {!isUser && jobProgress && jobProgress.length > 0 && (
                 <JobProgressInline jobs={jobProgress} />
               )}
@@ -2966,10 +3092,12 @@ function sanitizeHref(href: string): string | null {
   return null;
 }
 
-type SourceHint = "calendar" | "tasks" | "reminders" | "memory" | "chat";
+type SourceHint = "calendar" | "gmail" | "drive" | "tasks" | "reminders" | "memory" | "chat";
 
 const SOURCE_LABELS: Record<SourceHint, string> = {
   calendar: "ปฏิทิน",
+  gmail: "Gmail",
+  drive: "Drive",
   tasks: "งาน",
   reminders: "เตือนความจำ",
   memory: "ความจำ",
@@ -2978,6 +3106,8 @@ const SOURCE_LABELS: Record<SourceHint, string> = {
 
 const SOURCE_ICONS: Record<SourceHint, typeof CalendarDays> = {
   calendar: CalendarDays,
+  gmail: Mail,
+  drive: Folder,
   tasks: CheckSquare,
   reminders: Clock3,
   memory: Database,
@@ -3001,9 +3131,17 @@ function SourceHintList({ hints }: { hints: SourceHint[] }) {
   );
 }
 
-function inferSourceHints(message: ChatMessage, actions: ActionRef[]): SourceHint[] {
+function inferSourceHints(
+  message: ChatMessage,
+  actions: ActionRef[],
+  previews?: ChatSourcePreview[],
+): SourceHint[] {
   if (message.role === "user") return [];
   const hints = new Set<SourceHint>();
+  for (const preview of previews ?? []) {
+    if (preview.kind === "gmail") hints.add("gmail");
+    if (preview.kind === "drive") hints.add("drive");
+  }
   for (const action of actions) {
     if (action.action_type.includes("event")) hints.add("calendar");
     if (action.action_type.includes("task")) hints.add("tasks");
@@ -3013,6 +3151,8 @@ function inferSourceHints(message: ChatMessage, actions: ActionRef[]): SourceHin
 
   const content = message.content.toLowerCase();
   if (/\b(calendar|schedule|event|brief)\b/.test(content)) hints.add("calendar");
+  if (/\b(gmail|email|mail|inbox)\b|อีเมล|อีเมล์|เมล/.test(content)) hints.add("gmail");
+  if (/\b(drive|file|document|folder|sheet|slide)\b|ไดรฟ์|ไดร์ฟ|ไฟล์|เอกสาร/.test(content)) hints.add("drive");
   if (/\btask|todo\b/.test(content)) hints.add("tasks");
   if (/\breminder\b/.test(content)) hints.add("reminders");
   if (/\bmemory|preference|routine|project\b/.test(content)) hints.add("memory");
@@ -3021,7 +3161,7 @@ function inferSourceHints(message: ChatMessage, actions: ActionRef[]): SourceHin
 }
 
 function mergeSourceHints(hints: SourceHint[]): SourceHint[] {
-  const order: SourceHint[] = ["calendar", "tasks", "reminders", "memory", "chat"];
+  const order: SourceHint[] = ["calendar", "gmail", "drive", "tasks", "reminders", "memory", "chat"];
   const set = new Set(hints);
   return order.filter((hint) => set.has(hint)).slice(0, 3);
 }
