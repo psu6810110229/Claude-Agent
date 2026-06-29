@@ -17,10 +17,25 @@ export type ScheduleConstraintKind =
   /** A recurring weekly commitment that occupies time (e.g. a class block). */
   | "recurring_block";
 
+export type ScheduleConstraintDomain = "schedule" | "aquarium" | "general";
+
+export type ScheduleConstraintStatus = "active" | "inactive";
+
+export type ScheduleTargetTag =
+  | "schedule.event"
+  | "schedule.reminder"
+  | "aquarium.water_change";
+
 export interface ScheduleConstraint {
   kind: ScheduleConstraintKind;
   /** Short human label, e.g. "ตู้ปลา: ไฟ" or "เรียน". */
   label: string;
+  domain?: ScheduleConstraintDomain;
+  applies_to?: ScheduleTargetTag[];
+  status?: ScheduleConstraintStatus;
+  source_ref?: string;
+  provenance_created_at?: string | null;
+  provenance_updated_at?: string | null;
   /**
    * Bangkok weekdays this applies to (0 = Sunday … 6 = Saturday, matching JS
    * getUTCDay on the +7h-shifted instant). EMPTY = applies every day.

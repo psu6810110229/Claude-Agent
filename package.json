@@ -35,6 +35,7 @@
     "smoke:step25": "npm run smoke:step25 -w @claude-agent/backend",
     "smoke:step26": "npm run smoke:step26 -w @claude-agent/backend",
     "smoke:step27": "npm run smoke:step27 -w @claude-agent/backend",
+    "smoke:scoped-rules": "npm run smoke:scoped-rules -w @claude-agent/backend",
     "smoke:schedule-import": "npm run smoke:schedule-import -w @claude-agent/backend",
     "smoke:schedule-extract": "npm run smoke:schedule-extract -w @claude-agent/backend",
     "smoke:step15": "npm run smoke:step15 -w @claude-agent/backend",

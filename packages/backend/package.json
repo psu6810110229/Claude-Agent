@@ -41,6 +41,7 @@
     "smoke:step25": "tsx scripts/smoke-step25.ts",
     "smoke:step26": "tsx scripts/smoke-step26.ts",
     "smoke:step27": "tsx scripts/smoke-step27.ts",
+    "smoke:scoped-rules": "tsx scripts/smoke-scoped-rules.ts",
     "smoke:step28": "tsx scripts/smoke-step28.ts",
     "smoke:schedule-import": "tsx scripts/smoke-schedule-import.ts",
     "smoke:calendar-plan": "tsx scripts/smoke-calendar-plan.ts",

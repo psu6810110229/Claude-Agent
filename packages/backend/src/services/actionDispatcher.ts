@@ -25,6 +25,8 @@ import {
   AUTO_EXECUTE_ENABLED,
   AUTO_EXECUTE_DESTRUCTIVE_ENABLED,
 } from "../config.js";
+import type { ScheduleTargetTag } from "../schemas/scheduleConstraint.js";
+import { classifyProposedActionTarget } from "./scheduleTargetClassifier.js";
 
 /**
  * Whether auto-execute is on. A runtime DB override (Settings page, key
@@ -128,20 +130,24 @@ function extractProposedItem(
 }
 
 /** A proposed-time → constraint-violations checker (reads facts; pure thereafter). */
-export type ConstraintChecker = (item: ProposedItem) => ConstraintViolation[];
+export type ConstraintChecker = (
+  item: ProposedItem,
+  target: ScheduleTargetTag | null,
+) => ConstraintViolation[];
 
 /**
  * Default constraint checker: resolves the sticky tank/class constraints from
  * facts and tests the proposed time against them. FAILS CLOSED to `[]` (no hold,
  * unchanged behaviour) on any error so a fact/parse problem never blocks a write.
  */
-const defaultConstraintChecker: ConstraintChecker = (item) => {
+const defaultConstraintChecker: ConstraintChecker = (item, target) => {
   try {
     return findConstraintViolations(
       item,
       resolveScheduleConstraints(),
       new Date(),
       getSchedulePrefs(),
+      target,
     );
   } catch {
     return [];
@@ -244,8 +250,9 @@ export async function dispatchProposedAction(
     const item = extractProposedItem(actionType, payload);
     if (item) {
       const checker = opts.constraintChecker ?? defaultConstraintChecker;
+      const target = classifyProposedActionTarget(actionType, payload);
       try {
-        constraintViolations = checker(item);
+        constraintViolations = checker(item, target);
       } catch {
         constraintViolations = [];
       }
