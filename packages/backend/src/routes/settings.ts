@@ -12,7 +12,10 @@ import {
   isAutoExecuteEnabled,
   isAutoExecuteDestructiveEnabled,
 } from "../services/actionDispatcher.js";
-import { isSchedulerEnabled } from "../services/scheduler.js";
+import {
+  isActiveTopicTriageEnabled,
+  isSchedulerEnabled,
+} from "../services/scheduler.js";
 import { isDesktopNotificationsEnabled } from "../services/desktopNotifier.js";
 import { isTtsEnabled } from "../services/tts.js";
 import { isTtsSpeakerEnabled } from "../services/audioPlayer.js";
@@ -23,6 +26,7 @@ const TOGGLEABLE_KEYS = [
   "auto_execute",
   "auto_execute_destructive",
   "scheduler",
+  "active_topic_triage_enabled",
   "desktop_notifications",
   "tts",
   "tts_speaker",
@@ -44,8 +48,8 @@ function buildSettingsPayload() {
         enabled: isClaudeAiEnabled(),
         configured: true,
         description:
-          "Toggle the Claude reasoning runtime (chat, AI commands, briefs). " +
-          "Proposal-only — every write still goes through the approval queue.",
+          "เปิดหรือปิด runtime เหตุผลของ Claude สำหรับแชต คำสั่ง AI และบรีฟ " +
+          "ทุกงานเขียนยังต้องผ่านคิวอนุมัติเหมือนเดิม",
       },
       {
         key: "google_calendar",
@@ -53,66 +57,71 @@ function buildSettingsPayload() {
         enabled: isGoogleCalendarEnabled(),
         configured: isCredentialsConfigured(),
         description: isCredentialsConfigured()
-          ? "Toggle Google Calendar read + create/update/delete access."
-          : "Credentials not found. Run `npm run google-auth` first.",
+          ? "อ่าน Google Calendar และให้ Friday เสนอสร้าง แก้ไข หรือลบอีเวนต์ผ่านคิวอนุมัติ"
+          : "ยังไม่พบ credentials ให้รัน `npm run google-auth` ก่อน",
       },
       {
         key: "auto_execute",
-        label: "Auto-execute",
+        label: "ทำงานอัตโนมัติ",
         enabled: isAutoExecuteEnabled(),
         configured: true,
         description:
-          "Run reversible actions immediately (no approve click). Destructive " +
-          "actions (Google delete, archive, memory replace) still require confirm.",
+          "ให้รายการที่ย้อนกลับได้ทำงานทันทีโดยไม่ต้องกดอนุมัติ " +
+          "งานเสี่ยง เช่น ลบ Google, archive, หรือแทนที่ memory ยังต้องยืนยันก่อน",
       },
       {
         key: "auto_execute_destructive",
-        label: "Auto-execute Google delete",
+        label: "ลบ Google อัตโนมัติ",
         enabled: isAutoExecuteDestructiveEnabled(),
         configured: true,
         description:
-          "Also run Google Calendar delete/update immediately without confirm. " +
-          "Recoverable — each delete snapshots the event first so it can be " +
-          "restored. Archive + memory-replace still require confirm. " +
-          "Requires Auto-execute to be on.",
+          "ให้การแก้ไขหรือลบ Google Calendar ทำงานทันทีเมื่อเปิดทำงานอัตโนมัติ " +
+          "การลบจะเก็บ snapshot ไว้ก่อนเพื่อกู้คืนได้ ส่วน archive และ memory replace ยังต้องยืนยัน",
       },
       {
         key: "scheduler",
-        label: "Background scheduler",
+        label: "ตัวตั้งเวลาเบื้องหลัง",
         enabled: isSchedulerEnabled(),
         configured: true,
         description:
-          "Fires due reminders and soon-starting events as notifications. " +
-          "No Claude, no approval queue, no calendar writes — pure date math. " +
-          "Off by default.",
+          "แจ้งเตือน reminder ที่ถึงเวลาและอีเวนต์ที่ใกล้เริ่ม " +
+          "ไม่เรียก Claude ไม่เขียนปฏิทิน และไม่ข้ามคิวอนุมัติ",
+      },
+      {
+        key: "active_topic_triage_enabled",
+        label: "ติดตามหัวข้อจาก LINE",
+        enabled: isActiveTopicTriageEnabled(),
+        configured: true,
+        description:
+          "ให้ Friday เช็กหัวข้อที่ติดตามจาก LINE export เป็นรอบ ๆ แล้วแจ้งเมื่อมีหลักฐานใหม่ " +
+          "อ่านจากไฟล์ export เท่านั้น ไม่ส่งหรืออ่านข้อความใน LINE แทนคุณ",
       },
       {
         key: "desktop_notifications",
-        label: "Desktop notifications",
+        label: "แจ้งเตือนบนเดสก์ท็อป",
         enabled: isDesktopNotificationsEnabled(),
         configured: true,
         description:
-          "Windows desktop toasts for due reminders/events — works with the " +
-          "dashboard closed. Requires the background scheduler to be on.",
+          "แสดง toast ของ Windows สำหรับ reminder หรืออีเวนต์ แม้ปิด dashboard อยู่ " +
+          "ต้องเปิดตัวตั้งเวลาเบื้องหลังก่อน",
       },
       {
         key: "tts",
-        label: "Voice (TTS)",
+        label: "เสียงพูด (TTS)",
         enabled: isTtsEnabled(),
         configured: true,
         description:
-          "Speech synthesis (Friday voice). Enables spoken chat replies and the " +
-          "/api/tts endpoint. Uses the Microsoft Edge endpoint (needs internet); " +
-          "fail-soft to text. Off by default.",
+          "เปิดเสียงพูดของ Friday สำหรับคำตอบในแชตและ `/api/tts` " +
+          "ใช้ Microsoft Edge endpoint จึงต้องใช้อินเทอร์เน็ต และจะกลับเป็นข้อความถ้าเสียงไม่พร้อม",
       },
       {
         key: "tts_speaker",
-        label: "Speak notifications aloud",
+        label: "อ่านแจ้งเตือนออกลำโพง",
         enabled: isTtsSpeakerEnabled(),
         configured: true,
         description:
-          "Backend speaks due reminders/events on the PC speaker (works with the " +
-          "dashboard closed). Requires Voice (TTS) and the background scheduler to be on.",
+          "ให้ backend อ่าน reminder หรืออีเวนต์ผ่านลำโพงเครื่องนี้ แม้ปิด dashboard อยู่ " +
+          "ต้องเปิดเสียงพูดและตัวตั้งเวลาเบื้องหลังก่อน",
       },
     ],
   };
@@ -140,7 +149,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       if (enabled && !isCredentialsConfigured()) {
         return reply.code(400).send({
           error:
-            "Google Calendar credentials not found. Run `npm run google-auth` first.",
+            "ยังไม่พบ Google Calendar credentials ให้รัน `npm run google-auth` ก่อน",
         });
       }
       setConfigBool("google_calendar_enabled", enabled);
@@ -160,6 +169,10 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
 
     if (key === "scheduler") {
       setConfigBool("scheduler_enabled", enabled);
+    }
+
+    if (key === "active_topic_triage_enabled") {
+      setConfigBool("active_topic_triage_enabled", enabled);
     }
 
     if (key === "desktop_notifications") {

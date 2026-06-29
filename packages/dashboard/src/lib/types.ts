@@ -39,7 +39,8 @@ export type ActionType =
   | "fact.forget"
   | "gmail.draft"
   | "gmail.send"
-  | "line_followup.create";
+  | "line_followup.create"
+  | "active_topic.create";
 
 // --- Events & reminders (Step 9) ------------------------------------------
 
@@ -548,7 +549,11 @@ export type CommandResult =
 
 // --- Notifications (Step 11) ---------------------------------------------
 
-export type NotificationKind = "reminder.due" | "event.soon";
+export type NotificationKind =
+  | "reminder.due"
+  | "event.soon"
+  | "line.followup"
+  | "line.active_topic";
 export type NotificationStatus = "unread" | "read";
 
 export interface Notification {

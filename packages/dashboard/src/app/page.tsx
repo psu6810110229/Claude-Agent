@@ -78,6 +78,7 @@ import { useToast } from "@/components/ToastProvider";
 import {
   DEFAULT_GEMINI_MODEL,
   type ActionType,
+  type ActiveJobProgress,
   type AiProviderId,
   type ProviderChoice,
   type Approval,
@@ -378,6 +379,9 @@ export default function HomePage() {
     Record<number, AiProviderId>
   >({});
   const [messageMeta, setMessageMeta] = useState<Record<number, MessageMeta>>({});
+  const [messageJobProgress, setMessageJobProgress] = useState<
+    Record<number, ActiveJobProgress[]>
+  >({});
   const [approvalMap, setApprovalMap] = useState<ApprovalMap>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -567,6 +571,15 @@ export default function HomePage() {
     followupTimerRef.current = window.setTimeout(() => {
       void runFollowup();
     }, FOLLOWUP_IDLE_MS);
+  }
+
+  function attachJobProgress(messageId: number, jobs: ActiveJobProgress[] | undefined) {
+    const visibleJobs = compactChatJobProgress(jobs);
+    if (visibleJobs.length === 0) return;
+    setMessageJobProgress((prev) => ({
+      ...prev,
+      [messageId]: visibleJobs,
+    }));
   }
 
   // Idle proactive nudge. Fires once after the user stays quiet; never loops
@@ -856,6 +869,7 @@ export default function HomePage() {
               latencyMs,
             },
           }));
+          attachJobProgress(freshAssistant.id, result.jobProgress);
         }
 
         const speechText = result.spoken ?? result.reply;
@@ -919,6 +933,7 @@ export default function HomePage() {
             latencyMs,
           },
         }));
+        attachJobProgress(freshAssistant.id, result.jobProgress);
       }
       // Text is already revealed above; gate only the VOICE behind any playing
       // ack so the final answer never overlaps it (and cancel a pending long ack).
@@ -1302,6 +1317,7 @@ export default function HomePage() {
                 messageProvider={messageProvider}
                 messageMeta={messageMeta}
                 messageThinking={messageThinking}
+                messageJobProgress={messageJobProgress}
                 approvalMap={approvalMap}
                 approvalBusy={approvalBusy}
                 revealingMessageIds={revealingMessageIds}
@@ -1813,6 +1829,7 @@ function ChatMessageGroup({
   messageProvider,
   messageMeta,
   messageThinking,
+  messageJobProgress,
   approvalMap,
   approvalBusy,
   revealingMessageIds,
@@ -1830,6 +1847,7 @@ function ChatMessageGroup({
   messageProvider: Record<number, AiProviderId>;
   messageMeta: Record<number, MessageMeta>;
   messageThinking: Record<number, string>;
+  messageJobProgress: Record<number, ActiveJobProgress[]>;
   approvalMap: ApprovalMap;
   approvalBusy: number | null;
   revealingMessageIds: Set<number>;
@@ -1870,6 +1888,7 @@ function ChatMessageGroup({
             approvalMap={approvalMap}
             meta={messageMeta[msg.id]}
             thinking={messageThinking[msg.id]}
+            jobProgress={messageJobProgress[msg.id]}
             approvalBusy={approvalBusy}
             revealing={revealingMessageIds.has(msg.id)}
             onRevealDone={onRevealDone}
@@ -1925,6 +1944,196 @@ function BubbleThinking({
   );
 }
 
+const INLINE_JOB_WINDOW_MS = 30 * 60 * 1000;
+
+const ACTIVE_JOB_STATUS_LABELS: Record<ActiveJobProgress["status"], string> = {
+  queued: "รอเริ่ม",
+  understanding: "กำลังทำความเข้าใจ",
+  searching: "กำลังค้นหา",
+  verifying: "กำลังตรวจสอบ",
+  needs_user: "รอคำตอบจากคุณ",
+  reporting: "กำลังสรุป",
+  done: "เสร็จแล้ว",
+  failed: "ไม่สำเร็จ",
+  cancelled: "ยกเลิกแล้ว",
+};
+
+const TERMINAL_JOB_STATUSES = new Set<ActiveJobProgress["status"]>([
+  "done",
+  "failed",
+  "cancelled",
+]);
+
+function compactChatJobProgress(
+  jobs: ActiveJobProgress[] | undefined,
+): ActiveJobProgress[] {
+  if (!jobs || jobs.length === 0) return [];
+  const now = Date.now();
+  return jobs
+    .filter((job) => {
+      if (!TERMINAL_JOB_STATUSES.has(job.status)) return true;
+      const updated = new Date(job.updated_at).getTime();
+      return Number.isFinite(updated) && now - updated <= INLINE_JOB_WINDOW_MS;
+    })
+    .slice(0, 3);
+}
+
+function JobProgressInline({ jobs }: { jobs: ActiveJobProgress[] }) {
+  const [selectedJob, setSelectedJob] = useState<ActiveJobProgress | null>(null);
+
+  return (
+    <div className="chat-job-progress" aria-label="ความคืบหน้างาน">
+      <div className="chat-job-progress-head">
+        <span>งานที่ Friday กำลังติดตาม</span>
+        <span>{jobs.length} รายการ</span>
+      </div>
+      <div className="chat-job-list">
+        {jobs.map((job) => {
+          const latest = latestJobMilestone(job);
+          return (
+            <div className="chat-job-row" key={job.job_id}>
+              <div className="chat-job-row-main">
+                <span className={`chat-job-status ${job.status}`}>
+                  {ACTIVE_JOB_STATUS_LABELS[job.status]}
+                </span>
+                <strong>{job.title}</strong>
+                <span>{latest?.message ?? job.result_summary ?? job.error ?? "ยังไม่มีความคืบหน้าใหม่"}</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedJob(job)}
+              >
+                รายละเอียด
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+      <Sheet
+        open={selectedJob !== null}
+        onClose={() => setSelectedJob(null)}
+        side="right"
+        size="md"
+        title="รายละเอียดงาน"
+        className="active-work-sheet"
+      >
+        {selectedJob && <ActiveJobDetail job={selectedJob} />}
+      </Sheet>
+    </div>
+  );
+}
+
+function ActiveJobDetail({
+  job,
+}: {
+  job: ActiveJobProgress;
+}) {
+  const evidenceRows = buildEvidenceRows(job);
+  return (
+    <div className="active-work-detail">
+      <div className="active-work-summary">
+        <span className={`chat-job-status ${job.status}`}>
+          {ACTIVE_JOB_STATUS_LABELS[job.status]}
+        </span>
+        <h3>{job.title}</h3>
+        <p>{job.result_summary ?? job.error ?? latestJobMilestone(job)?.message ?? "ยังไม่มีรายงานสุดท้าย"}</p>
+      </div>
+
+      <section className="active-work-section">
+        <h4>ความคืบหน้า</h4>
+        {job.milestones.length === 0 ? (
+          <p className="active-work-empty">ยังไม่มี milestone</p>
+        ) : (
+          <ol className="active-work-events">
+            {job.milestones.map((event) => (
+              <li key={event.id}>
+                <span>{formatChatTs(event.created_at)}</span>
+                <strong>{ACTIVE_JOB_STATUS_LABELS[event.status]}</strong>
+                <p>{event.message}</p>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+
+      <section className="active-work-section">
+        <h4>หลักฐานและแหล่งข้อมูล</h4>
+        {evidenceRows.length === 0 ? (
+          <p className="active-work-empty">ยังไม่มี metadata หลักฐาน</p>
+        ) : (
+          <dl className="active-work-evidence">
+            {evidenceRows.map((row) => (
+              <div key={row.label}>
+                <dt>{row.label}</dt>
+                <dd>{row.value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function latestJobMilestone(
+  job: ActiveJobProgress,
+): ActiveJobProgress["milestones"][number] | undefined {
+  return job.milestones[job.milestones.length - 1];
+}
+
+function buildEvidenceRows(job: ActiveJobProgress): { label: string; value: string }[] {
+  const evidence = asJobRecord(job.evidence);
+  const source = stringFromUnknown(evidence?.source) ?? job.source;
+  const sourceRef = stringFromUnknown(evidence?.source_ref) ?? job.source_ref;
+  const fetchedAt = stringFromUnknown(evidence?.fetched_at);
+  const newestAt = stringFromUnknown(evidence?.newest_at);
+  const confidence = stringFromUnknown(evidence?.confidence);
+  const count = numberFromUnknown(evidence?.count);
+  const limitations = stringArrayFromUnknown(evidence?.limitations);
+  const caveats = [
+    boolFromUnknown(evidence?.stale) ? "ข้อมูลอาจเก่า" : null,
+    boolFromUnknown(evidence?.capped) ? "ถูกตัดให้สั้น" : null,
+    boolFromUnknown(evidence?.partial) ? "หลักฐานบางส่วน" : null,
+  ].filter((item): item is string => Boolean(item));
+
+  return [
+    source ? { label: "แหล่งข้อมูล", value: source } : null,
+    sourceRef ? { label: "อ้างอิง", value: sourceRef } : null,
+    fetchedAt ? { label: "ดึงข้อมูลเมื่อ", value: formatChatTs(fetchedAt) } : null,
+    newestAt ? { label: "ข้อมูลล่าสุด", value: formatChatTs(newestAt) } : null,
+    typeof count === "number" ? { label: "จำนวนหลักฐาน", value: String(count) } : null,
+    confidence ? { label: "ความมั่นใจ", value: confidence } : null,
+    caveats.length > 0 ? { label: "ข้อจำกัด", value: caveats.join(", ") } : null,
+    limitations.length > 0 ? { label: "หมายเหตุ", value: limitations.join(", ") } : null,
+  ].filter((row): row is { label: string; value: string } => row !== null);
+}
+
+function asJobRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function stringFromUnknown(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function numberFromUnknown(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function boolFromUnknown(value: unknown): boolean {
+  return value === true;
+}
+
+function stringArrayFromUnknown(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item): item is string => typeof item === "string" && item.trim().length > 0,
+  );
+}
+
 function ChatBubble({
   msg,
   groupedIndex,
@@ -1932,6 +2141,7 @@ function ChatBubble({
   reduceMotion,
   meta,
   thinking,
+  jobProgress,
   approvalMap,
   approvalBusy,
   revealing,
@@ -1949,6 +2159,7 @@ function ChatBubble({
   reduceMotion: boolean;
   meta?: MessageMeta;
   thinking?: string;
+  jobProgress?: ActiveJobProgress[];
   approvalMap: ApprovalMap;
   approvalBusy: number | null;
   revealing: boolean;
@@ -2116,6 +2327,9 @@ function ChatBubble({
                 reveal={revealing && !isUser}
                 onRevealDone={() => onRevealDone(msg.id)}
               />
+              {!isUser && jobProgress && jobProgress.length > 0 && (
+                <JobProgressInline jobs={jobProgress} />
+              )}
               {actions.length > 0 && (
                 <div className="chat-approval-stack">
                   {actions.map((action, i) => (

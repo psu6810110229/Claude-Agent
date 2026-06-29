@@ -37,6 +37,32 @@ const DROPDOWN_WIDTH = 300;
 
 const POLL_INTERVAL_MS = 30_000;
 
+const NOTIFICATION_DISPLAY: Record<
+  Notification["kind"],
+  { label: string; tagClass: string; toastKind: "info" | "warning" }
+> = {
+  "reminder.due": {
+    label: "ถึงเวลา",
+    tagClass: "due",
+    toastKind: "warning",
+  },
+  "event.soon": {
+    label: "ใกล้ถึง",
+    tagClass: "soon",
+    toastKind: "info",
+  },
+  "line.followup": {
+    label: "ผลเช็ก LINE",
+    tagClass: "line",
+    toastKind: "info",
+  },
+  "line.active_topic": {
+    label: "มีความเคลื่อนไหว",
+    tagClass: "active-topic",
+    toastKind: "info",
+  },
+};
+
 function BellIcon({ hasBadge }: { hasBadge: boolean }) {
   return (
     <span className="notif-bell" aria-hidden="true">
@@ -108,7 +134,7 @@ export function NotificationCenter() {
       toast({
         title: n.title,
         description: n.body ?? undefined,
-        kind: n.kind === "reminder.due" ? "warning" : "info",
+        kind: NOTIFICATION_DISPLAY[n.kind]?.toastKind ?? "info",
       });
       // 2. in-browser voice so remote devices hear it too. Fire-and-forget;
       //    speak() is a no-op when TTS is disabled and never throws.
@@ -249,9 +275,9 @@ export function NotificationCenter() {
               {notifications.map((n) => (
                 <li key={n.id} className="notif-item">
                   <span
-                    className={`notif-tag${n.kind === "reminder.due" ? " due" : ""}`}
+                    className={`notif-tag ${NOTIFICATION_DISPLAY[n.kind]?.tagClass ?? "soon"}`}
                   >
-                    {n.kind === "reminder.due" ? "ถึงกำหนด" : "ใกล้ถึง"}
+                    {NOTIFICATION_DISPLAY[n.kind]?.label ?? "แจ้งเตือน"}
                   </span>
                   <div className="notif-item-body">
                     <div className="notif-title">{n.title}</div>
