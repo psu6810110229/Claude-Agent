@@ -14,6 +14,10 @@ import {
 import { fetchUnreadGmailMessages } from "./gmail.js";
 import { searchDriveFiles } from "./googleDrive.js";
 import { getRecentLineMessages, searchLineMessages } from "./lineChat.js";
+import {
+  runWebResearchWorker,
+  type WebResearchWorkerDeps,
+} from "./webResearchWorker.js";
 
 const DEFAULT_LIMIT = 10;
 
@@ -30,6 +34,7 @@ export interface ReadOnlyWorkerDeps {
     query: string | undefined,
     limit: number,
   ) => Promise<Array<LineMessage & { chat: string }>>;
+  webResearch?: WebResearchWorkerDeps;
 }
 
 function isoNow(deps?: ReadOnlyWorkerDeps): string {
@@ -218,7 +223,14 @@ export async function runBackendReadWorker(
       return runDriveWorker(input, deps);
     case "line_export":
       return runLineWorker(input, deps);
-    case "web":
+    case "web": {
+      const web = await runWebResearchWorker(input, {
+        now: deps?.webResearch?.now ?? deps?.now,
+        search: deps?.webResearch?.search,
+        fetchUrl: deps?.webResearch?.fetchUrl,
+      });
+      return web.bundle;
+    }
     case "local_file":
       throw new Error(`backend read worker does not handle ${input.source}`);
   }

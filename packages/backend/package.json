@@ -46,6 +46,7 @@
     "smoke:worker-contract": "tsx scripts/smoke-worker-contract.ts",
     "smoke:worker-verifier": "tsx scripts/smoke-worker-verifier.ts",
     "smoke:read-workers": "tsx scripts/smoke-read-workers.ts",
+    "smoke:web-research-worker": "tsx scripts/smoke-web-research-worker.ts",
     "smoke:step28": "tsx scripts/smoke-step28.ts",
     "smoke:schedule-import": "tsx scripts/smoke-schedule-import.ts",
     "smoke:calendar-plan": "tsx scripts/smoke-calendar-plan.ts",
