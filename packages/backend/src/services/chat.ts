@@ -1134,8 +1134,13 @@ export async function buildChatContext(
   // focused search below (so a short follow-up like "มีกี่รูป" answers from the
   // bound scope instead of re-searching and drifting to a different set).
   const referenceDecision = resolveReference(message, { recentScopes: recentEvidenceScopes });
-  const reusesSource = (source: ReferenceDecision["selected_source"]): boolean =>
-    referenceDecision.kind === "reuse_scope" &&
+  // Suppress the matching fresh focused search when this turn either reuses a
+  // bound scope OR is ambiguous between several scopes of that source. In both
+  // cases a new search would drift away from the evidence the user is referring
+  // to (Sprint 4 — clarify must not silently re-search and pick a wrong set).
+  const suppressesSource = (source: ReferenceDecision["selected_source"]): boolean =>
+    (referenceDecision.kind === "reuse_scope" ||
+      referenceDecision.kind === "clarify") &&
     referenceDecision.selected_source === source;
 
   // Step 17 — Gmail unread (capped by config; fail gracefully when disabled/error).
@@ -1472,7 +1477,7 @@ export async function buildChatContext(
   // email-read turn so Friday answers from content, not just the snippet list.
   let gmailFocused: ChatContext["gmailFocused"] = null;
   let gmailFocusedQuery: string | null = null;
-  if (isGmailEnabled() && detectGmailReadIntent(message) && !reusesSource("gmail")) {
+  if (isGmailEnabled() && detectGmailReadIntent(message) && !suppressesSource("gmail")) {
     try {
       gmailFocusedQuery = buildGmailFocusedQuery(message, contacts);
       gmailFocused = await fetchGmailFullMessages(
@@ -1492,7 +1497,7 @@ export async function buildChatContext(
   let driveFocused: ChatContext["driveFocused"] = null;
   let driveFocusedTotal = 0;
   let driveFocusedTerms: string[] = [];
-  if (isDriveEnabled() && detectDriveReadIntent(message) && !reusesSource("google_drive")) {
+  if (isDriveEnabled() && detectDriveReadIntent(message) && !suppressesSource("google_drive")) {
     driveFocused = [];
     try {
       let targets: DriveTarget[] =

@@ -90,6 +90,11 @@ async function main(): Promise<void> {
   });
   assert(d8.kind === "clarify", "two same-source scopes → clarify");
   assert((d8.candidate_scope_ids?.length ?? 0) === 2, "clarify carries both candidate ids");
+  assert(d8.confidence === "low", "clarify is low confidence");
+  assert(
+    d8.limitations.includes("Trip photos") && d8.limitations.includes("Old album"),
+    "clarify exposes evidence-based option labels",
+  );
 
   // --- 9. Named source never retrieved → fresh_search (source_mismatch) ---
   const d9 = resolveReference("เมลกี่ฉบับ", { recentScopes: [driveFolder] });
