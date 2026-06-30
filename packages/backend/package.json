@@ -55,6 +55,7 @@
     "smoke:step28": "tsx scripts/smoke-step28.ts",
     "smoke:schedule-import": "tsx scripts/smoke-schedule-import.ts",
     "smoke:calendar-plan": "tsx scripts/smoke-calendar-plan.ts",
+    "smoke:class-matcher": "tsx scripts/smoke-class-matcher.ts",
     "smoke:schedule-extract": "tsx scripts/smoke-schedule-extract.ts",
     "smoke:persona": "tsx scripts/smoke-persona.ts"
   },
