@@ -159,16 +159,181 @@ function checkScopeMetadata(scopes: readonly EvidenceScope[]): ConsistencyFindin
   return findings;
 }
 
+// --- Sprint 2: count + preview consistency -----------------------------------
+
+/** Counter words → the source a numbered claim is about. Drive/Gmail/LINE. */
+const COUNT_WORD_SOURCE: { source: EvidenceScope["source"]; words: string[] }[] = [
+  {
+    source: "google_drive",
+    words: ["รูป", "ภาพ", "ไฟล์", "เอกสาร", "โฟลเดอร์", "file", "files", "image", "images", "photo", "photos", "doc", "docs"],
+  },
+  {
+    source: "gmail",
+    words: ["เมล", "อีเมล", "ฉบับ", "mail", "email", "emails"],
+  },
+  {
+    source: "line_export",
+    words: ["ข้อความ", "แชท", "message", "messages", "chat"],
+  },
+];
+
+const THAI_DIGITS: Record<string, string> = {
+  "๐": "0", "๑": "1", "๒": "2", "๓": "3", "๔": "4",
+  "๕": "5", "๖": "6", "๗": "7", "๘": "8", "๙": "9",
+};
+
+function normalizeDigits(value: string): string {
+  return value.replace(/[๐-๙]/g, (d) => THAI_DIGITS[d] ?? d);
+}
+
+interface CountClaim {
+  value: number;
+  /** Source the counter word names, or null when generic (อัน/รายการ). */
+  source: EvidenceScope["source"] | null;
+}
+
+/**
+ * Extract explicit "<number> <counter>" claims from the answer (e.g. "5 รูป",
+ * "12 ฉบับ", "3 files"). Conservative: only number+counter adjacency, Thai or
+ * Arabic digits. Generic counters (อัน/รายการ/item) carry a null source so they
+ * compare against whatever single scope exists. Metadata only — no body parsing.
+ */
+export function extractCountClaims(answer: string): CountClaim[] {
+  const text = normalizeDigits(answer.toLowerCase());
+  const out: CountClaim[] = [];
+  // number, optional spaces, then a counter word. The word class includes
+  // combining marks (\p{M}) so Thai vowel signs (e.g. ู in "รูป") don't truncate
+  // the token to its first consonant.
+  const re = /(\d{1,6})\s*([\p{L}\p{M}]+)/gu;
+  for (const match of text.matchAll(re)) {
+    const value = Number.parseInt(match[1], 10);
+    if (!Number.isFinite(value)) continue;
+    const word = match[2];
+    let source: EvidenceScope["source"] | null = null;
+    let matched = false;
+    for (const { source: s, words } of COUNT_WORD_SOURCE) {
+      if (words.some((w) => word.startsWith(w) || word.includes(w))) {
+        source = s;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      // generic counters that still denote "items in the set"
+      if (!/^(อัน|ราย|รายการ|item|items|result|results)/.test(word)) continue;
+    }
+    out.push({ value, source });
+  }
+  return out;
+}
+
+interface AuthoritativeCount {
+  source: EvidenceScope["source"];
+  scopeId: string;
+  /** True total before the preview cap. */
+  total: number;
+  /** How many ids are actually held/previewable. */
+  shown: number;
+  /** A limitation already explains the overflow (preview shows N of M). */
+  overflowExplained: boolean;
+}
+
+function authoritativeCounts(scopes: readonly EvidenceScope[]): AuthoritativeCount[] {
+  return scopes.map((s) => {
+    const shown = s.item_ids.length;
+    const total = typeof s.total_count === "number" ? s.total_count : shown;
+    const overflowExplained = s.limitations.some((l) => /\bof\b|\/|จาก|ทั้งหมด/.test(l));
+    return { source: s.source, scopeId: s.id, total, shown, overflowExplained };
+  });
+}
+
+/**
+ * Sprint 2 — the answer's stated counts, the preview total, and the evidence
+ * count must describe one set. This is the audit's headline case: the answer
+ * says 5 but the preview ships 30 with nothing explaining the gap.
+ *
+ *  - claim > authoritative total → BLOCK. The answer asserts more items than the
+ *    evidence holds; that is a fabricated count, not a repairable display glitch.
+ *  - claim < total with the overflow UNEXPLAINED → repairable. The answer is about
+ *    a smaller set than the preview advertises; clamp the preview to the evidence
+ *    (or add an explicit "N of M") rather than show a larger, different set.
+ *  - claim within {shown, total} or overflow explained → consistent.
+ */
+function checkCountPreview(input: ConsistencyInput): ConsistencyFinding[] {
+  const findings: ConsistencyFinding[] = [];
+  const counts = authoritativeCounts(input.scopes);
+  if (counts.length === 0) return findings;
+
+  for (const claim of extractCountClaims(input.answer)) {
+    const targets = claim.source
+      ? counts.filter((c) => c.source === claim.source)
+      : counts;
+    // Only judge an unambiguous comparison: exactly one candidate evidence set.
+    if (targets.length !== 1) continue;
+    const t = targets[0];
+
+    if (claim.value > t.total) {
+      findings.push({
+        code: "count_vs_evidence_mismatch",
+        status: "block",
+        detail: `answer claims ${claim.value} but scope "${t.scopeId}" holds ${t.total}`,
+      });
+      continue;
+    }
+    if (claim.value === t.total) continue; // answer == true total → consistent
+    // claim < total. Fine ONLY when it is the shown subset AND a limitation
+    // explains the gap ("preview shows 5 of 30"). Otherwise the preview will
+    // render the larger total and contradict the answer → repair the preview.
+    if (claim.value === t.shown && t.overflowExplained) continue;
+    findings.push({
+      code: "preview_overflow_unexplained",
+      status: "repairable",
+      detail: `answer claims ${claim.value} but preview total is ${t.total} for "${t.scopeId}" (overflow unexplained)`,
+    });
+  }
+
+  return findings;
+}
+
+/**
+ * Deterministic repair for `preview_overflow_unexplained` / inflated totals:
+ * clamp each Drive preview's `totalItems` to the authoritative evidence count for
+ * its source (and never below the items it actually shows). The evidence scope is
+ * built from the SAME aligned preview the answer uses, so it is the source of
+ * truth; a larger `totalItems` is the "+26" inflation the audit found. Returns a
+ * new array; inputs untouched. Pure.
+ */
+export function repairPreviewCounts(
+  previews: readonly ChatSourcePreview[],
+  scopes: readonly EvidenceScope[],
+): ChatSourcePreview[] {
+  const totalBySource = new Map<EvidenceScope["source"], number>();
+  for (const c of authoritativeCounts(scopes)) {
+    // If several scopes share a source, keep the largest authoritative total.
+    totalBySource.set(c.source, Math.max(totalBySource.get(c.source) ?? 0, c.total));
+  }
+  return previews.map((preview) => {
+    if (preview.kind !== "drive") return preview;
+    const authoritative = totalBySource.get("google_drive");
+    if (authoritative === undefined) return preview;
+    const current = preview.totalItems ?? preview.items.length;
+    const clamped = Math.max(preview.items.length, Math.min(current, authoritative));
+    if (clamped === current) return preview;
+    return { ...preview, totalItems: clamped };
+  });
+}
+
 /**
  * Verify that one turn's answer, previews, evidence scopes, and proposed actions
  * describe a single consistent evidence set. The single gate the chat pipeline
  * consults before returning a reply.
  *
- * Sprint 1 runs scope metadata invariants only. Later sprints append count/
- * preview, cross-source, and action-proposal findings to the same list.
+ * Sprint 1 — scope metadata invariants. Sprint 2 — count/preview consistency.
+ * Later sprints append cross-source and action-proposal findings to the same list.
  */
 export function verifyTurnConsistency(input: ConsistencyInput): ConsistencyVerdict {
   const findings: ConsistencyFinding[] = [];
   findings.push(...checkScopeMetadata(input.scopes));
+  findings.push(...checkCountPreview(input));
   return decide(findings);
 }
