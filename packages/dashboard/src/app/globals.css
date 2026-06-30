@@ -2619,8 +2619,9 @@ pre.payload {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  flex: 1 1 0;
   min-width: 0;
-  width: 100%;
+  width: auto;
   max-width: 100%;
 }
 
@@ -2632,6 +2633,7 @@ pre.payload {
   position: relative;
   width: fit-content;
   max-width: 92%;
+  min-width: 0;
 }
 
 .chat-bubble-frame.assistant {
@@ -2676,6 +2678,7 @@ pre.payload {
   align-self: flex-start;
   width: fit-content;
   max-width: 100%;
+  min-width: 0;
   border-bottom-left-radius: 8px;
   background: rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(22px) saturate(140%);
@@ -2683,6 +2686,10 @@ pre.payload {
   box-shadow: var(--shadow-soft), var(--inner-light);
   color: var(--muted-strong);
   padding: 12px 14px 13px;
+}
+
+.chat-bubble.assistant:has(.chat-source-previews) {
+  width: min(100%, 860px);
 }
 
 .chat-role-label {
@@ -3085,12 +3092,15 @@ pre.payload {
   display: grid;
   gap: 10px;
   margin-top: 12px;
-  width: min(100%, 760px);
+  width: 100%;
+  max-width: 760px;
+  min-width: 0;
 }
 
 .chat-source-preview {
   display: grid;
   gap: 10px;
+  min-width: 0;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.055);
   box-shadow: var(--inner-light);
@@ -3162,13 +3172,15 @@ pre.payload {
 
 .chat-source-preview-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   gap: 8px;
+  min-width: 0;
 }
 
 .chat-source-item {
   display: grid;
   gap: 6px;
+  align-content: start;
   min-width: 0;
   border-radius: 12px;
   background: rgba(0, 0, 0, 0.18);
@@ -3210,6 +3222,72 @@ pre.payload {
   height: 15px;
 }
 
+.chat-source-visual {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  overflow: hidden;
+  aspect-ratio: 16 / 10;
+  border-radius: 10px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.025)),
+    rgba(0, 0, 0, 0.22);
+  box-shadow: var(--inner-light);
+}
+
+.chat-source-visual.image {
+  background:
+    linear-gradient(145deg, rgba(10, 132, 255, 0.16), rgba(139, 92, 246, 0.08)),
+    rgba(0, 0, 0, 0.24);
+}
+
+.chat-source-visual.pdf {
+  background:
+    linear-gradient(145deg, rgba(255, 207, 102, 0.13), rgba(255, 255, 255, 0.035)),
+    rgba(0, 0, 0, 0.22);
+}
+
+.chat-source-visual > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.chat-source-visual.is-missing::after {
+  content: "Preview unavailable";
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  letter-spacing: 0;
+}
+
+.chat-source-file-art {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  color: var(--muted-strong);
+}
+
+.chat-source-file-art svg,
+.chat-source-file-art img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  opacity: 0.9;
+}
+
+.chat-source-file-art span {
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.075);
+  box-shadow: var(--inner-light);
+  color: var(--muted-strong);
+  padding: 5px 9px;
+  font-size: 10px;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0;
+  line-height: 1;
+}
+
 .chat-source-item a {
   display: inline-grid;
   place-items: center;
@@ -3244,6 +3322,24 @@ pre.payload {
   color: var(--muted-strong);
   font-size: var(--text-xs);
   line-height: 1.55;
+}
+
+.chat-source-excerpt {
+  display: -webkit-box;
+  min-height: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.chat-source-empty {
+  display: grid;
+  min-height: 46px;
+  align-items: center;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--muted);
+  padding: 8px;
 }
 
 .chat-source-note {

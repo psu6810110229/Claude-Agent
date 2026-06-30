@@ -179,7 +179,14 @@ export interface ChatContext {
    * Empty when Drive is disabled or unavailable. Gives the AI awareness of
    * recently modified files so it can reference them by name.
    */
-  recentDriveFiles: { id: string; name: string; mimeType: string }[];
+  recentDriveFiles: {
+    id: string;
+    name: string;
+    mimeType: string;
+    webViewLink?: string | null;
+    thumbnailLink?: string | null;
+    iconLink?: string | null;
+  }[];
   /**
    * Friday deeper awareness — actual text CONTENT of Drive files, fetched only
    * on a file-read turn. null = not requested this turn; [] = requested but
@@ -191,6 +198,8 @@ export interface ChatContext {
         name: string;
         mimeType: string;
         webViewLink?: string | null;
+        thumbnailLink?: string | null;
+        iconLink?: string | null;
         /** File body (capped). null for folders / unreadable files. */
         content: string | null;
         truncated: boolean;
@@ -669,7 +678,7 @@ export function buildChatPrompt(ctx: ChatContext): string {
                   f.truncated ? " (content truncated)" : ""
                 }\n    content: ${f.content.replace(/\n/g, "\n    ")}`;
               }
-              return `  - id=${f.id} "${f.name}" (found, but content not readable here — open in Drive)`;
+              return `  - id=${f.id} "${f.name}" (${f.mimeType}; found, but content is not text-readable here — open in Drive)`;
             })
             .join("\n")
         : "  (no matching file or folder found)";

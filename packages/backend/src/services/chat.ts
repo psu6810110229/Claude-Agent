@@ -61,6 +61,7 @@ import {
   getDriveFileContent,
   isDriveEnabled,
   DRIVE_FOLDER_MIME,
+  type DriveSearchKind,
 } from "./googleDrive.js";
 import {
   getLineChatSummariesSafe,
@@ -212,14 +213,14 @@ function detectDriveReadIntent(message: string): boolean {
 /** Recent Drive files whose (extension-stripped) name appears in the message. */
 function matchDriveFilesByName(
   message: string,
-  files: { id: string; name: string; mimeType: string; webViewLink?: string | null }[],
-): { id: string; name: string; mimeType: string; webViewLink?: string | null }[] {
+  files: DriveTarget[],
+): DriveTarget[] {
   const m = message.toLowerCase();
-  const hits: { id: string; name: string; mimeType: string; webViewLink?: string | null }[] = [];
+  const hits: DriveTarget[] = [];
   for (const f of files) {
     const base = f.name.toLowerCase().replace(/\.[a-z0-9]{1,5}$/, "");
     if (base.length >= 3 && m.includes(base)) {
-      hits.push({ id: f.id, name: f.name, mimeType: f.mimeType, webViewLink: f.webViewLink });
+      hits.push(f);
     }
   }
   return hits;
@@ -248,16 +249,59 @@ type DriveTarget = {
   name: string;
   mimeType: string;
   webViewLink?: string | null;
+  thumbnailLink?: string | null;
+  iconLink?: string | null;
 };
+
+type DriveDesiredKind = "image" | "pdf" | "folder" | "sheet" | "doc" | "slide" | "text" | null;
+
+function driveSearchKind(kind: DriveDesiredKind): DriveSearchKind | undefined {
+  return kind ?? undefined;
+}
 
 function driveNameBase(file: { name: string }): string {
   return file.name.toLowerCase().replace(/\.[a-z0-9]{1,6}$/, "");
 }
 
-function scoreDriveFile(file: DriveTarget, terms: string[], message: string): number {
+function detectDriveDesiredKind(message: string): DriveDesiredKind {
+  const m = message.toLowerCase();
+  if (/(รูป|ภาพ|photo|image|picture|jpg|jpeg|png|gif|webp|heic)/i.test(m)) return "image";
+  if (/(pdf|พีดีเอฟ)/i.test(m)) return "pdf";
+  if (/(folder|โฟลเดอร์)/i.test(m)) return "folder";
+  if (/(sheet|spreadsheet|ชีท|ตาราง)/i.test(m)) return "sheet";
+  if (/(slide|presentation|สไลด์)/i.test(m)) return "slide";
+  if (/(doc|document|เอกสาร)/i.test(m)) return "doc";
+  if (/(txt|text|ข้อความ)/i.test(m)) return "text";
+  return null;
+}
+
+function driveKind(file: DriveTarget): Exclude<DriveDesiredKind, null> | "file" {
+  const mime = file.mimeType.toLowerCase();
+  const name = file.name.toLowerCase();
+  if (mime === DRIVE_FOLDER_MIME) return "folder";
+  if (mime.startsWith("image/") || /\.(jpe?g|png|gif|webp|heic)$/i.test(name)) return "image";
+  if (mime.includes("pdf") || name.endsWith(".pdf")) return "pdf";
+  if (mime.includes("google-apps.spreadsheet") || /\.(csv|xlsx?)$/i.test(name)) return "sheet";
+  if (mime.includes("google-apps.presentation") || /\.(pptx?)$/i.test(name)) return "slide";
+  if (mime.includes("google-apps.document") || /\.(docx?)$/i.test(name)) return "doc";
+  if (mime.startsWith("text/") || /\.(txt|md|json|xml|csv)$/i.test(name)) return "text";
+  return "file";
+}
+
+function driveKindMatches(file: DriveTarget, desiredKind: DriveDesiredKind): boolean {
+  return desiredKind === null || driveKind(file) === desiredKind;
+}
+
+function scoreDriveFile(
+  file: DriveTarget,
+  terms: string[],
+  message: string,
+  desiredKind: DriveDesiredKind,
+): number {
   const lowerName = driveNameBase(file);
   const lowerMessage = message.toLowerCase();
   let score = 0;
+  if (desiredKind !== null) score += driveKindMatches(file, desiredKind) ? 220 : -120;
   if (lowerName.length >= 3 && lowerMessage.includes(lowerName)) score += 120;
   for (const term of terms) {
     if (lowerName.includes(term)) score += 45;
@@ -265,6 +309,27 @@ function scoreDriveFile(file: DriveTarget, terms: string[], message: string): nu
   }
   if (file.mimeType === DRIVE_FOLDER_MIME) score += 8;
   return score;
+}
+
+function rankDriveTargets(
+  files: DriveTarget[],
+  terms: string[],
+  message: string,
+  desiredKind: DriveDesiredKind,
+): DriveTarget[] {
+  let ranked = uniqueDriveTargets(files).map((file) => ({
+    file,
+    score: scoreDriveFile(file, terms, message, desiredKind),
+  }));
+  if (desiredKind !== null) {
+    const kindMatches = ranked.filter(({ file }) => driveKindMatches(file, desiredKind));
+    if (kindMatches.length > 0) ranked = kindMatches;
+  }
+  const positiveMatches = ranked.filter(({ score }) => score > 0);
+  if (positiveMatches.length > 0) ranked = positiveMatches;
+  return ranked
+    .sort((a, b) => b.score - a.score)
+    .map(({ file }) => file);
 }
 
 function uniqueDriveTargets(files: DriveTarget[]): DriveTarget[] {
@@ -344,6 +409,9 @@ export type ChatSourcePreview =
         name: string;
         mimeType: string;
         webViewLink: string | null;
+        thumbnailLink: string | null;
+        iconLink: string | null;
+        previewKind: "image" | "pdf" | "folder" | "text" | "file";
         preview: string | null;
         childNames: string[] | null;
         truncated: boolean;
@@ -394,6 +462,18 @@ function buildChatSourcePreviews(ctx: ChatContext): ChatSourcePreview[] {
         name: f.name,
         mimeType: f.mimeType,
         webViewLink: driveOpenLink(f.id, f.webViewLink),
+        thumbnailLink: f.thumbnailLink ?? null,
+        iconLink: f.iconLink ?? null,
+        previewKind:
+          driveKind(f) === "image"
+            ? "image"
+            : driveKind(f) === "pdf"
+              ? "pdf"
+              : driveKind(f) === "folder"
+                ? "folder"
+                : f.content !== null
+                  ? "text"
+                  : "file",
         preview: f.content ? previewText(f.content, 320) : null,
         childNames: f.children ? f.children.slice(0, 8).map((c) => c.name) : null,
         truncated: f.truncated,
@@ -1210,16 +1290,27 @@ export async function buildChatContext(
       let targets: DriveTarget[] =
         matchDriveFilesByName(message, recentDriveFiles);
       driveFocusedTerms = extractDriveKeywords(message);
+      const desiredKind = detectDriveDesiredKind(message);
       if (targets.length === 0) {
-        const found = await searchDriveByKeywords(driveFocusedTerms, 12);
+        const found = await searchDriveByKeywords(
+          driveFocusedTerms,
+          30,
+          driveSearchKind(desiredKind),
+        );
         targets = found.map((f) => ({
           id: f.id,
           name: f.name,
           mimeType: f.mimeType,
           webViewLink: f.webViewLink ?? null,
+          thumbnailLink: f.thumbnailLink ?? null,
+          iconLink: f.iconLink ?? null,
         }));
       } else if (driveFocusedTerms.length > 0) {
-        const found = await searchDriveByKeywords(driveFocusedTerms, 12);
+        const found = await searchDriveByKeywords(
+          driveFocusedTerms,
+          30,
+          driveSearchKind(desiredKind),
+        );
         targets = uniqueDriveTargets([
           ...targets,
           ...found.map((f) => ({
@@ -1227,14 +1318,12 @@ export async function buildChatContext(
             name: f.name,
             mimeType: f.mimeType,
             webViewLink: f.webViewLink ?? null,
+            thumbnailLink: f.thumbnailLink ?? null,
+            iconLink: f.iconLink ?? null,
           })),
         ]);
       }
-      targets = uniqueDriveTargets(targets).sort(
-        (a, b) =>
-          scoreDriveFile(b, driveFocusedTerms, message) -
-          scoreDriveFile(a, driveFocusedTerms, message),
-      );
+      targets = rankDriveTargets(targets, driveFocusedTerms, message, desiredKind);
       targets = targets.slice(0, CHAT_DRIVE_FOCUSED_HITS);
 
       for (const t of targets) {
@@ -1248,9 +1337,26 @@ export async function buildChatContext(
             name: t.name,
             mimeType: t.mimeType,
             webViewLink: t.webViewLink ?? null,
+            thumbnailLink: t.thumbnailLink ?? null,
+            iconLink: t.iconLink ?? null,
             content: null,
             truncated: false,
             children,
+          });
+          continue;
+        }
+        const kind = driveKind(t);
+        if (kind === "image" || kind === "pdf") {
+          driveFocused.push({
+            id: t.id,
+            name: t.name,
+            mimeType: t.mimeType,
+            webViewLink: t.webViewLink ?? null,
+            thumbnailLink: t.thumbnailLink ?? null,
+            iconLink: t.iconLink ?? null,
+            content: null,
+            truncated: false,
+            children: null,
           });
           continue;
         }
@@ -1261,6 +1367,8 @@ export async function buildChatContext(
             name: doc.name,
             mimeType: t.mimeType,
             webViewLink: t.webViewLink ?? null,
+            thumbnailLink: t.thumbnailLink ?? null,
+            iconLink: t.iconLink ?? null,
             content: doc.content.slice(0, CHAT_DRIVE_FOCUSED_CHARS),
             truncated:
               doc.truncated || doc.content.length > CHAT_DRIVE_FOCUSED_CHARS,
@@ -1273,6 +1381,8 @@ export async function buildChatContext(
             name: t.name,
             mimeType: t.mimeType,
             webViewLink: t.webViewLink ?? null,
+            thumbnailLink: t.thumbnailLink ?? null,
+            iconLink: t.iconLink ?? null,
             content: null,
             truncated: false,
             children: null,

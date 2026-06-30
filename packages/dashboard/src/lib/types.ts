@@ -205,6 +205,8 @@ export interface DriveFile {
   name: string;
   mimeType: string;
   webViewLink?: string;
+  thumbnailLink?: string;
+  iconLink?: string;
   modifiedTime?: string;
   owners?: { displayName: string }[];
   size?: string;
@@ -718,6 +720,9 @@ export type ChatSourcePreview =
         name: string;
         mimeType: string;
         webViewLink: string | null;
+        thumbnailLink: string | null;
+        iconLink: string | null;
+        previewKind: "image" | "pdf" | "folder" | "text" | "file";
         preview: string | null;
         childNames: string[] | null;
         truncated: boolean;

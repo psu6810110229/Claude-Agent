@@ -22,6 +22,7 @@ import {
   ExternalLink,
   FileText,
   Folder,
+  Image as ImageIcon,
   Mail,
   MessageCircle,
   RotateCcw,
@@ -2044,43 +2045,101 @@ function SourcePreviewPanel({ previews }: { previews: ChatSourcePreview[] }) {
                     </article>
                   ))
                 : preview.items.map((item) => (
-                    <article className="chat-source-item drive" key={item.id}>
-                      <div className="chat-source-item-top">
-                        <span className="chat-source-file-icon" aria-hidden="true">
-                          {item.mimeType.includes("folder") ? (
-                            <Folder strokeWidth={1.8} />
-                          ) : (
-                            <FileText strokeWidth={1.8} />
-                          )}
-                        </span>
-                        <strong>{item.name}</strong>
-                        {item.webViewLink && (
-                          <a
-                            href={item.webViewLink}
-                            target="_blank"
-                            rel="noreferrer"
-                            aria-label={`เปิด ${item.name} ใน Google Drive`}
-                          >
-                            <ExternalLink aria-hidden="true" strokeWidth={1.8} />
-                          </a>
-                        )}
-                      </div>
-                      <div className="chat-source-item-meta">
-                        {driveMimeLabel(item.mimeType)}
-                        {!item.readable ? " · อ่านเนื้อหาจากตรงนี้ไม่ได้" : ""}
-                      </div>
-                      {item.preview && <p>{item.preview}</p>}
-                      {item.childNames && item.childNames.length > 0 && (
-                        <p>มีไฟล์: {item.childNames.join(", ")}</p>
-                      )}
-                      {item.truncated && <span className="chat-source-note">ตัดให้สั้น</span>}
-                    </article>
+                    <DriveSourceItem item={item} key={item.id} />
                   ))}
             </div>
           </section>
         );
       })}
     </div>
+  );
+}
+
+type DrivePreviewItem = Extract<
+  ChatSourcePreview,
+  { kind: "drive" }
+>["items"][number];
+
+function DriveSourceItem({ item }: { item: DrivePreviewItem }) {
+  const VisualIcon =
+    item.previewKind === "image"
+      ? ImageIcon
+      : item.previewKind === "folder"
+        ? Folder
+        : FileText;
+  const visualLabel =
+    item.previewKind === "image"
+      ? "IMAGE"
+      : item.previewKind === "pdf"
+        ? "PDF"
+        : item.previewKind === "folder"
+          ? "FOLDER"
+          : driveMimeLabel(item.mimeType).toUpperCase();
+  const hasImagePreview = item.previewKind === "image" && item.thumbnailLink;
+
+  return (
+    <article className={`chat-source-item drive ${item.previewKind}`}>
+      <div className="chat-source-item-top">
+        <span className="chat-source-file-icon" aria-hidden="true">
+          <VisualIcon strokeWidth={1.8} />
+        </span>
+        <strong>{item.name}</strong>
+        {item.webViewLink && (
+          <a
+            href={item.webViewLink}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={`เปิด ${item.name} ใน Google Drive`}
+          >
+            <ExternalLink aria-hidden="true" strokeWidth={1.8} />
+          </a>
+        )}
+      </div>
+      <div className={`chat-source-visual ${item.previewKind}`}>
+        {hasImagePreview ? (
+          <img
+            src={item.thumbnailLink ?? undefined}
+            alt=""
+            loading="lazy"
+            onError={(event) => {
+              event.currentTarget.style.display = "none";
+              event.currentTarget.parentElement?.classList.add("is-missing");
+            }}
+          />
+        ) : (
+          <div className="chat-source-file-art" aria-hidden="true">
+            {item.iconLink ? (
+              <img src={item.iconLink} alt="" />
+            ) : (
+              <VisualIcon strokeWidth={1.6} />
+            )}
+            <span>{visualLabel}</span>
+          </div>
+        )}
+      </div>
+      <div className="chat-source-item-meta">
+        {driveMimeLabel(item.mimeType)}
+        {!item.readable && item.previewKind !== "image" && item.previewKind !== "pdf"
+          ? " · อ่านเนื้อหาจากตรงนี้ไม่ได้"
+          : ""}
+      </div>
+      {item.preview ? (
+        <p className="chat-source-excerpt">{item.preview}</p>
+      ) : item.childNames && item.childNames.length > 0 ? (
+        <p className="chat-source-excerpt">
+          มีไฟล์: {item.childNames.slice(0, 6).join(", ")}
+        </p>
+      ) : (
+        <p className="chat-source-empty">
+          {item.previewKind === "image"
+            ? "ดูตัวอย่างภาพจาก Drive"
+            : item.previewKind === "pdf"
+              ? "พบ PDF แล้ว เปิดดูฉบับเต็มใน Drive"
+              : "พบไฟล์นี้แล้ว แต่ยังอ่านตัวอย่างจากตรงนี้ไม่ได้"}
+        </p>
+      )}
+      {item.truncated && <span className="chat-source-note">ตัดให้สั้น</span>}
+    </article>
   );
 }
 
@@ -2094,6 +2153,7 @@ function driveMimeLabel(mimeType: string): string {
   if (mimeType.includes("google-apps.document")) return "Google Docs";
   if (mimeType.includes("google-apps.spreadsheet")) return "Google Sheets";
   if (mimeType.includes("google-apps.presentation")) return "Google Slides";
+  if (mimeType.startsWith("image/")) return "Image";
   if (mimeType.includes("pdf")) return "PDF";
   if (mimeType.startsWith("text/")) return "Text";
   return mimeType.replace("application/vnd.google-apps.", "").replace("application/", "");
