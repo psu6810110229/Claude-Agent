@@ -25,6 +25,7 @@ import type { LineEvidence } from "./lineEvidence.js";
 import type { EvidenceVerdict } from "./evidenceVerifier.js";
 import type { ScheduleVerdict } from "./scheduleVerifier.js";
 import type { CompactEvidenceScope } from "./evidenceScope.js";
+import type { ReferenceDecision } from "./referenceResolver.js";
 
 /**
  * Owner-style conversational openers (spec §B grace). Pure + deterministic.
@@ -292,6 +293,13 @@ export interface ChatContext {
    * when none exist or requester is unverified.
    */
   recentEvidenceScopes?: CompactEvidenceScope[];
+  /**
+   * Phase 03 — how the current turn references those scopes (reuse / fresh /
+   * clarify). The router uses it to gate searches; the prompt surfaces it so the
+   * model answers from the bound scope (or asks) instead of inventing a new set.
+   * Null/omitted when there is no decision or the requester is unverified.
+   */
+  referenceDecision?: ReferenceDecision | null;
   /**
    * Step 22 — compact list of active topics the user is tracking. Empty when
    * none exist or requester is unverified. Optional so registry-smoke callers
@@ -805,6 +813,16 @@ export function buildChatPrompt(ctx: ChatContext): string {
           })
           .join("\n")
       : "  (none — no prior answer bound a source scope this conversation)";
+
+  // Phase 03 — reference decision: tell the model which scope THIS turn refers to
+  // (or that it must ask). Keeps a short follow-up bound to the same evidence set.
+  const ref = ctx.restricted ? null : ctx.referenceDecision ?? null;
+  const referenceDecisionSection =
+    ref && ref.kind === "reuse_scope" && ref.selected_scope_id
+      ? `  → This turn is a follow-up about scope id=${ref.selected_scope_id}. Answer from THAT scope's counts/anchor above. Do NOT describe a different or larger set; no fresh search ran.`
+      : ref && ref.kind === "clarify"
+        ? `  → This turn is ambiguous between scopes: ${(ref.candidate_scope_ids ?? []).join(", ")}. Ask the user which one (in their language); do not guess.${ref.limitations.length > 0 ? ` Options: ${ref.limitations.join(" | ")}.` : ""}`
+        : "  (current turn does not reference a prior scope)";
 
   // Step 22 — active topics / evidence sections (all optional-chained so
   // registry-smoke callers that omit these fields don't throw at runtime)
@@ -1545,6 +1563,9 @@ any preview/source you cite to THAT scope's source and id. The count is authorit
 scope's limitations (e.g. windowed preview, no recency horizon). Empty = no prior
 answer bound a scope, so a fresh lookup is fine):
 ${recentEvidenceScopesSection}
+
+REFERENCE DECISION (Phase 03 — deterministic resolver verdict for THIS turn):
+${referenceDecisionSection}
 
 ACTIVE TOPICS (Step 22 — durable topics the user is tracking; empty = none created yet):
 ${activeTopicsSection}

@@ -37,6 +37,10 @@ import {
   collectRecentScopes,
 } from "./evidenceScope.js";
 import {
+  resolveReference,
+  type ReferenceDecision,
+} from "./referenceResolver.js";
+import {
   agendaBounds,
   bangkokWallClock,
   bucketEvents,
@@ -1125,6 +1129,14 @@ export async function buildChatContext(
   const recentEvidenceScopes = collectRecentScopes(
     rawHistory.map((m) => m.evidence_scopes_json),
   );
+  // Phase 03 / Sprint 3 — Source Router: decide ONCE whether this turn references
+  // a prior evidence set. A `reuse_scope` decision suppresses the matching fresh
+  // focused search below (so a short follow-up like "มีกี่รูป" answers from the
+  // bound scope instead of re-searching and drifting to a different set).
+  const referenceDecision = resolveReference(message, { recentScopes: recentEvidenceScopes });
+  const reusesSource = (source: ReferenceDecision["selected_source"]): boolean =>
+    referenceDecision.kind === "reuse_scope" &&
+    referenceDecision.selected_source === source;
 
   // Step 17 — Gmail unread (capped by config; fail gracefully when disabled/error).
   let gmailUnread: ChatContext["gmailUnread"] = [];
@@ -1437,6 +1449,8 @@ export async function buildChatContext(
       lineMatches: [],
       // Phase 02 — evidence scopes derive from prior verified turns: withhold.
       recentEvidenceScopes: [],
+      // Phase 03 — no reference reuse on the unverified path.
+      referenceDecision: null,
       // Step 22 — redact all active topic / evidence fields for unverified
       activeTopics: [],
       resolvedActiveTopic: null,
@@ -1458,7 +1472,7 @@ export async function buildChatContext(
   // email-read turn so Friday answers from content, not just the snippet list.
   let gmailFocused: ChatContext["gmailFocused"] = null;
   let gmailFocusedQuery: string | null = null;
-  if (isGmailEnabled() && detectGmailReadIntent(message)) {
+  if (isGmailEnabled() && detectGmailReadIntent(message) && !reusesSource("gmail")) {
     try {
       gmailFocusedQuery = buildGmailFocusedQuery(message, contacts);
       gmailFocused = await fetchGmailFullMessages(
@@ -1478,7 +1492,7 @@ export async function buildChatContext(
   let driveFocused: ChatContext["driveFocused"] = null;
   let driveFocusedTotal = 0;
   let driveFocusedTerms: string[] = [];
-  if (isDriveEnabled() && detectDriveReadIntent(message)) {
+  if (isDriveEnabled() && detectDriveReadIntent(message) && !reusesSource("google_drive")) {
     driveFocused = [];
     try {
       let targets: DriveTarget[] =
@@ -1639,6 +1653,8 @@ export async function buildChatContext(
     lineMatches,
     // Phase 02 — recent evidence scopes (verified path only)
     recentEvidenceScopes,
+    // Phase 03 — reference resolver verdict for this turn (verified path only)
+    referenceDecision,
     // Step 22 — active topics and evidence (verified path only)
     activeTopics: activeTopicsCompact,
     resolvedActiveTopic,
