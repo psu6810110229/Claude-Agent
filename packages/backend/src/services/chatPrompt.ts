@@ -24,6 +24,7 @@ import type { AvailabilityReport } from "./availabilityResolver.js";
 import type { LineEvidence } from "./lineEvidence.js";
 import type { EvidenceVerdict } from "./evidenceVerifier.js";
 import type { ScheduleVerdict } from "./scheduleVerifier.js";
+import type { CompactEvidenceScope } from "./evidenceScope.js";
 
 /**
  * Owner-style conversational openers (spec §B grace). Pure + deterministic.
@@ -283,6 +284,14 @@ export interface ChatContext {
      */
     boundary?: boolean;
   } | null;
+  /**
+   * Phase 02 — recent evidence scopes from prior assistant turns (newest first,
+   * capped). The structured record of WHAT each past answer retrieved (source +
+   * counts + anchor), so a short follow-up binds to the same evidence set instead
+   * of triggering a fresh source search. Metadata only (no bodies). Empty/omitted
+   * when none exist or requester is unverified.
+   */
+  recentEvidenceScopes?: CompactEvidenceScope[];
   /**
    * Step 22 — compact list of active topics the user is tracking. Empty when
    * none exist or requester is unverified. Optional so registry-smoke callers
@@ -769,6 +778,33 @@ export function buildChatPrompt(ctx: ChatContext): string {
           )
           .join("\n")
       : "  (none matched or LINE disabled)";
+
+  // Phase 02 — recent evidence scopes: the bound evidence sets of prior answers,
+  // so a short follow-up reuses them instead of re-searching. Metadata only.
+  const SCOPE_SOURCE_LABEL: Record<CompactEvidenceScope["source"], string> = {
+    google_drive: "Drive",
+    gmail: "Gmail",
+    line_export: "LINE",
+    google_calendar: "Calendar",
+    local_reminder: "Reminder",
+    google_contacts: "Contacts",
+    mixed: "Mixed",
+  };
+  const recentEvidenceScopesSection = ctx.restricted
+    ? "  (withheld — requester not verified)"
+    : (ctx.recentEvidenceScopes?.length ?? 0) > 0
+      ? ctx.recentEvidenceScopes!
+          .map((s) => {
+            const count =
+              s.total_count !== undefined
+                ? `${s.total_count} total${s.item_count && s.item_count < s.total_count ? `, ${s.item_count} shown` : ""}`
+                : `${s.item_count} item(s)`;
+            const anchor = s.label ? ` "${s.label}"` : s.query ? ` (${s.query})` : "";
+            const limits = s.limitations.length > 0 ? ` — ${s.limitations.join("; ")}` : "";
+            return `  - [${SCOPE_SOURCE_LABEL[s.source]} ${s.scope_type}, ${s.confidence}] id=${s.id}${anchor}: ${count}${limits}`;
+          })
+          .join("\n")
+      : "  (none — no prior answer bound a source scope this conversation)";
 
   // Step 22 — active topics / evidence sections (all optional-chained so
   // registry-smoke callers that omit these fields don't throw at runtime)
@@ -1499,6 +1535,16 @@ best-effort. Times are already Asia/Bangkok — report as-is. If this list is em
 say plainly you found nothing on that topic in the exports — do NOT invent a
 message, sender, or time):
 ${lineMatches}
+
+RECENT EVIDENCE SCOPES (Phase 02 — the bound evidence set each recent answer used,
+newest first. When the user follows up with a short reference ("มีกี่รูป", "อะไรนะ",
+"เช็คอีกที", "อันแรก", "กี่ฉบับ", "ล่าสุดว่าไง"), REUSE the matching scope here
+instead of starting a NEW source search: answer the count from its total, and keep
+any preview/source you cite to THAT scope's source and id. The count is authoritative
+— never contradict a scope's total with a freshly searched number. Respect each
+scope's limitations (e.g. windowed preview, no recency horizon). Empty = no prior
+answer bound a scope, so a fresh lookup is fine):
+${recentEvidenceScopesSection}
 
 ACTIVE TOPICS (Step 22 — durable topics the user is tracking; empty = none created yet):
 ${activeTopicsSection}

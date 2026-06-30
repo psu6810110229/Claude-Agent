@@ -32,7 +32,10 @@ import type {
 import { buildCalendarPlan } from "./calendarPlanService.js";
 import { buildChatPrompt, type ChatContext } from "./chatPrompt.js";
 import { buildTurnEvidenceScopes } from "./evidenceScopeBuilders.js";
-import { serializeEvidenceScopes } from "./evidenceScope.js";
+import {
+  serializeEvidenceScopes,
+  collectRecentScopes,
+} from "./evidenceScope.js";
 import {
   agendaBounds,
   bangkokWallClock,
@@ -1111,10 +1114,17 @@ export async function buildChatContext(
   // Fetch history AFTER the user message is persisted (caller handles that),
   // so `listRecentMessages` already includes this turn in the history for the
   // next invocation — but for THIS turn we read history BEFORE appending.
-  const history = listRecentMessages(CHAT_HISTORY_LIMIT).map((m) => ({
+  const rawHistory = listRecentMessages(CHAT_HISTORY_LIMIT);
+  const history = rawHistory.map((m) => ({
     role: m.role,
     content: m.content,
   }));
+  // Phase 02 / Sprint 4 — recent evidence scopes from prior assistant turns, so
+  // Friday can answer a short follow-up ("มีกี่รูป") from the bound evidence set
+  // instead of guessing from text history. Compact + capped; verified path only.
+  const recentEvidenceScopes = collectRecentScopes(
+    rawHistory.map((m) => m.evidence_scopes_json),
+  );
 
   // Step 17 — Gmail unread (capped by config; fail gracefully when disabled/error).
   let gmailUnread: ChatContext["gmailUnread"] = [];
@@ -1425,6 +1435,8 @@ export async function buildChatContext(
       lineMessages: [],
       lineFocusedChat: null,
       lineMatches: [],
+      // Phase 02 — evidence scopes derive from prior verified turns: withhold.
+      recentEvidenceScopes: [],
       // Step 22 — redact all active topic / evidence fields for unverified
       activeTopics: [],
       resolvedActiveTopic: null,
@@ -1625,6 +1637,8 @@ export async function buildChatContext(
     lineMessages,
     lineFocusedChat,
     lineMatches,
+    // Phase 02 — recent evidence scopes (verified path only)
+    recentEvidenceScopes,
     // Step 22 — active topics and evidence (verified path only)
     activeTopics: activeTopicsCompact,
     resolvedActiveTopic,

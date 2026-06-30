@@ -172,6 +172,64 @@ export function serializeEvidenceScopes(
   return safe.length > 0 ? JSON.stringify(safe) : null;
 }
 
+/** Max scopes fed back into a prompt — keeps recall token cost bounded. */
+export const RECENT_SCOPE_PROMPT_CAP = 4;
+
+/**
+ * Compact, prompt-facing projection of a scope. Drops the full id list (the
+ * model only needs counts to answer "มีกี่รูป") but keeps the anchor (id/source/
+ * label) so a follow-up can be bound back to the full scope on the next turn.
+ */
+export interface CompactEvidenceScope {
+  id: string;
+  source: EvidenceScopeSource;
+  scope_type: EvidenceScopeType;
+  label?: string;
+  query?: string;
+  total_count?: number;
+  item_count: number;
+  confidence: z.infer<typeof EvidenceScopeConfidenceSchema>;
+  fetched_at: string;
+  limitations: string[];
+}
+
+export function toCompactScope(scope: EvidenceScope): CompactEvidenceScope {
+  return {
+    id: scope.id,
+    source: scope.source,
+    scope_type: scope.scope_type,
+    label: scope.label,
+    query: scope.query,
+    total_count: scope.total_count,
+    item_count: scope.item_ids.length,
+    confidence: scope.confidence,
+    fetched_at: scope.fetched_at,
+    limitations: scope.limitations,
+  };
+}
+
+/**
+ * Collect the most recent scopes across a set of persisted-scope JSON blobs
+ * (oldest-first, e.g. chat history rows). Returns newest-first, deduped by scope
+ * id (newest wins), capped. Fail-soft per blob.
+ */
+export function collectRecentScopes(
+  scopeJsonsOldestFirst: readonly (string | null)[],
+  cap: number = RECENT_SCOPE_PROMPT_CAP,
+): CompactEvidenceScope[] {
+  const out: CompactEvidenceScope[] = [];
+  const seen = new Set<string>();
+  for (let i = scopeJsonsOldestFirst.length - 1; i >= 0; i--) {
+    for (const scope of parseEvidenceScopes(scopeJsonsOldestFirst[i])) {
+      if (seen.has(scope.id)) continue;
+      seen.add(scope.id);
+      out.push(toCompactScope(scope));
+      if (out.length >= cap) return out;
+    }
+  }
+  return out;
+}
+
 /**
  * Parse persisted scopes back to typed values. Fail-soft: any malformed JSON or
  * invalid entry yields [] / is dropped, never throws.

@@ -262,6 +262,42 @@ async function main(): Promise<void> {
     "mixed turn captures one scope per source",
   );
 
+  // --- 12. Feed recent scopes into context, compact + capped (Sprint 4) ---
+  const { collectRecentScopes, RECENT_SCOPE_PROMPT_CAP } = await import(
+    "../src/services/evidenceScope.js"
+  );
+  // Oldest-first history rows (mirrors listRecentMessages order).
+  const turn1 = serializeEvidenceScopes(buildTurnEvidenceScopes([drivePreview]));
+  const turn2 = serializeEvidenceScopes(buildTurnEvidenceScopes([gmailPreview]));
+  const recent = collectRecentScopes([null, turn1, null, turn2]);
+  assert(recent.length === 2, "collects scopes across history rows");
+  assert(
+    recent[0].source === "gmail" && recent[1].source === "google_drive",
+    "recent scopes are newest-first",
+  );
+  assert(
+    typeof recent[0].item_count === "number" &&
+      !("item_ids" in recent[0]),
+    "compact scope exposes item_count, drops full id list",
+  );
+
+  // Dedupe by id (newest wins) — same folder scope captured twice.
+  const dupA = serializeEvidenceScopes(buildTurnEvidenceScopes([drivePreview]));
+  const dupB = serializeEvidenceScopes(buildTurnEvidenceScopes([drivePreview]));
+  const deduped = collectRecentScopes([dupA, dupB]);
+  assert(deduped.length === 1, "same scope id deduped across turns");
+
+  // Cap enforcement.
+  const manyTurns = Array.from({ length: RECENT_SCOPE_PROMPT_CAP + 3 }, (_, i) =>
+    serializeEvidenceScopes(
+      buildTurnEvidenceScopes([{ ...gmailPreview, query: `q-${i}` }]),
+    ),
+  );
+  assert(
+    collectRecentScopes(manyTurns).length === RECENT_SCOPE_PROMPT_CAP,
+    `recent scopes capped at ${RECENT_SCOPE_PROMPT_CAP}`,
+  );
+
   console.log("\nAll evidence scope store assertions passed.");
 }
 
