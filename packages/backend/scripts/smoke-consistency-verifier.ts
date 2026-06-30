@@ -275,6 +275,75 @@ async function main(): Promise<void> {
   });
   assert(v17.status === "pass", "broad multi-source search not flagged");
 
+  // --- 18. Write-sensitive action on ambiguous reference → clarify ---
+  const v18 = verifyTurnConsistency({
+    answer: "x",
+    previews: [],
+    scopes: [],
+    reference: {
+      kind: "clarify",
+      confidence: "low",
+      reason_code: "multiple_candidate_scopes",
+      candidate_scope_ids: ["gmail:a", "gmail:b"],
+      limitations: [],
+    },
+    proposedActions: [
+      { action_type: "gmail.send", payload: {} } as never,
+    ],
+  });
+  assert(v18.status === "clarify", "write action on ambiguous ref → clarify");
+  assert(v18.reason_code === "action_reference_ambiguous", "ambiguous action reason code");
+
+  // --- 19. Write-sensitive action on unsupported reference → block ---
+  const v19 = verifyTurnConsistency({
+    answer: "x",
+    previews: [],
+    scopes: [],
+    reference: {
+      kind: "unsupported",
+      confidence: "low",
+      reason_code: "unsupported_reference",
+      limitations: [],
+    },
+    proposedActions: [
+      { action_type: "google_event.update", payload: {} } as never,
+    ],
+  });
+  assert(v19.status === "block", "write action on unsupported ref → block");
+  assert(v19.reason_code === "action_scope_unresolved", "unsupported action reason code");
+
+  // --- 20. Non-sensitive action (task.create) on ambiguous ref → pass ---
+  const v20 = verifyTurnConsistency({
+    answer: "x",
+    previews: [],
+    scopes: [],
+    reference: {
+      kind: "clarify",
+      confidence: "low",
+      reason_code: "multiple_candidate_scopes",
+      limitations: [],
+    },
+    proposedActions: [{ action_type: "task.create", payload: {} } as never],
+  });
+  assert(v20.status === "pass", "non-sensitive action not gated by reference");
+
+  // --- 21. Write-sensitive action on a RESOLVED reuse_scope → pass ---
+  const v21 = verifyTurnConsistency({
+    answer: "x",
+    previews: [],
+    scopes: [],
+    reference: {
+      kind: "reuse_scope",
+      confidence: "high",
+      reason_code: "single_dominant_scope",
+      selected_scope_id: "gmail:r",
+      selected_source: "gmail",
+      limitations: [],
+    },
+    proposedActions: [{ action_type: "gmail.draft", payload: {} } as never],
+  });
+  assert(v21.status === "pass", "write action on resolved ref proceeds");
+
   console.log("Consistency verifier smoke OK.");
 }
 

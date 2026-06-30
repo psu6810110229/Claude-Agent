@@ -405,19 +405,86 @@ export function filterPreviewsToSource(
   return previews.filter((p) => previewSource(p) === source);
 }
 
+// --- Sprint 4: action proposal consistency -----------------------------------
+
+/**
+ * Mutating / outward-facing actions that act ON an item the conversation points
+ * at (an existing event, reminder, draft, or recipient). If the reference for the
+ * turn is ambiguous, proposing one of these risks acting on the WRONG event/
+ * thread/reminder — exactly what the audit warns about. NEW-item creates and pure
+ * task edits are intentionally excluded: they do not resolve against prior
+ * evidence the same way. The approval queue / dispatcher stays the system of
+ * record — this gate only withholds an ambiguous proposal, it never executes.
+ */
+const WRITE_SENSITIVE_ACTIONS = new Set<AiAction["action_type"]>([
+  "gmail.draft",
+  "gmail.send",
+  "google_event.update",
+  "google_event.delete",
+  "event.update",
+  "event.archive",
+  "reminder.update",
+  "reminder.done",
+  "reminder.archive",
+]);
+
+/**
+ * Sprint 4 — a write-sensitive proposal must rest on a RESOLVED reference. When
+ * the resolver said the turn is ambiguous (`clarify`) or unsupported, the backend
+ * must not let a Calendar/Gmail/Reminder mutation ride along on a guess:
+ *
+ *  - reference ambiguous (`clarify`)   → status clarify: ask which item first.
+ *  - reference unsupported             → status block: the scope cannot resolve.
+ *
+ * Resolved references (`reuse_scope`/`fresh_search`) and turns with no reference
+ * signal are left untouched — ordinary new-action turns proceed as before. No new
+ * write path is introduced; this only gates what reaches the existing dispatcher.
+ */
+function checkActionConsistency(input: ConsistencyInput): ConsistencyFinding[] {
+  const actions = input.proposedActions ?? [];
+  const ref = input.reference;
+  if (actions.length === 0 || !ref) return [];
+
+  const sensitive = actions.filter((a) => WRITE_SENSITIVE_ACTIONS.has(a.action_type));
+  if (sensitive.length === 0) return [];
+
+  const types = [...new Set(sensitive.map((a) => a.action_type))].join(",");
+
+  if (ref.kind === "clarify") {
+    return [
+      {
+        code: "action_reference_ambiguous",
+        status: "clarify",
+        detail: `write-sensitive action(s) [${types}] proposed on an ambiguous reference (${ref.reason_code})`,
+      },
+    ];
+  }
+  if (ref.kind === "unsupported") {
+    return [
+      {
+        code: "action_scope_unresolved",
+        status: "block",
+        detail: `write-sensitive action(s) [${types}] proposed but reference is unsupported`,
+      },
+    ];
+  }
+  return [];
+}
+
 /**
  * Verify that one turn's answer, previews, evidence scopes, and proposed actions
  * describe a single consistent evidence set. The single gate the chat pipeline
  * consults before returning a reply.
  *
  * Sprint 1 — scope metadata invariants. Sprint 2 — count/preview consistency.
- * Sprint 3 — cross-source preview consistency. Sprint 4 appends action-proposal
- * findings to the same list.
+ * Sprint 3 — cross-source preview consistency. Sprint 4 — action-proposal
+ * consistency against the resolved reference.
  */
 export function verifyTurnConsistency(input: ConsistencyInput): ConsistencyVerdict {
   const findings: ConsistencyFinding[] = [];
   findings.push(...checkScopeMetadata(input.scopes));
   findings.push(...checkCountPreview(input));
   findings.push(...checkSourceConsistency(input));
+  findings.push(...checkActionConsistency(input));
   return decide(findings);
 }
