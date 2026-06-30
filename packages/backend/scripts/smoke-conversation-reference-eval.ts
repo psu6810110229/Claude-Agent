@@ -130,6 +130,18 @@ async function main(): Promise<void> {
     baseline.cases.some((testCase) => testCase.category === "mixed_source"),
     "baseline includes mixed-source cases",
   );
+  assert(
+    baseline.cases.some((testCase) => testCase.category === "calendar_write"),
+    "baseline includes calendar write-sensitive cases",
+  );
+  assert(
+    baseline.cases.some((testCase) => testCase.category === "reminder_write"),
+    "baseline includes reminder write-sensitive cases",
+  );
+  assert(
+    baseline.cases.some((testCase) => testCase.category === "class_planner"),
+    "baseline includes class planner cases",
+  );
 
   const driveRegression = baseline.cases.find(
     (testCase) => testCase.id === "drive.images.count-followup",
@@ -150,6 +162,46 @@ async function main(): Promise<void> {
   assert(
     !knownBadDriveResult.passed,
     "baseline catches the known Drive 5-vs-30 mismatch shape",
+  );
+
+  const classPlanner = baseline.cases.find(
+    (testCase) => testCase.id === "class-planner.makeup-date-time-mapping",
+  );
+  assert(classPlanner, "baseline includes ambiguous class planner request");
+  if (!classPlanner) throw new Error("unreachable");
+
+  const unsafeClassPlannerResult = evaluateConversationReferenceActual(
+    classPlanner,
+    {
+      behavior: "reuse_scope",
+      source: "google_calendar",
+      scope_id: "calendar.class.240-218",
+      clarification: false,
+      approval_required: true,
+    },
+  );
+  assert(
+    !unsafeClassPlannerResult.passed,
+    "baseline catches class planner missing-clarification behavior",
+  );
+
+  const reminder = baseline.cases.find(
+    (testCase) => testCase.id === "reminder.repeat-latest.tomorrow",
+  );
+  assert(reminder, "baseline includes reminder approval-gated follow-up");
+  if (!reminder) throw new Error("unreachable");
+
+  const reminderResult = evaluateConversationReferenceActual(reminder, {
+    behavior: "reuse_scope",
+    source: "local_reminder",
+    scope_id: "reminder.pending.report",
+    count: 1,
+    preview_item_ids: ["reminder_report"],
+    approval_required: true,
+  });
+  assert(
+    reminderResult.passed,
+    "approval-gated reminder follow-up expectation is evaluable",
   );
 
   console.log("\nAll conversation reference eval contract assertions passed.");

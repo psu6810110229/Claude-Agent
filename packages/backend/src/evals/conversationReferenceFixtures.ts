@@ -324,6 +324,146 @@ export const conversationReferenceBaselineSuite = {
         must_not_read_real_data: true,
       },
     },
+    {
+      id: "calendar.move-that.ambiguous",
+      title: "Calendar 'move that one' asks when the previous event set has multiple candidates.",
+      category: "calendar_write",
+      tags: ["write_sensitive", "calendar", "clarify", "thai"],
+      turns: [
+        {
+          role: "user",
+          content: "วันนี้มีเรียนอะไรบ้าง",
+          scope_ids: [],
+        },
+        {
+          role: "assistant",
+          content:
+            "วันนี้มี 2 รายการ: 240-218 Circuit 15:00-16:50 และประชุมโปรเจกต์ 18:00-19:00",
+          scope_ids: ["calendar.today.events"],
+        },
+        {
+          role: "user",
+          content: "เลื่อนอันนั้นไปพรุ่งนี้",
+          scope_ids: [],
+        },
+      ],
+      scopes: [
+        {
+          id: "calendar.today.events",
+          source: "google_calendar",
+          scope_type: "event_set",
+          label: "today calendar events",
+          query: "today",
+          item_ids: ["gcal_class_circuit", "gcal_project_meeting"],
+          parent_ids: [],
+          preview_item_ids: ["gcal_class_circuit", "gcal_project_meeting"],
+          total_count: 2,
+          fetched_at: "2026-06-30T13:40:00.000Z",
+          confidence: "high",
+          limitations: ["metadata-only fixture"],
+        },
+      ],
+      expectation: {
+        behavior: "clarify",
+        source: "google_calendar",
+        expected_clarification: true,
+        must_not_call_live_provider: true,
+        must_not_read_real_data: true,
+        notes:
+          "The user says 'that one' after two events; staging a calendar update would be unsafe.",
+      },
+    },
+    {
+      id: "reminder.repeat-latest.tomorrow",
+      title: "Reminder repeat follow-up binds to the latest reminder and remains approval-gated.",
+      category: "reminder_write",
+      tags: ["write_sensitive", "reminder", "approval", "thai"],
+      turns: [
+        {
+          role: "user",
+          content: "มีเตือนอะไรค้างอยู่บ้าง",
+          scope_ids: [],
+        },
+        {
+          role: "assistant",
+          content: "มีเตือนส่งรายงาน 1 รายการค่ะ",
+          scope_ids: ["reminder.pending.report"],
+        },
+        {
+          role: "user",
+          content: "เตือนอีกทีพรุ่งนี้",
+          scope_ids: [],
+        },
+      ],
+      scopes: [
+        {
+          id: "reminder.pending.report",
+          source: "local_reminder",
+          scope_type: "reminder_set",
+          label: "pending report reminder",
+          query: "pending reminders",
+          item_ids: ["reminder_report"],
+          parent_ids: [],
+          preview_item_ids: ["reminder_report"],
+          total_count: 1,
+          fetched_at: "2026-06-30T13:45:00.000Z",
+          confidence: "high",
+          limitations: ["metadata-only fixture"],
+        },
+      ],
+      expectation: {
+        behavior: "reuse_scope",
+        source: "local_reminder",
+        scope_id: "reminder.pending.report",
+        expected_count: 1,
+        expected_preview_item_ids: ["reminder_report"],
+        expected_clarification: false,
+        approval_required: true,
+        must_not_call_live_provider: true,
+        must_not_read_real_data: true,
+        notes:
+          "The target reminder is clear, but changing/remaking reminder behavior must remain gated.",
+      },
+    },
+    {
+      id: "class-planner.makeup-date-time-mapping",
+      title: "Class makeup request asks for mapping when four dates share two time ranges.",
+      category: "class_planner",
+      tags: ["write_sensitive", "calendar", "class_planner", "clarify", "thai"],
+      turns: [
+        {
+          role: "user",
+          content:
+            "งดเรียนวิชา 240-218 circuit อาทิตย์นี้ และมีเรียนชดออนไลน์วันที่ 9, 21, 25, 26 กค 19:00-21:00 และ 15:00-17:00",
+          scope_ids: [],
+        },
+      ],
+      scopes: [
+        {
+          id: "calendar.class.240-218",
+          source: "google_calendar",
+          scope_type: "event_set",
+          label: "240-218 Circuit class block",
+          query: "240-218 circuit",
+          item_ids: ["gcal_240_218_tue", "gcal_240_218_thu"],
+          parent_ids: ["gcal_calendar_primary"],
+          preview_item_ids: ["gcal_240_218_tue", "gcal_240_218_thu"],
+          total_count: 2,
+          fetched_at: "2026-06-30T13:50:00.000Z",
+          confidence: "medium",
+          limitations: ["metadata-only fixture", "timezone must be resolved"],
+        },
+      ],
+      expectation: {
+        behavior: "clarify",
+        source: "google_calendar",
+        expected_clarification: true,
+        approval_required: true,
+        must_not_call_live_provider: true,
+        must_not_read_real_data: true,
+        notes:
+          "The system needs to ask which dates use 19:00-21:00 and which use 15:00-17:00 before staging actions.",
+      },
+    },
   ],
 } as const;
-
