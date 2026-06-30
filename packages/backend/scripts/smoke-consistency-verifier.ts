@@ -6,10 +6,38 @@
  */
 
 import type { EvidenceScope } from "../src/services/evidenceScope.js";
+import type { ChatSourcePreview } from "../src/services/chat.js";
 
 function assert(cond: unknown, msg: string): void {
   if (!cond) throw new Error(`FAIL: ${msg}`);
   console.log(`  PASS: ${msg}`);
+}
+
+function drivePrev(ids: string[]): ChatSourcePreview {
+  return {
+    kind: "drive",
+    query: "trip",
+    status: "found",
+    totalItems: ids.length,
+    items: ids.map((id) => ({
+      id, name: id, mimeType: "image/jpeg", webViewLink: null, thumbnailLink: null,
+      iconLink: null, folderId: "F1", folderName: "Trip", folderLink: null,
+      previewKind: "image" as const, preview: null, childNames: null,
+      truncated: false, readable: true,
+    })),
+  };
+}
+
+function gmailPrev(ids: string[]): ChatSourcePreview {
+  return {
+    kind: "gmail",
+    query: "invoices",
+    status: "found",
+    items: ids.map((id) => ({
+      id, from: "x@y.z", subject: "s", receivedAt: "2026-06-30T00:00:00Z",
+      preview: "p", truncated: false,
+    })),
+  };
 }
 
 function scope(partial: Partial<EvidenceScope> & Pick<EvidenceScope, "id">): EvidenceScope {
@@ -192,6 +220,60 @@ async function main(): Promise<void> {
     claims.some((c) => c.value === 12 && c.source === "gmail"),
     "arabic-digit gmail claim parsed",
   );
+
+  const { filterPreviewsToSource } = await import(
+    "../src/services/consistencyVerifier.js"
+  );
+
+  // --- 14. Bound to gmail scope but a drive preview shown → mixed source ---
+  const v14 = verifyTurnConsistency({
+    answer: "x",
+    previews: [gmailPrev(["m1"]), drivePrev(["a"])],
+    scopes: [
+      scope({ id: "gmail:r", source: "gmail", item_ids: ["m1"], total_count: 1 }),
+      scope({ id: "drive:f", source: "google_drive", item_ids: ["a"], total_count: 1 }),
+    ],
+    reference: {
+      kind: "reuse_scope",
+      confidence: "high",
+      reason_code: "single_dominant_scope",
+      selected_scope_id: "gmail:r",
+      selected_source: "gmail",
+      limitations: [],
+    },
+  });
+  assert(v14.status === "repairable", "foreign preview on bound turn is repairable");
+  assert(v14.reason_code === "mixed_source_preview", "mixed source reason code");
+
+  // --- 15. filterPreviewsToSource keeps only the bound source ---
+  const kept = filterPreviewsToSource([gmailPrev(["m1"]), drivePrev(["a"])], "gmail");
+  assert(kept.length === 1 && kept[0].kind === "gmail", "filter keeps only bound source");
+
+  // --- 16. Orphan preview: drive card but only gmail scope → block ---
+  const v16 = verifyTurnConsistency({
+    answer: "x",
+    previews: [drivePrev(["a"])],
+    scopes: [scope({ id: "gmail:r2", source: "gmail", item_ids: ["m1"], total_count: 1 })],
+  });
+  assert(v16.status === "block", "orphan cross-source preview blocks");
+  assert(v16.reason_code === "source_mismatch", "orphan reason code");
+
+  // --- 17. Broad fresh search, two sources, both scoped → no mixing flag ---
+  const v17 = verifyTurnConsistency({
+    answer: "x",
+    previews: [gmailPrev(["m1"]), drivePrev(["a"])],
+    scopes: [
+      scope({ id: "gmail:r3", source: "gmail", item_ids: ["m1"], total_count: 1 }),
+      scope({ id: "drive:f3", source: "google_drive", item_ids: ["a"], total_count: 1 }),
+    ],
+    reference: {
+      kind: "fresh_search",
+      confidence: "low",
+      reason_code: "not_a_reference",
+      limitations: [],
+    },
+  });
+  assert(v17.status === "pass", "broad multi-source search not flagged");
 
   console.log("Consistency verifier smoke OK.");
 }

@@ -323,17 +323,101 @@ export function repairPreviewCounts(
   });
 }
 
+// --- Sprint 3: source consistency across Drive/Gmail/LINE --------------------
+
+/** Map a source-preview card to the evidence-scope source it represents. */
+function previewSource(
+  preview: ChatSourcePreview,
+): Extract<EvidenceScope["source"], "google_drive" | "gmail"> {
+  return preview.kind === "drive" ? "google_drive" : "gmail";
+}
+
+/** Previews that actually carry evidence (a found card with items). */
+function shownPreviews(
+  previews: readonly ChatSourcePreview[],
+): ChatSourcePreview[] {
+  return previews.filter((p) => p.items.length > 0);
+}
+
+/**
+ * Sprint 3 — the source preview attached to an answer must come from the SAME
+ * evidence the answer used. Two drifts the audit warns about:
+ *
+ *  - Bound turn, foreign preview: when the reference resolver bound this turn to
+ *    ONE scope (reuse_scope + selected_source), a preview from a DIFFERENT source
+ *    is an unintended mix → repairable (drop the foreign card; keep the bound one).
+ *  - Orphan preview: a shown preview whose source has NO evidence scope this turn,
+ *    while OTHER sources DO have scopes → cross-source contamination → block (don't
+ *    show a card the answer's evidence never backed).
+ *
+ * Multiple sources WITHOUT a single-scope binding are left alone: a broad fresh
+ * search may legitimately surface Drive + Gmail together.
+ */
+function checkSourceConsistency(input: ConsistencyInput): ConsistencyFinding[] {
+  const findings: ConsistencyFinding[] = [];
+  const shown = shownPreviews(input.previews);
+  if (shown.length === 0) return findings;
+
+  const scopeSources = new Set(input.scopes.map((s) => s.source));
+  const ref = input.reference;
+
+  for (const preview of shown) {
+    const src = previewSource(preview);
+
+    // Bound to a single scope → foreign-source cards are an unintended mix.
+    if (
+      ref &&
+      ref.kind === "reuse_scope" &&
+      ref.selected_source &&
+      src !== ref.selected_source
+    ) {
+      findings.push({
+        code: "mixed_source_preview",
+        status: "repairable",
+        detail: `preview source ${src} differs from bound scope source ${ref.selected_source}`,
+      });
+      continue;
+    }
+
+    // Orphan card: its source has no scope, but the turn DID capture scopes from
+    // other sources → contamination across connectors.
+    if (!scopeSources.has(src) && scopeSources.size > 0) {
+      findings.push({
+        code: "source_mismatch",
+        status: "block",
+        detail: `preview source ${src} has no evidence scope (scopes: ${[...scopeSources].join(",")})`,
+      });
+    }
+  }
+
+  return findings;
+}
+
+/**
+ * Deterministic repair for `mixed_source_preview`: when the turn is bound to a
+ * single evidence source, drop preview cards from any other source so the answer
+ * and its previews describe one set. Pure; returns a new array.
+ */
+export function filterPreviewsToSource(
+  previews: readonly ChatSourcePreview[],
+  source: EvidenceScope["source"],
+): ChatSourcePreview[] {
+  return previews.filter((p) => previewSource(p) === source);
+}
+
 /**
  * Verify that one turn's answer, previews, evidence scopes, and proposed actions
  * describe a single consistent evidence set. The single gate the chat pipeline
  * consults before returning a reply.
  *
  * Sprint 1 — scope metadata invariants. Sprint 2 — count/preview consistency.
- * Later sprints append cross-source and action-proposal findings to the same list.
+ * Sprint 3 — cross-source preview consistency. Sprint 4 appends action-proposal
+ * findings to the same list.
  */
 export function verifyTurnConsistency(input: ConsistencyInput): ConsistencyVerdict {
   const findings: ConsistencyFinding[] = [];
   findings.push(...checkScopeMetadata(input.scopes));
   findings.push(...checkCountPreview(input));
+  findings.push(...checkSourceConsistency(input));
   return decide(findings);
 }
