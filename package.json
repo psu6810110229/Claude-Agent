@@ -43,6 +43,7 @@
     "smoke:conversation-reference-eval": "npm run smoke:conversation-reference-eval -w @claude-agent/backend",
     "smoke:evidence-scope": "npm run smoke:evidence-scope -w @claude-agent/backend",
     "smoke:reference-resolver": "npm run smoke:reference-resolver -w @claude-agent/backend",
+    "smoke:consistency-verifier": "npm run smoke:consistency-verifier -w @claude-agent/backend",
     "eval:conversation-reference-providers": "npm run eval:conversation-reference-providers -w @claude-agent/backend",
     "smoke:web-research-worker": "npm run smoke:web-research-worker -w @claude-agent/backend",
     "smoke:schedule-import": "npm run smoke:schedule-import -w @claude-agent/backend",

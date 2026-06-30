@@ -49,6 +49,7 @@
     "smoke:conversation-reference-eval": "tsx scripts/smoke-conversation-reference-eval.ts",
     "smoke:evidence-scope": "tsx scripts/smoke-evidence-scope.ts",
     "smoke:reference-resolver": "tsx scripts/smoke-reference-resolver.ts",
+    "smoke:consistency-verifier": "tsx scripts/smoke-consistency-verifier.ts",
     "eval:conversation-reference-providers": "tsx scripts/conversation-reference-provider-eval.ts",
     "smoke:web-research-worker": "tsx scripts/smoke-web-research-worker.ts",
     "smoke:step28": "tsx scripts/smoke-step28.ts",
