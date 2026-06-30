@@ -58,6 +58,7 @@ import {
   getRecentDriveFiles,
   searchDriveByKeywords,
   listFolderChildren,
+  getDriveFolderSummaries,
   getDriveFileContent,
   isDriveEnabled,
   DRIVE_FOLDER_MIME,
@@ -236,12 +237,60 @@ const DRIVE_STOPWORDS = new Set([
   "search", "find", "open", "the", "a", "an", "in", "my", "me", "of", "for",
   "about", "เกี่ยวกับ", "ที", "ว่า",
 ]);
+
+const DRIVE_KEYWORD_PREFIXES = [
+  "ในโฟลเดอร์",
+  "โฟลเดอร์",
+  "folder",
+  "รูป",
+  "ภาพ",
+  "ไฟล์",
+  "file",
+  "ใน",
+];
+
+const DRIVE_KEYWORD_SUFFIXES = [
+  "ทั้งหมด",
+  "หน่อย",
+  "ด้วย",
+  "บ้าง",
+  "ไหม",
+  "ค่ะ",
+  "ครับ",
+];
+
+function stripDriveKeywordAffixes(term: string): string {
+  let out = term;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const prefix of DRIVE_KEYWORD_PREFIXES) {
+      if (out.startsWith(prefix) && out.length - prefix.length >= 2) {
+        out = out.slice(prefix.length);
+        changed = true;
+      }
+    }
+    for (const suffix of DRIVE_KEYWORD_SUFFIXES) {
+      if (out.endsWith(suffix) && out.length - suffix.length >= 2) {
+        out = out.slice(0, -suffix.length);
+        changed = true;
+      }
+    }
+  }
+  return out.trim();
+}
+
 // Thai is space-less, so a natural sentence often collapses into ONE giant glued
 // token that matches nothing. Keep only space-separated terms that are short
 // enough to be a real name/keyword (users typically space out the keyword, e.g.
 // "...คีย์เวิร์ด สักการะ"); drop glued phrases (> 20 chars) that are pure noise.
 function extractDriveKeywords(message: string): string[] {
-  return extractSearchTerms(message, DRIVE_STOPWORDS, 6).filter((t) => t.length <= 20);
+  const terms = extractSearchTerms(message, DRIVE_STOPWORDS, 6).filter((t) => t.length <= 30);
+  const expanded = terms.flatMap((term) => {
+    const stripped = stripDriveKeywordAffixes(term);
+    return stripped && stripped !== term ? [term, stripped] : [term];
+  });
+  return Array.from(new Set(expanded.filter((t) => t.length >= 2 && t.length <= 20))).slice(0, 6);
 }
 
 type DriveTarget = {
@@ -251,9 +300,12 @@ type DriveTarget = {
   webViewLink?: string | null;
   thumbnailLink?: string | null;
   iconLink?: string | null;
+  parents?: string[];
 };
 
 type DriveDesiredKind = "image" | "pdf" | "folder" | "sheet" | "doc" | "slide" | "text" | null;
+
+const DRIVE_FOLDER_CHILD_SCAN_LIMIT = 500;
 
 function driveSearchKind(kind: DriveDesiredKind): DriveSearchKind | undefined {
   return kind ?? undefined;
@@ -290,6 +342,82 @@ function driveKind(file: DriveTarget): Exclude<DriveDesiredKind, null> | "file" 
 
 function driveKindMatches(file: DriveTarget, desiredKind: DriveDesiredKind): boolean {
   return desiredKind === null || driveKind(file) === desiredKind;
+}
+
+function mentionsDriveFolder(message: string): boolean {
+  return /(folder|โฟลเดอร์)/i.test(message);
+}
+
+function shouldExpandDriveFolderContainers(
+  message: string,
+  desiredKind: DriveDesiredKind,
+): boolean {
+  return desiredKind !== null && desiredKind !== "folder" && mentionsDriveFolder(message);
+}
+
+function driveFileToTarget(file: {
+  id: string;
+  name: string;
+  mimeType: string;
+  webViewLink?: string | null;
+  thumbnailLink?: string | null;
+  iconLink?: string | null;
+  parents?: string[];
+}): DriveTarget {
+  return {
+    id: file.id,
+    name: file.name,
+    mimeType: file.mimeType,
+    webViewLink: file.webViewLink ?? null,
+    thumbnailLink: file.thumbnailLink ?? null,
+    iconLink: file.iconLink ?? null,
+    parents: file.parents ?? undefined,
+  };
+}
+
+async function expandDriveFolderTargets(
+  targets: DriveTarget[],
+  desiredKind: DriveDesiredKind,
+): Promise<{ targets: DriveTarget[]; total: number }> {
+  if (desiredKind === null || desiredKind === "folder") {
+    return { targets, total: targets.length };
+  }
+
+  const expanded = new Map<string, DriveTarget>();
+  let sawFolder = false;
+
+  for (const target of targets) {
+    if (target.mimeType === DRIVE_FOLDER_MIME) {
+      sawFolder = true;
+      const children = await listFolderChildren(target.id, DRIVE_FOLDER_CHILD_SCAN_LIMIT);
+      for (const child of children) {
+        const childTarget = driveFileToTarget(child);
+        if (!driveKindMatches(childTarget, desiredKind)) continue;
+        expanded.set(childTarget.id, {
+          ...childTarget,
+          parents: [
+            target.id,
+            ...(childTarget.parents ?? []).filter((id) => id !== target.id),
+          ],
+        });
+      }
+      continue;
+    }
+
+    if (driveKindMatches(target, desiredKind)) {
+      expanded.set(target.id, target);
+    }
+  }
+
+  const expandedTargets = Array.from(expanded.values());
+  if (expandedTargets.length > 0) {
+    return { targets: expandedTargets, total: expandedTargets.length };
+  }
+
+  return {
+    targets: sawFolder ? targets.filter((target) => target.mimeType === DRIVE_FOLDER_MIME) : targets,
+    total: sawFolder ? 0 : targets.length,
+  };
 }
 
 function scoreDriveFile(
@@ -404,6 +532,7 @@ export type ChatSourcePreview =
       kind: "drive";
       query: string;
       status: "found" | "empty";
+      totalItems?: number;
       items: {
         id: string;
         name: string;
@@ -411,6 +540,9 @@ export type ChatSourcePreview =
         webViewLink: string | null;
         thumbnailLink: string | null;
         iconLink: string | null;
+        folderId: string | null;
+        folderName: string | null;
+        folderLink: string | null;
         previewKind: "image" | "pdf" | "folder" | "text" | "file";
         preview: string | null;
         childNames: string[] | null;
@@ -428,6 +560,43 @@ function previewText(value: string, max = 260): string {
 function driveOpenLink(id: string, webViewLink?: string | null): string | null {
   if (webViewLink) return webViewLink;
   return id ? `https://drive.google.com/open?id=${encodeURIComponent(id)}` : null;
+}
+
+function normalizeDriveMention(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function replyMentionsDrivePreviewItem(
+  reply: string,
+  item: Extract<ChatSourcePreview, { kind: "drive" }>["items"][number],
+): boolean {
+  const normalizedReply = normalizeDriveMention(reply);
+  const name = normalizeDriveMention(item.name);
+  const baseName = normalizeDriveMention(driveNameBase(item));
+  return (
+    (name.length >= 3 && normalizedReply.includes(name)) ||
+    (baseName.length >= 3 && normalizedReply.includes(baseName))
+  );
+}
+
+function alignDriveSourcePreviewsToReply(
+  previews: ChatSourcePreview[],
+  reply: string,
+): ChatSourcePreview[] {
+  return previews.map((preview) => {
+    if (preview.kind !== "drive") return preview;
+
+    const mentionedItems = preview.items.filter((item) =>
+      replyMentionsDrivePreviewItem(reply, item),
+    );
+    if (mentionedItems.length === 0) return preview;
+
+    return {
+      ...preview,
+      totalItems: mentionedItems.length,
+      items: mentionedItems,
+    };
+  });
 }
 
 function buildChatSourcePreviews(ctx: ChatContext): ChatSourcePreview[] {
@@ -457,28 +626,38 @@ function buildChatSourcePreviews(ctx: ChatContext): ChatSourcePreview[] {
           ? ctx.driveFocusedTerms.join(" ")
           : "name match",
       status: ctx.driveFocused.length > 0 ? "found" : "empty",
-      items: ctx.driveFocused.slice(0, CHAT_DRIVE_FOCUSED_HITS).map((f) => ({
-        id: f.id,
-        name: f.name,
-        mimeType: f.mimeType,
-        webViewLink: driveOpenLink(f.id, f.webViewLink),
-        thumbnailLink: f.thumbnailLink ?? null,
-        iconLink: f.iconLink ?? null,
-        previewKind:
-          driveKind(f) === "image"
-            ? "image"
-            : driveKind(f) === "pdf"
-              ? "pdf"
-              : driveKind(f) === "folder"
-                ? "folder"
-                : f.content !== null
-                  ? "text"
-                  : "file",
-        preview: f.content ? previewText(f.content, 320) : null,
-        childNames: f.children ? f.children.slice(0, 8).map((c) => c.name) : null,
-        truncated: f.truncated,
-        readable: f.content !== null || f.children !== null,
-      })),
+      totalItems: ctx.driveFocusedTotal ?? ctx.driveFocused.length,
+      items: ctx.driveFocused.slice(0, Math.max(CHAT_DRIVE_FOCUSED_HITS, 12)).map((f) => {
+        const selfIsFolder = f.mimeType === DRIVE_FOLDER_MIME;
+        const folder = selfIsFolder
+          ? { id: f.id, name: f.name, webViewLink: f.webViewLink ?? null }
+          : f.parentFolders?.[0] ?? null;
+        return {
+          id: f.id,
+          name: f.name,
+          mimeType: f.mimeType,
+          webViewLink: driveOpenLink(f.id, f.webViewLink),
+          thumbnailLink: f.thumbnailLink ?? null,
+          iconLink: f.iconLink ?? null,
+          folderId: folder?.id ?? null,
+          folderName: folder?.name ?? null,
+          folderLink: folder ? driveOpenLink(folder.id, folder.webViewLink) : null,
+          previewKind:
+            driveKind(f) === "image"
+              ? "image"
+              : driveKind(f) === "pdf"
+                ? "pdf"
+                : driveKind(f) === "folder"
+                  ? "folder"
+                  : f.content !== null
+                    ? "text"
+                    : "file",
+          preview: f.content ? previewText(f.content, 320) : null,
+          childNames: f.children ? f.children.slice(0, 8).map((c) => c.name) : null,
+          truncated: f.truncated,
+          readable: f.content !== null || f.children !== null,
+        };
+      }),
     });
   }
 
@@ -1283,6 +1462,7 @@ export async function buildChatContext(
   // OLD files + folders, no recency horizon). A folder → list its children; a
   // file → read content; an unreadable file → still surface its existence.
   let driveFocused: ChatContext["driveFocused"] = null;
+  let driveFocusedTotal = 0;
   let driveFocusedTerms: string[] = [];
   if (isDriveEnabled() && detectDriveReadIntent(message)) {
     driveFocused = [];
@@ -1291,20 +1471,22 @@ export async function buildChatContext(
         matchDriveFilesByName(message, recentDriveFiles);
       driveFocusedTerms = extractDriveKeywords(message);
       const desiredKind = detectDriveDesiredKind(message);
+      const shouldExpandFolders = shouldExpandDriveFolderContainers(message, desiredKind);
+      let folderTargets: DriveTarget[] = shouldExpandFolders
+        ? targets.filter((target) => target.mimeType === DRIVE_FOLDER_MIME)
+        : [];
+
       if (targets.length === 0) {
         const found = await searchDriveByKeywords(
           driveFocusedTerms,
           30,
           driveSearchKind(desiredKind),
         );
-        targets = found.map((f) => ({
-          id: f.id,
-          name: f.name,
-          mimeType: f.mimeType,
-          webViewLink: f.webViewLink ?? null,
-          thumbnailLink: f.thumbnailLink ?? null,
-          iconLink: f.iconLink ?? null,
-        }));
+        targets = found.map(driveFileToTarget);
+        if (shouldExpandFolders) {
+          const folders = await searchDriveByKeywords(driveFocusedTerms, 10, "folder");
+          folderTargets = folders.map(driveFileToTarget);
+        }
       } else if (driveFocusedTerms.length > 0) {
         const found = await searchDriveByKeywords(
           driveFocusedTerms,
@@ -1313,20 +1495,38 @@ export async function buildChatContext(
         );
         targets = uniqueDriveTargets([
           ...targets,
-          ...found.map((f) => ({
-            id: f.id,
-            name: f.name,
-            mimeType: f.mimeType,
-            webViewLink: f.webViewLink ?? null,
-            thumbnailLink: f.thumbnailLink ?? null,
-            iconLink: f.iconLink ?? null,
-          })),
+          ...found.map(driveFileToTarget),
         ]);
+        if (shouldExpandFolders) {
+          const folders = await searchDriveByKeywords(driveFocusedTerms, 10, "folder");
+          folderTargets = uniqueDriveTargets([
+            ...folderTargets,
+            ...folders.map(driveFileToTarget),
+          ]);
+        }
       }
-      targets = rankDriveTargets(targets, driveFocusedTerms, message, desiredKind);
-      targets = targets.slice(0, CHAT_DRIVE_FOCUSED_HITS);
+      const rankedFolders = shouldExpandFolders
+        ? rankDriveTargets(folderTargets, driveFocusedTerms, message, "folder")
+        : [];
+      const rankedTargets = rankDriveTargets(targets, driveFocusedTerms, message, desiredKind);
+      const expanded = await expandDriveFolderTargets(
+        uniqueDriveTargets([...rankedFolders, ...rankedTargets]),
+        desiredKind,
+      );
+      targets = rankDriveTargets(expanded.targets, driveFocusedTerms, message, desiredKind);
+      driveFocusedTotal = expanded.total;
+      const parentSummaries = await getDriveFolderSummaries(
+        targets.flatMap((target) => target.parents ?? []),
+      );
+      const focusedTargetLimit = desiredKind === "image"
+        ? Math.max(CHAT_DRIVE_FOCUSED_HITS, 12)
+        : CHAT_DRIVE_FOCUSED_HITS;
+      targets = targets.slice(0, focusedTargetLimit);
 
       for (const t of targets) {
+        const parentFolders = (t.parents ?? [])
+          .map((id) => parentSummaries.get(id))
+          .filter((folder): folder is NonNullable<typeof folder> => Boolean(folder));
         if (t.mimeType === DRIVE_FOLDER_MIME) {
           const children = (await listFolderChildren(t.id, 50)).map((c) => ({
             id: c.id,
@@ -1339,6 +1539,7 @@ export async function buildChatContext(
             webViewLink: t.webViewLink ?? null,
             thumbnailLink: t.thumbnailLink ?? null,
             iconLink: t.iconLink ?? null,
+            parentFolders,
             content: null,
             truncated: false,
             children,
@@ -1354,6 +1555,7 @@ export async function buildChatContext(
             webViewLink: t.webViewLink ?? null,
             thumbnailLink: t.thumbnailLink ?? null,
             iconLink: t.iconLink ?? null,
+            parentFolders,
             content: null,
             truncated: false,
             children: null,
@@ -1369,6 +1571,7 @@ export async function buildChatContext(
             webViewLink: t.webViewLink ?? null,
             thumbnailLink: t.thumbnailLink ?? null,
             iconLink: t.iconLink ?? null,
+            parentFolders,
             content: doc.content.slice(0, CHAT_DRIVE_FOCUSED_CHARS),
             truncated:
               doc.truncated || doc.content.length > CHAT_DRIVE_FOCUSED_CHARS,
@@ -1383,6 +1586,7 @@ export async function buildChatContext(
             webViewLink: t.webViewLink ?? null,
             thumbnailLink: t.thumbnailLink ?? null,
             iconLink: t.iconLink ?? null,
+            parentFolders,
             content: null,
             truncated: false,
             children: null,
@@ -1413,6 +1617,7 @@ export async function buildChatContext(
     contactsStatus,
     recentDriveFiles,
     driveFocused,
+    driveFocusedTotal,
     driveFocusedTerms,
     lineChats,
     lineMessages,
@@ -1636,7 +1841,16 @@ export async function runChat(
   // The reply is an ACK (written before execution). Attach the action buttons to
   // it, then append the TRUE outcome as a second assistant message so reporting
   // is never faked — it reflects the real executor result.
-  appendMessage("assistant", check.data.reply, actionsJson);
+  const sourcePreviews = alignDriveSourcePreviewsToReply(
+    buildChatSourcePreviews(ctx),
+    check.data.reply,
+  );
+  appendMessage(
+    "assistant",
+    check.data.reply,
+    actionsJson,
+    sourcePreviews.length > 0 ? JSON.stringify(sourcePreviews) : null,
+  );
   const report = buildActionReport(dispatched);
   if (report) appendMessage("assistant", report.text);
 
@@ -1652,7 +1866,7 @@ export async function runChat(
     resultSpoken: report?.spoken,
     approvals,
     calendarPlan,
-    sourcePreviews: buildChatSourcePreviews(ctx),
+    sourcePreviews,
     clarification: check.data.clarification,
     clarificationChoices: check.data.clarification_choices,
     notes: check.data.notes,

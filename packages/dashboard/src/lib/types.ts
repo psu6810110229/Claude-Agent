@@ -207,6 +207,7 @@ export interface DriveFile {
   webViewLink?: string;
   thumbnailLink?: string;
   iconLink?: string;
+  parents?: string[];
   modifiedTime?: string;
   owners?: { displayName: string }[];
   size?: string;
@@ -580,6 +581,7 @@ export interface ChatMessage {
   role: ChatRole;
   content: string;
   actions_json: string | null;
+  source_previews_json: string | null;
   status: ChatMessageStatus;
   created_at: string;
   updated_at: string;
@@ -715,6 +717,7 @@ export type ChatSourcePreview =
       kind: "drive";
       query: string;
       status: "found" | "empty";
+      totalItems?: number;
       items: {
         id: string;
         name: string;
@@ -722,6 +725,9 @@ export type ChatSourcePreview =
         webViewLink: string | null;
         thumbnailLink: string | null;
         iconLink: string | null;
+        folderId: string | null;
+        folderName: string | null;
+        folderLink: string | null;
         previewKind: "image" | "pdf" | "folder" | "text" | "file";
         preview: string | null;
         childNames: string[] | null;

@@ -19,10 +19,7 @@ import {
   Clock3,
   Copy,
   Database,
-  ExternalLink,
-  FileText,
   Folder,
-  Image as ImageIcon,
   Mail,
   MessageCircle,
   RotateCcw,
@@ -779,6 +776,7 @@ export default function HomePage() {
             role: "user",
             content: text,
             actions_json: null,
+            source_previews_json: null,
             status: "active",
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
@@ -798,6 +796,7 @@ export default function HomePage() {
             role: "user",
             content: text,
             actions_json: null,
+            source_previews_json: null,
             status: "active",
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
@@ -832,6 +831,7 @@ export default function HomePage() {
         role: "user",
         content: attachLines ? `${attachLines}\n${text}` : text,
         actions_json: null,
+        source_previews_json: null,
         status: "active",
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -1613,6 +1613,7 @@ function fallbackAssistantMessage(content: string): ChatMessage {
     role: "assistant",
     content,
     actions_json: null,
+    source_previews_json: null,
     status: "active",
     created_at: now,
     updated_at: now,
@@ -1685,6 +1686,7 @@ function briefToMessage(result: BriefResult): ChatMessage {
     content: `${label}\n\n${result.summary}${notes}`,
     actions_json:
       result.approvals.length > 0 ? JSON.stringify(result.approvals) : null,
+    source_previews_json: null,
     status: "active",
     created_at: now,
     updated_at: now,
@@ -1898,7 +1900,7 @@ function ChatMessageGroup({
       inferSourceHints(
         message,
         parseActions(message.actions_json),
-        messageSourcePreviews[message.id],
+        sourcePreviewsForMessage(message, messageSourcePreviews),
       ),
     ),
   );
@@ -1910,33 +1912,36 @@ function ChatMessageGroup({
         {!isUser && <SourceHintList hints={groupSources} />}
       </div>
       <div className="chat-group-stack">
-        {group.messages.map((msg, index) => (
-          <ChatBubble
-            key={msg.id}
-            msg={msg}
-            groupedIndex={index}
-            isCoarsePointer={isCoarsePointer}
-            reduceMotion={reduceMotion}
-            approvalMap={approvalMap}
-            meta={messageMeta[msg.id]}
-            thinking={messageThinking[msg.id]}
-            jobProgress={messageJobProgress[msg.id]}
-            sourcePreviews={messageSourcePreviews[msg.id]}
-            approvalBusy={approvalBusy}
-            revealing={revealingMessageIds.has(msg.id)}
-            onRevealDone={onRevealDone}
-            onApproval={onApproval}
-            onRequestReject={onRequestReject}
-            clarification={
-              activeClarification?.messageId === msg.id
-                ? activeClarification
-                : null
-            }
-            onClarificationChoice={onClarificationChoice}
-            onClarificationSkip={onClarificationSkip}
-            onRegenerate={onRegenerate}
-          />
-        ))}
+        {group.messages.map((msg, index) => {
+          const sourcePreviews = sourcePreviewsForMessage(msg, messageSourcePreviews);
+          return (
+            <ChatBubble
+              key={msg.id}
+              msg={msg}
+              groupedIndex={index}
+              isCoarsePointer={isCoarsePointer}
+              reduceMotion={reduceMotion}
+              approvalMap={approvalMap}
+              meta={messageMeta[msg.id]}
+              thinking={messageThinking[msg.id]}
+              jobProgress={messageJobProgress[msg.id]}
+              sourcePreviews={sourcePreviews}
+              approvalBusy={approvalBusy}
+              revealing={revealingMessageIds.has(msg.id)}
+              onRevealDone={onRevealDone}
+              onApproval={onApproval}
+              onRequestReject={onRequestReject}
+              clarification={
+                activeClarification?.messageId === msg.id
+                  ? activeClarification
+                  : null
+              }
+              onClarificationChoice={onClarificationChoice}
+              onClarificationSkip={onClarificationSkip}
+              onRegenerate={onRegenerate}
+            />
+          );
+        })}
       </div>
     </section>
   );
@@ -2011,20 +2016,30 @@ function compactChatJobProgress(
     .slice(0, 3);
 }
 
-function SourcePreviewPanel({ previews }: { previews: ChatSourcePreview[] }) {
+function SourcePreviewPanel({
+  previews,
+  reveal = false,
+}: {
+  previews: ChatSourcePreview[];
+  reveal?: boolean;
+}) {
+  const gmailPreviews = previews.filter((preview) => preview.kind === "gmail");
+  const drivePreviews = previews.filter((preview) => preview.kind === "drive");
+
   return (
-    <div className="chat-source-previews" aria-label="หลักฐานจาก Gmail และ Drive">
-      {previews.map((preview) => {
-        const Icon = preview.kind === "gmail" ? Mail : Folder;
-        const title = preview.kind === "gmail" ? "Gmail ที่อ่านเจอ" : "ไฟล์ Drive ที่อ่านเจอ";
+    <div
+      className={`chat-source-previews${reveal ? " revealing" : ""}`}
+      aria-label="หลักฐานจาก Gmail และ Drive"
+    >
+      {gmailPreviews.map((preview) => {
         return (
-          <section className={`chat-source-preview ${preview.kind}`} key={preview.kind}>
+          <section className="chat-source-preview gmail" key={`gmail-${preview.query}`}>
             <div className="chat-source-preview-head">
               <span className="chat-source-preview-icon" aria-hidden="true">
-                <Icon strokeWidth={1.8} />
+                <Mail strokeWidth={1.8} />
               </span>
               <div>
-                <strong>{title}</strong>
+                <strong>Gmail ที่อ่านเจอ</strong>
                 <span>{preview.query}</span>
               </div>
               <span className="chat-source-preview-count">
@@ -2032,25 +2047,22 @@ function SourcePreviewPanel({ previews }: { previews: ChatSourcePreview[] }) {
               </span>
             </div>
             <div className="chat-source-preview-list">
-              {preview.kind === "gmail"
-                ? preview.items.map((item) => (
-                    <article className="chat-source-item gmail" key={item.id}>
-                      <div className="chat-source-item-top">
-                        <strong>{item.subject || "(ไม่มีหัวข้อ)"}</strong>
-                        <span>{formatChatTs(item.receivedAt)}</span>
-                      </div>
-                      <div className="chat-source-item-meta">{formatMailSender(item.from)}</div>
-                      {item.preview && <p>{item.preview}</p>}
-                      {item.truncated && <span className="chat-source-note">ตัดให้สั้น</span>}
-                    </article>
-                  ))
-                : preview.items.map((item) => (
-                    <DriveSourceItem item={item} key={item.id} />
-                  ))}
+              {preview.items.map((item) => (
+                <article className="chat-source-item gmail" key={item.id}>
+                  <div className="chat-source-item-top">
+                    <strong>{item.subject || "(ไม่มีหัวข้อ)"}</strong>
+                    <span>{formatChatTs(item.receivedAt)}</span>
+                  </div>
+                  <div className="chat-source-item-meta">{formatMailSender(item.from)}</div>
+                  {item.preview && <p>{item.preview}</p>}
+                  {item.truncated && <span className="chat-source-note">ตัดให้สั้น</span>}
+                </article>
+              ))}
             </div>
           </section>
         );
       })}
+      {drivePreviews.length > 0 && <DriveSourceSection previews={drivePreviews} />}
     </div>
   );
 }
@@ -2060,85 +2072,123 @@ type DrivePreviewItem = Extract<
   { kind: "drive" }
 >["items"][number];
 
-function DriveSourceItem({ item }: { item: DrivePreviewItem }) {
-  const VisualIcon =
-    item.previewKind === "image"
-      ? ImageIcon
-      : item.previewKind === "folder"
-        ? Folder
-        : FileText;
-  const visualLabel =
-    item.previewKind === "image"
-      ? "IMAGE"
-      : item.previewKind === "pdf"
-        ? "PDF"
-        : item.previewKind === "folder"
-          ? "FOLDER"
-          : driveMimeLabel(item.mimeType).toUpperCase();
+type DrivePreviewSource = Extract<ChatSourcePreview, { kind: "drive" }>;
+
+type DrivePreviewEntry = {
+  item: DrivePreviewItem;
+};
+
+const DRIVE_SOURCE_PREVIEW_LIMIT = 4;
+
+function DriveSourceSection({ previews }: { previews: DrivePreviewSource[] }) {
+  const allItems = previews.flatMap((preview) =>
+    preview.items.map((item) => ({ item })),
+  );
+  const totalItems = previews.reduce(
+    (sum, preview) => sum + (preview.totalItems ?? preview.items.length),
+    0,
+  );
+  const previewItems = allItems.slice(0, DRIVE_SOURCE_PREVIEW_LIMIT);
+  const hasOverflow =
+    previewItems.length >= DRIVE_SOURCE_PREVIEW_LIMIT &&
+    totalItems > previewItems.length;
+  const overflowIndex = hasOverflow ? previewItems.length - 1 : -1;
+  const overflowUnit = previewItems.every(({ item }) => item.previewKind === "image")
+    ? "ภาพ"
+    : "รายการ";
+  const overflowHref =
+    previewItems.find(({ item }) => item.folderLink)?.item.folderLink ??
+    previewItems[overflowIndex]?.item.folderLink ??
+    previewItems[overflowIndex]?.item.webViewLink ??
+    null;
+
+  return (
+    <section className="chat-source-preview drive">
+      <div className="chat-source-preview-list drive-grid">
+        {previewItems.map(({ item }, index) => {
+          const overflowCount =
+            index === overflowIndex ? totalItems - previewItems.length : 0;
+          return (
+            <DriveSourceItem
+              item={item}
+              key={item.id}
+              overflowCount={overflowCount}
+              overflowUnit={overflowUnit}
+              overflowHref={overflowHref}
+            />
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function DriveSourceItem({
+  item,
+  overflowCount = 0,
+  overflowUnit = "รายการ",
+  overflowHref = null,
+}: {
+  item: DrivePreviewItem;
+  overflowCount?: number;
+  overflowUnit?: string;
+  overflowHref?: string | null;
+}) {
   const hasImagePreview = item.previewKind === "image" && item.thumbnailLink;
+  const isImage = item.previewKind === "image";
+  const isOverflow = overflowCount > 0;
+  const link = isOverflow
+    ? (overflowHref ?? item.folderLink ?? item.webViewLink)
+    : (item.webViewLink ?? item.folderLink);
+  const ariaLabel = isOverflow
+    ? `เปิดโฟลเดอร์ ${item.folderName ?? item.name} ใน Google Drive`
+    : `เปิด ${item.name} ใน Google Drive`;
+  const content = (
+    <div className={`chat-source-visual ${item.previewKind}${isOverflow ? " has-overflow" : ""}`}>
+      {hasImagePreview ? (
+        <img
+          src={item.thumbnailLink ?? undefined}
+          alt=""
+          loading="lazy"
+          onError={(event) => {
+            event.currentTarget.style.display = "none";
+            event.currentTarget.parentElement?.classList.add("is-missing");
+          }}
+        />
+      ) : (
+        <div className="chat-source-file-art" aria-hidden="true">
+          {item.iconLink ? (
+            <img src={item.iconLink} alt="" />
+          ) : (
+            <Folder strokeWidth={1.6} />
+          )}
+        </div>
+      )}
+      {isOverflow ? (
+        <span className="chat-source-overflow-count">+{overflowCount} {overflowUnit}</span>
+      ) : !isImage ? (
+        <span className="chat-source-visual-name" title={item.name}>
+          {item.name}
+        </span>
+      ) : null}
+    </div>
+  );
 
   return (
     <article className={`chat-source-item drive ${item.previewKind}`}>
-      <div className="chat-source-item-top">
-        <span className="chat-source-file-icon" aria-hidden="true">
-          <VisualIcon strokeWidth={1.8} />
-        </span>
-        <strong>{item.name}</strong>
-        {item.webViewLink && (
-          <a
-            href={item.webViewLink}
-            target="_blank"
-            rel="noreferrer"
-            aria-label={`เปิด ${item.name} ใน Google Drive`}
-          >
-            <ExternalLink aria-hidden="true" strokeWidth={1.8} />
-          </a>
-        )}
-      </div>
-      <div className={`chat-source-visual ${item.previewKind}`}>
-        {hasImagePreview ? (
-          <img
-            src={item.thumbnailLink ?? undefined}
-            alt=""
-            loading="lazy"
-            onError={(event) => {
-              event.currentTarget.style.display = "none";
-              event.currentTarget.parentElement?.classList.add("is-missing");
-            }}
-          />
-        ) : (
-          <div className="chat-source-file-art" aria-hidden="true">
-            {item.iconLink ? (
-              <img src={item.iconLink} alt="" />
-            ) : (
-              <VisualIcon strokeWidth={1.6} />
-            )}
-            <span>{visualLabel}</span>
-          </div>
-        )}
-      </div>
-      <div className="chat-source-item-meta">
-        {driveMimeLabel(item.mimeType)}
-        {!item.readable && item.previewKind !== "image" && item.previewKind !== "pdf"
-          ? " · อ่านเนื้อหาจากตรงนี้ไม่ได้"
-          : ""}
-      </div>
-      {item.preview ? (
-        <p className="chat-source-excerpt">{item.preview}</p>
-      ) : item.childNames && item.childNames.length > 0 ? (
-        <p className="chat-source-excerpt">
-          มีไฟล์: {item.childNames.slice(0, 6).join(", ")}
-        </p>
+      {link ? (
+        <a
+          className="chat-source-visual-link"
+          href={link}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={ariaLabel}
+        >
+          {content}
+        </a>
       ) : (
-        <p className="chat-source-empty">
-          {item.previewKind === "image"
-            ? "ดูตัวอย่างภาพจาก Drive"
-            : item.previewKind === "pdf"
-              ? "พบ PDF แล้ว เปิดดูฉบับเต็มใน Drive"
-              : "พบไฟล์นี้แล้ว แต่ยังอ่านตัวอย่างจากตรงนี้ไม่ได้"}
-        </p>
+        content
       )}
-      {item.truncated && <span className="chat-source-note">ตัดให้สั้น</span>}
     </article>
   );
 }
@@ -2146,17 +2196,6 @@ function DriveSourceItem({ item }: { item: DrivePreviewItem }) {
 function formatMailSender(from: string): string {
   const match = from.match(/^"?([^"<]+)"?\s*<?[^>]*>?$/);
   return match?.[1]?.trim() || from || "ไม่ทราบผู้ส่ง";
-}
-
-function driveMimeLabel(mimeType: string): string {
-  if (mimeType.includes("google-apps.folder")) return "โฟลเดอร์";
-  if (mimeType.includes("google-apps.document")) return "Google Docs";
-  if (mimeType.includes("google-apps.spreadsheet")) return "Google Sheets";
-  if (mimeType.includes("google-apps.presentation")) return "Google Slides";
-  if (mimeType.startsWith("image/")) return "Image";
-  if (mimeType.includes("pdf")) return "PDF";
-  if (mimeType.startsWith("text/")) return "Text";
-  return mimeType.replace("application/vnd.google-apps.", "").replace("application/", "");
 }
 
 function JobProgressInline({ jobs }: { jobs: ActiveJobProgress[] }) {
@@ -2511,7 +2550,10 @@ function ChatBubble({
                 onRevealDone={() => onRevealDone(msg.id)}
               />
               {!isUser && sourcePreviews && sourcePreviews.length > 0 && (
-                <SourcePreviewPanel previews={sourcePreviews} />
+                <SourcePreviewPanel
+                  previews={sourcePreviews}
+                  reveal={revealing && !isUser}
+                />
               )}
               {!isUser && jobProgress && jobProgress.length > 0 && (
                 <JobProgressInline jobs={jobProgress} />
@@ -3244,6 +3286,38 @@ function parseActions(actionsJson: string | null): ActionRef[] {
   } catch {
     return [];
   }
+}
+
+function sourcePreviewsForMessage(
+  message: ChatMessage,
+  previewsByMessage: Record<number, ChatSourcePreview[]>,
+): ChatSourcePreview[] | undefined {
+  const live = previewsByMessage[message.id];
+  if (live && live.length > 0) return live;
+  return parseSourcePreviews(message.source_previews_json);
+}
+
+function parseSourcePreviews(previewsJson: string | null): ChatSourcePreview[] | undefined {
+  if (!previewsJson) return undefined;
+  try {
+    const parsed = JSON.parse(previewsJson) as unknown;
+    if (!Array.isArray(parsed)) return undefined;
+    const previews = parsed.filter(isChatSourcePreview);
+    return previews.length > 0 ? previews : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isChatSourcePreview(value: unknown): value is ChatSourcePreview {
+  if (typeof value !== "object" || value == null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    (record.kind === "gmail" || record.kind === "drive") &&
+    typeof record.query === "string" &&
+    (record.status === "found" || record.status === "empty") &&
+    Array.isArray(record.items)
+  );
 }
 
 function isActionRef(value: unknown): value is ActionRef {

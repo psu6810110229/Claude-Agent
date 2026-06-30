@@ -563,6 +563,73 @@ async function main(): Promise<void> {
     "unverified guest never sees event location/notes (redacted)",
   );
 
+  // --- 13. Drive source previews persist with chat history + total count prompt ---
+  const { appendMessage } = await import("../src/db/repositories/chatRepo.js");
+  const persistedPreview = [
+    {
+      kind: "drive",
+      query: "เพาะกล้า",
+      status: "found",
+      totalItems: 115,
+      items: [
+        {
+          id: "img-1",
+          name: "IMG_0001.jpg",
+          mimeType: "image/jpeg",
+          webViewLink: "https://drive.google.com/open?id=img-1",
+          thumbnailLink: null,
+          iconLink: null,
+          folderId: "folder-1",
+          folderName: "เพาะกล้า",
+          folderLink: "https://drive.google.com/drive/folders/folder-1",
+          previewKind: "image",
+          preview: null,
+          childNames: null,
+          truncated: false,
+          readable: false,
+        },
+      ],
+    },
+  ];
+  appendMessage("assistant", "พบภาพแล้ว", null, JSON.stringify(persistedPreview));
+  const previewHist = await getJson("/api/chat/history?limit=1");
+  assert(
+    previewHist.status === 200 &&
+      previewHist.json.messages[0].source_previews_json === JSON.stringify(persistedPreview),
+    "chat history persists source_previews_json for refresh-stable previews",
+  );
+
+  const driveFocused = Array.from({ length: 12 }, (_, i) => ({
+    id: `img-${i + 1}`,
+    name: `IMG_${String(i + 1).padStart(4, "0")}.jpg`,
+    mimeType: "image/jpeg",
+    webViewLink: `https://drive.google.com/open?id=img-${i + 1}`,
+    thumbnailLink: null,
+    iconLink: null,
+    parentFolders: [
+      {
+        id: "folder-1",
+        name: "เพาะกล้า",
+        webViewLink: "https://drive.google.com/drive/folders/folder-1",
+      },
+    ],
+    content: null,
+    truncated: false,
+    children: null,
+  }));
+  const drivePrompt = buildChatPrompt({
+    ...locCtx,
+    message: "หารูปในโฟลเดอร์เพาะกล้าทั้งหมด",
+    driveFocused,
+    driveFocusedTotal: 115,
+    driveFocusedTerms: ["เพาะกล้า"],
+  });
+  assert(
+    drivePrompt.includes("total matches before preview cap: 115") &&
+      (drivePrompt.match(/IMG_/g) ?? []).length === 12,
+    "Drive prompt carries total match count separately from capped preview rows",
+  );
+
   // Cleanup
   await app.close();
   closeDb();

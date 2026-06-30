@@ -7,6 +7,7 @@ export const driveFileSchema = z.object({
   webViewLink: z.string().optional(),
   thumbnailLink: z.string().optional(),
   iconLink: z.string().optional(),
+  parents: z.array(z.string()).optional(),
   modifiedTime: z.string().optional(),
   owners: z.array(z.object({ displayName: z.string() })).optional(),
   size: z.string().optional(),

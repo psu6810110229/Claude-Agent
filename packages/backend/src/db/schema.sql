@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS chat_message (
   role         TEXT NOT NULL,
   content      TEXT NOT NULL,
   actions_json TEXT,
+  source_previews_json TEXT,
   status       TEXT NOT NULL DEFAULT 'active',
   created_at   TEXT NOT NULL,
   updated_at   TEXT NOT NULL

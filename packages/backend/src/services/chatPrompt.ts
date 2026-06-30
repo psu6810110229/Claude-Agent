@@ -186,6 +186,7 @@ export interface ChatContext {
     webViewLink?: string | null;
     thumbnailLink?: string | null;
     iconLink?: string | null;
+    parents?: string[];
   }[];
   /**
    * Friday deeper awareness — actual text CONTENT of Drive files, fetched only
@@ -200,6 +201,7 @@ export interface ChatContext {
         webViewLink?: string | null;
         thumbnailLink?: string | null;
         iconLink?: string | null;
+        parentFolders?: { id: string; name: string; webViewLink?: string | null }[];
         /** File body (capped). null for folders / unreadable files. */
         content: string | null;
         truncated: boolean;
@@ -207,6 +209,8 @@ export interface ChatContext {
         children: { id: string; name: string }[] | null;
       }[]
     | null;
+  /** Total Drive matches before the compact prompt/preview cap. */
+  driveFocusedTotal?: number;
   /** Drive terms used for driveFocused. Empty when no focused read ran. */
   driveFocusedTerms: string[];
   /**
@@ -664,8 +668,12 @@ export function buildChatPrompt(ctx: ChatContext): string {
     ctx.driveFocused === null
       ? null
       : ctx.driveFocused.length > 0
-        ? ctx.driveFocused
-            .map((f) => {
+        ? [
+            ctx.driveFocusedTotal !== undefined &&
+            ctx.driveFocusedTotal > ctx.driveFocused.length
+              ? `  (total matches before preview cap: ${ctx.driveFocusedTotal}; items shown below: ${ctx.driveFocused.length})`
+              : null,
+            ...ctx.driveFocused.map((f) => {
               if (f.children !== null) {
                 const kids =
                   f.children.length > 0
@@ -679,7 +687,9 @@ export function buildChatPrompt(ctx: ChatContext): string {
                 }\n    content: ${f.content.replace(/\n/g, "\n    ")}`;
               }
               return `  - id=${f.id} "${f.name}" (${f.mimeType}; found, but content is not text-readable here — open in Drive)`;
-            })
+            }),
+          ]
+            .filter((line): line is string => Boolean(line))
             .join("\n")
         : "  (no matching file or folder found)";
 
@@ -1441,7 +1451,9 @@ folder's real children; a "content:" block is a file's actual text. Answer ONLY
 from what is shown; never invent files, items, dates, or numbers. "(content
 truncated)" = cut for length, say so if more is needed. If it says "(no matching
 file or folder found)", tell the user plainly it was not found — do NOT fall back
-to guessing from the recent-files list):
+to guessing from the recent-files list. For image/file batches, summarize the
+count and related folders/sources; do not enumerate raw camera-style filenames
+unless the user explicitly asks for filenames):
 ${driveFocused}
 `
 }

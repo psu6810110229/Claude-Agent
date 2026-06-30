@@ -16,6 +16,7 @@ export function initDb(): void {
   const schema = fs.readFileSync(schemaPath, "utf8");
   db.exec(schema);
   ensureApprovalExecutionColumns();
+  ensureChatMessageSourcePreviewsColumn();
   ensureNotificationDedupColumn();
   ensureCalendarPlanItemTriageColumns();
   ensureMemoryFiles();
@@ -46,6 +47,24 @@ function ensureCalendarPlanItemTriageColumns(): void {
     if (!columns.has(name)) {
       db.exec(`ALTER TABLE calendar_plan_item ADD COLUMN ${name} ${decl}`);
     }
+  }
+}
+
+/**
+ * Source previews are deterministic evidence cards for assistant turns. Persist
+ * them with chat history so Drive/Gmail previews survive dashboard refreshes.
+ */
+function ensureChatMessageSourcePreviewsColumn(): void {
+  const db = getDb();
+  const columns = new Set(
+    (
+      db
+        .prepare("PRAGMA table_info(chat_message)")
+        .all() as { name: string }[]
+    ).map((col) => col.name),
+  );
+  if (!columns.has("source_previews_json")) {
+    db.exec("ALTER TABLE chat_message ADD COLUMN source_previews_json TEXT");
   }
 }
 
