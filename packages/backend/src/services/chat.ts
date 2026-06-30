@@ -31,6 +31,8 @@ import type {
 } from "../schemas/calendarPlan.js";
 import { buildCalendarPlan } from "./calendarPlanService.js";
 import { buildChatPrompt, type ChatContext } from "./chatPrompt.js";
+import { buildTurnEvidenceScopes } from "./evidenceScopeBuilders.js";
+import { serializeEvidenceScopes } from "./evidenceScope.js";
 import {
   agendaBounds,
   bangkokWallClock,
@@ -1845,11 +1847,18 @@ export async function runChat(
     buildChatSourcePreviews(ctx),
     check.data.reply,
   );
+  // Phase 02 — capture the metadata-only evidence scope of THIS turn from the
+  // same aligned previews the answer uses, so the next short follow-up can bind
+  // to this exact evidence set instead of triggering a fresh source search.
+  const evidenceScopesJson = serializeEvidenceScopes(
+    buildTurnEvidenceScopes(sourcePreviews),
+  );
   appendMessage(
     "assistant",
     check.data.reply,
     actionsJson,
     sourcePreviews.length > 0 ? JSON.stringify(sourcePreviews) : null,
+    evidenceScopesJson,
   );
   const report = buildActionReport(dispatched);
   if (report) appendMessage("assistant", report.text);

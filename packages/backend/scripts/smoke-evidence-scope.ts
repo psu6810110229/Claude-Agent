@@ -129,6 +129,82 @@ async function main(): Promise<void> {
     "invalid entries are dropped, not thrown",
   );
 
+  // --- 8. Capture a Drive scope from a displayed preview (Sprint 2) ---
+  const { buildTurnEvidenceScopes } = await import(
+    "../src/services/evidenceScopeBuilders.js"
+  );
+  const drivePreview = {
+    kind: "drive" as const,
+    query: "Folder A images",
+    status: "found" as const,
+    totalItems: 5,
+    items: [1, 2, 3, 4].map((n) => ({
+      id: `img_${n}`,
+      name: `photo_${n}.jpg`,
+      mimeType: "image/jpeg",
+      webViewLink: null,
+      thumbnailLink: null,
+      iconLink: null,
+      folderId: "folder_a",
+      folderName: "Folder A",
+      folderLink: null,
+      previewKind: "image" as const,
+      preview: null,
+      childNames: null,
+      truncated: false,
+      readable: true,
+    })),
+  };
+  const driveScopes = buildTurnEvidenceScopes([drivePreview]);
+  assert(driveScopes.length === 1, "drive preview yields one scope");
+  const ds = driveScopes[0];
+  assert(ds.source === "google_drive", "captured scope source is google_drive");
+  assert(
+    ds.scope_type === "folder" && ds.parent_ids[0] === "folder_a",
+    "single shared folder → folder scope anchored to that folder",
+  );
+  assert(ds.id === "drive:folder:folder_a", "folder scope id is deterministic");
+  assert(
+    ds.item_ids.length === 4 &&
+      ds.preview_item_ids.length === 4 &&
+      ds.preview_item_ids.every((id) => ds.item_ids.includes(id)),
+    "answer/preview share the same evidence ids",
+  );
+  assert(ds.total_count === 5, "scope keeps true total (5) above shown (4)");
+  assert(
+    ds.limitations.some((l) => l.includes("4 of 5")),
+    "windowed preview is flagged as a limitation",
+  );
+  assert(ds.confidence === "high", "single-folder anchor → high confidence");
+
+  // Result set without a shared folder → weaker, result_set scope.
+  const looseScopes = buildTurnEvidenceScopes([
+    {
+      ...drivePreview,
+      totalItems: 30,
+      items: drivePreview.items.map((it, idx) => ({
+        ...it,
+        folderId: `folder_${idx}`,
+        folderName: `Folder ${idx}`,
+      })),
+    },
+  ]);
+  assert(
+    looseScopes[0].scope_type === "result_set" &&
+      looseScopes[0].confidence === "medium",
+    "multi-folder result set → result_set scope, medium confidence",
+  );
+  assert(
+    looseScopes[0].limitations.some((l) => l.includes("recency horizon")),
+    "result set flags the no-recency-horizon Drive search limitation",
+  );
+  assert(
+    buildTurnEvidenceScopes([
+      { kind: "drive", query: "x", status: "empty", totalItems: 0, items: [] },
+    ]).length === 0,
+    "empty preview yields no scope",
+  );
+
   console.log("\nAll evidence scope store assertions passed.");
 }
 
