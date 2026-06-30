@@ -58,6 +58,7 @@
     "smoke:class-matcher": "tsx scripts/smoke-class-matcher.ts",
     "smoke:class-occurrence": "tsx scripts/smoke-class-occurrence.ts",
     "smoke:makeup-planner": "tsx scripts/smoke-makeup-planner.ts",
+    "smoke:makeup-staging": "tsx scripts/smoke-makeup-staging.ts",
     "smoke:schedule-extract": "tsx scripts/smoke-schedule-extract.ts",
     "smoke:persona": "tsx scripts/smoke-persona.ts"
   },

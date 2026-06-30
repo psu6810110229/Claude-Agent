@@ -1,6 +1,7 @@
 import { BANGKOK_OFFSET_MS } from "../config.js";
 import type { ClassBlock } from "../schemas/classBlock.js";
 import type { GoogleEvent } from "../schemas/googleCalendar.js";
+import { aiActionSchema, type AiAction } from "../schemas/aiCommand.js";
 import {
   buildOccurrenceForDate,
   resolveClassOccurrence,
@@ -273,4 +274,90 @@ export function planMakeupClass(
     return clarify(subject, "nothing_to_do", "nothing resolved into an operation");
   }
   return { status: "planned", subject, operations };
+}
+
+// --- Sprint 4: approval-gated staging ----------------------------------------
+
+/** Why an operation could not be turned into a calendar proposal. */
+export type UnstagedReason = "cancel_no_calendar_event";
+
+export interface StagedMakeupPlan {
+  /**
+   * Calendar proposals for the EXISTING approval queue / dispatcher. These are
+   * canonical AiActions (`google_event.create` / `google_event.delete`) — the
+   * same shape chat already validates and queues; no new write path is added.
+   */
+  actions: AiAction[];
+  /** One line per action, SAME order — what the user approves. action[i] ↔ summaries[i]. */
+  actionSummaries: string[];
+  /**
+   * Operations that produced NO proposal (e.g. a cancel of a class that has no
+   * live calendar event to delete). Reported, never silently dropped, and never
+   * shown as an approvable action — so summaries match the staged actions exactly.
+   */
+  unstaged: { operation: MakeupOperation; reason: UnstagedReason }[];
+}
+
+export interface StageMakeupOptions {
+  /** Recurring-edit scope for a cancel delete — "instance" only by default so a
+   * one-week skip never removes the whole series. */
+  cancelScope?: "instance" | "series";
+}
+
+/**
+ * Map a PLANNED makeup plan to approval-gated calendar proposals. Pure: it builds
+ * and VALIDATES each AiAction against the canonical action schema (so anything
+ * malformed is rejected here, before it can reach the queue) but performs no IO
+ * and dispatches nothing. The chat pipeline hands the returned actions to the
+ * same approval path every other proposal uses; Google is written only on
+ * approval, and a `google_event.delete` stays confirm-gated by the executor.
+ *
+ *  - create_makeup → google_event.create (online makeups carry location "ออนไลน์").
+ *  - cancel WITH a bound event id → google_event.delete (instance scope) — recoverable
+ *    delete behavior + auto-execute toggle remain the executor's call, unchanged.
+ *  - cancel WITHOUT an event id → unstaged (nothing on Google to delete).
+ *
+ * Throws only if a built payload fails the canonical schema — a planning bug, not
+ * user input — so a bad proposal can never be queued.
+ */
+export function stageMakeupPlan(
+  plan: MakeupPlan,
+  opts: StageMakeupOptions = {},
+): StagedMakeupPlan {
+  const actions: AiAction[] = [];
+  const actionSummaries: string[] = [];
+  const unstaged: StagedMakeupPlan["unstaged"] = [];
+  if (plan.status !== "planned") return { actions, actionSummaries, unstaged };
+
+  const scope = opts.cancelScope ?? "instance";
+
+  for (const op of plan.operations) {
+    if (op.kind === "create_makeup") {
+      const action = aiActionSchema.parse({
+        action_type: "google_event.create",
+        payload: {
+          title: `${plan.subject} (เรียนชด)`,
+          starts_at: op.startUtc,
+          ends_at: op.endUtc,
+          ...(op.online ? { location: "ออนไลน์" } : {}),
+        },
+      });
+      actions.push(action);
+      actionSummaries.push(op.summary);
+      continue;
+    }
+    // cancel
+    if (!op.eventId) {
+      unstaged.push({ operation: op, reason: "cancel_no_calendar_event" });
+      continue;
+    }
+    const action = aiActionSchema.parse({
+      action_type: "google_event.delete",
+      payload: { id: op.eventId, scope },
+    });
+    actions.push(action);
+    actionSummaries.push(op.summary);
+  }
+
+  return { actions, actionSummaries, unstaged };
 }
