@@ -185,6 +185,18 @@ export type ConversationReferenceActual = {
   approval_required?: boolean;
 };
 
+export const ConversationReferenceActualSchema = z
+  .object({
+    behavior: ConversationReferenceBehaviorSchema,
+    source: ConversationReferenceSourceSchema.optional(),
+    scope_id: z.string().min(1).optional(),
+    count: z.number().int().nonnegative().optional(),
+    preview_item_ids: z.array(z.string().min(1)).default([]),
+    clarification: z.boolean().optional(),
+    approval_required: z.boolean().optional(),
+  })
+  .strict();
+
 export type ConversationReferenceCaseResult = {
   id: string;
   passed: boolean;
@@ -255,4 +267,3 @@ export function evaluateConversationReferenceActual(
     failures,
   };
 }
-
