@@ -41,6 +41,12 @@ import {
   type ReferenceDecision,
 } from "./referenceResolver.js";
 import {
+  verifyTurnConsistency,
+  repairPreviewCounts,
+  filterPreviewsToSource,
+  isReferenceGatedAction,
+} from "./consistencyVerifier.js";
+import {
   agendaBounds,
   bangkokWallClock,
   bucketEvents,
@@ -1787,12 +1793,34 @@ export async function runChat(
     }
   }
 
+  // Phase 04 / Sprint 4 — consistency gate (action side). A write-sensitive
+  // proposal (Calendar/Gmail/Reminder mutation) must rest on a RESOLVED reference.
+  // When this turn's reference is ambiguous (`clarify`) or unsupported, drop those
+  // proposals BEFORE dispatch and force a clarify, so the backend never mutates the
+  // wrong event/thread/reminder on a guess. The approval queue/dispatcher remain
+  // the system of record; this only withholds an ambiguous proposal.
+  const refDecision = ctx.referenceDecision ?? null;
+  const referenceGatesWrites =
+    refDecision !== null &&
+    (refDecision.kind === "clarify" || refDecision.kind === "unsupported");
+  const gatedWriteActions = referenceGatesWrites
+    ? actionsToDispatch.filter((a) => isReferenceGatedAction(a.action_type))
+    : [];
+  const dispatchActions =
+    gatedWriteActions.length > 0
+      ? actionsToDispatch.filter((a) => !isReferenceGatedAction(a.action_type))
+      : actionsToDispatch;
+  if (gatedWriteActions.length > 0 && !check.data.clarification) {
+    check.data.clarification =
+      "ขอเช็คให้ชัดก่อน — หมายถึงรายการไหนนะ บอกอีกนิดเดียวเดี๋ยวจัดให้";
+  }
+
   // Each action is dispatched — auto-executed when eligible, else a pending
   // approval. Unverified requesters: skip dispatch entirely (defense in depth —
   // prompt also instructs the model not to propose writes for guests).
   const dispatched: DispatchResult[] = verified
     ? await Promise.all(
-        actionsToDispatch.map((action: AiAction) =>
+        dispatchActions.map((action: AiAction) =>
           dispatchProposedAction(action.action_type, action.payload, "chat"),
         ),
       )
@@ -1878,10 +1906,38 @@ export async function runChat(
   // The reply is an ACK (written before execution). Attach the action buttons to
   // it, then append the TRUE outcome as a second assistant message so reporting
   // is never faked — it reflects the real executor result.
-  const sourcePreviews = alignDriveSourcePreviewsToReply(
+  let sourcePreviews = alignDriveSourcePreviewsToReply(
     buildChatSourcePreviews(ctx),
     check.data.reply,
   );
+  // Phase 04 — consistency gate (preview side). Verify the answer, its previews,
+  // and the evidence scope describe ONE set; on a non-pass, apply deterministic
+  // repairs so the user never sees a count/source that contradicts the answer:
+  //  - clamp an inflated Drive `totalItems` to the evidence (the "+26" bug)
+  //  - on a turn BOUND to one scope, drop preview cards from any other source.
+  // Scopes are then rebuilt from the REPAIRED previews so the next follow-up binds
+  // to the corrected set.
+  {
+    const lineFocus = ctx.lineFocusedChat ?? null;
+    const turnScopes = buildTurnEvidenceScopes(sourcePreviews, { lineFocusedChat: lineFocus });
+    const verdict = verifyTurnConsistency({
+      answer: check.data.reply,
+      previews: sourcePreviews,
+      scopes: turnScopes,
+      reference: refDecision,
+      proposedActions: dispatchActions,
+    });
+    if (verdict.status !== "pass") {
+      sourcePreviews = repairPreviewCounts(sourcePreviews, turnScopes);
+      if (
+        refDecision &&
+        refDecision.kind === "reuse_scope" &&
+        refDecision.selected_source
+      ) {
+        sourcePreviews = filterPreviewsToSource(sourcePreviews, refDecision.selected_source);
+      }
+    }
+  }
   // Phase 02 — capture the metadata-only evidence scope of THIS turn from the
   // same aligned previews the answer uses, so the next short follow-up can bind
   // to this exact evidence set instead of triggering a fresh source search.

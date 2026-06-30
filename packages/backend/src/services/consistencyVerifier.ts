@@ -429,6 +429,15 @@ const WRITE_SENSITIVE_ACTIONS = new Set<AiAction["action_type"]>([
 ]);
 
 /**
+ * True when an action acts on a conversation-referenced item and so must rest on
+ * a resolved reference (see WRITE_SENSITIVE_ACTIONS). The chat pipeline uses this
+ * to drop such a proposal before dispatch when the reference is ambiguous.
+ */
+export function isReferenceGatedAction(actionType: AiAction["action_type"]): boolean {
+  return WRITE_SENSITIVE_ACTIONS.has(actionType);
+}
+
+/**
  * Sprint 4 — a write-sensitive proposal must rest on a RESOLVED reference. When
  * the resolver said the turn is ambiguous (`clarify`) or unsupported, the backend
  * must not let a Calendar/Gmail/Reminder mutation ride along on a guess:
