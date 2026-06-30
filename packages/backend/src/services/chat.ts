@@ -1851,7 +1851,9 @@ export async function runChat(
   // same aligned previews the answer uses, so the next short follow-up can bind
   // to this exact evidence set instead of triggering a fresh source search.
   const evidenceScopesJson = serializeEvidenceScopes(
-    buildTurnEvidenceScopes(sourcePreviews),
+    buildTurnEvidenceScopes(sourcePreviews, {
+      lineFocusedChat: ctx.lineFocusedChat ?? null,
+    }),
   );
   appendMessage(
     "assistant",

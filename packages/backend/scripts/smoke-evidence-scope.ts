@@ -205,6 +205,63 @@ async function main(): Promise<void> {
     "empty preview yields no scope",
   );
 
+  // --- 9. Capture a Gmail scope from a focused-read preview (Sprint 3) ---
+  const gmailPreview = {
+    kind: "gmail" as const,
+    query: "from:prof subject:exam",
+    status: "found" as const,
+    items: ["m1", "m2", "m3"].map((id) => ({
+      id,
+      from: "prof@uni.ac.th",
+      subject: "Exam",
+      receivedAt: "2026-06-30T10:00:00.000Z",
+      preview: "redacted-in-test",
+      truncated: false,
+    })),
+  };
+  const gmailScopes = buildTurnEvidenceScopes([gmailPreview]);
+  assert(gmailScopes.length === 1, "gmail preview yields one scope");
+  assert(
+    gmailScopes[0].source === "gmail" &&
+      gmailScopes[0].scope_type === "result_set",
+    "gmail focused read is a result_set scope",
+  );
+  assert(
+    gmailScopes[0].item_ids.join(",") === "m1,m2,m3",
+    "gmail scope holds message ids for follow-up binding",
+  );
+
+  // --- 10. Capture a LINE scope from focused chat context (no preview card) ---
+  const lineScopes = buildTurnEvidenceScopes([], {
+    lineFocusedChat: { chat: "Mom", shown: 20, coverage: { count: 842 } },
+  });
+  assert(lineScopes.length === 1, "focused LINE chat yields one scope");
+  const ls = lineScopes[0];
+  assert(
+    ls.source === "line_export" && ls.scope_type === "chat",
+    "LINE scope is a chat scope",
+  );
+  assert(ls.id === "line:chat:mom", "LINE scope id anchors to chat identity");
+  assert(ls.total_count === 842, "LINE scope total = coverage count");
+  assert(
+    ls.item_ids.length === 0,
+    "LINE scope holds NO per-message ids (export has none)",
+  );
+  assert(
+    JSON.stringify(ls).toLowerCase().indexOf("redacted-in-test") === -1,
+    "no message text leaks into any scope",
+  );
+
+  // --- 11. Mixed turn: Drive + Gmail + LINE coexist ---
+  const mixed = buildTurnEvidenceScopes([drivePreview, gmailPreview], {
+    lineFocusedChat: { chat: "Team", coverage: { count: 5 } },
+  });
+  assert(
+    mixed.length === 3 &&
+      new Set(mixed.map((s) => s.source)).size === 3,
+    "mixed turn captures one scope per source",
+  );
+
   console.log("\nAll evidence scope store assertions passed.");
 }
 
