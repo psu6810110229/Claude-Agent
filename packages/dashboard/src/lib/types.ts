@@ -39,7 +39,8 @@ export type ActionType =
   | "fact.forget"
   | "gmail.draft"
   | "gmail.send"
-  | "line_followup.create";
+  | "line_followup.create"
+  | "active_topic.create";
 
 // --- Events & reminders (Step 9) ------------------------------------------
 
@@ -204,6 +205,9 @@ export interface DriveFile {
   name: string;
   mimeType: string;
   webViewLink?: string;
+  thumbnailLink?: string;
+  iconLink?: string;
+  parents?: string[];
   modifiedTime?: string;
   owners?: { displayName: string }[];
   size?: string;
@@ -548,7 +552,11 @@ export type CommandResult =
 
 // --- Notifications (Step 11) ---------------------------------------------
 
-export type NotificationKind = "reminder.due" | "event.soon";
+export type NotificationKind =
+  | "reminder.due"
+  | "event.soon"
+  | "line.followup"
+  | "line.active_topic";
 export type NotificationStatus = "unread" | "read";
 
 export interface Notification {
@@ -573,9 +581,52 @@ export interface ChatMessage {
   role: ChatRole;
   content: string;
   actions_json: string | null;
+  source_previews_json: string | null;
   status: ChatMessageStatus;
   created_at: string;
   updated_at: string;
+}
+
+export type ActiveJobStatus =
+  | "queued"
+  | "understanding"
+  | "searching"
+  | "verifying"
+  | "needs_user"
+  | "reporting"
+  | "done"
+  | "failed"
+  | "cancelled";
+
+export interface ActiveJobProgressEvent {
+  id: number;
+  event_type:
+    | "created"
+    | "progress"
+    | "evidence"
+    | "status"
+    | "clarification"
+    | "result"
+    | "error";
+  status: ActiveJobStatus;
+  message: string;
+  created_at: string;
+  metadata: unknown | null;
+}
+
+export interface ActiveJobProgress {
+  job_id: number;
+  kind: string;
+  title: string;
+  status: ActiveJobStatus;
+  source: string | null;
+  source_ref: string | null;
+  result_summary: string | null;
+  error: string | null;
+  clarification: string | null;
+  evidence: unknown | null;
+  updated_at: string;
+  milestones: ActiveJobProgressEvent[];
 }
 
 /**
@@ -631,6 +682,10 @@ export interface ChatResult {
   requestedProvider: AiProviderId | null;
   providerReason?: string;
   approvals: Approval[];
+  /** Gmail/Drive evidence previews read by the backend for this turn. */
+  sourcePreviews?: ChatSourcePreview[];
+  /** Recent durable job milestones, sanitized for compact chat-native display. */
+  jobProgress?: ActiveJobProgress[];
   /** Staged bulk Google Calendar add for review; null on ordinary turns. */
   calendarPlan?: CalendarPlanResult | null;
   clarification?: string;
@@ -643,6 +698,43 @@ export interface ChatResult {
   /** Step 15: UX signal — "private" if user probed owner's private specifics. */
   sensitivity?: "private" | "normal";
 }
+
+export type ChatSourcePreview =
+  | {
+      kind: "gmail";
+      query: string;
+      status: "found" | "empty";
+      items: {
+        id: string;
+        from: string;
+        subject: string;
+        receivedAt: string;
+        preview: string;
+        truncated: boolean;
+      }[];
+    }
+  | {
+      kind: "drive";
+      query: string;
+      status: "found" | "empty";
+      totalItems?: number;
+      items: {
+        id: string;
+        name: string;
+        mimeType: string;
+        webViewLink: string | null;
+        thumbnailLink: string | null;
+        iconLink: string | null;
+        folderId: string | null;
+        folderName: string | null;
+        folderLink: string | null;
+        previewKind: "image" | "pdf" | "folder" | "text" | "file";
+        preview: string | null;
+        childNames: string[] | null;
+        truncated: boolean;
+        readable: boolean;
+      }[];
+    };
 
 /** Step 15 — POST /api/chat/verify response. */
 export type VerifyResult =

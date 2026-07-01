@@ -24,6 +24,12 @@ import type { AvailabilityReport } from "./availabilityResolver.js";
 import type { LineEvidence } from "./lineEvidence.js";
 import type { EvidenceVerdict } from "./evidenceVerifier.js";
 import type { ScheduleVerdict } from "./scheduleVerifier.js";
+import type { CompactEvidenceScope } from "./evidenceScope.js";
+import type { ReferenceDecision } from "./referenceResolver.js";
+import {
+  buildProviderEvidencePack,
+  formatProviderEvidencePack,
+} from "./providerEvidencePack.js";
 
 /**
  * Owner-style conversational openers (spec §B grace). Pure + deterministic.
@@ -139,7 +145,7 @@ export interface ChatContext {
   /** Prior conversation turns (oldest first), capped to CHAT_HISTORY_LIMIT. */
   history: { role: "user" | "assistant"; content: string }[];
   /**
-   * Step 17 — unread Gmail messages (capped at 5). Empty when Gmail is
+   * Step 17 — unread Gmail messages (capped by CHAT_GMAIL_UNREAD_CAP). Empty when Gmail is
    * disabled or unavailable. Never includes full body — snippet only.
    */
   gmailUnread: { id: string; from: string; subject: string; snippet: string }[];
@@ -158,6 +164,8 @@ export interface ChatContext {
         truncated: boolean;
       }[]
     | null;
+  /** Gmail search query used for gmailFocused. Null when no focused read ran. */
+  gmailFocusedQuery: string | null;
   /**
    * Step 18 — Google Contacts (capped at 50, name + primary email). Empty when
    * Contacts is disabled or unavailable. Used for email auto-completion when
@@ -173,11 +181,19 @@ export interface ChatContext {
    */
   contactsStatus: "disabled" | "empty" | "available" | "redacted";
   /**
-   * Step 19 — Recent Google Drive files (capped at 10, name + id + type).
+   * Step 19 — Recent Google Drive files (capped by CHAT_DRIVE_RECENT_CAP, name + id + type).
    * Empty when Drive is disabled or unavailable. Gives the AI awareness of
    * recently modified files so it can reference them by name.
    */
-  recentDriveFiles: { id: string; name: string; mimeType: string }[];
+  recentDriveFiles: {
+    id: string;
+    name: string;
+    mimeType: string;
+    webViewLink?: string | null;
+    thumbnailLink?: string | null;
+    iconLink?: string | null;
+    parents?: string[];
+  }[];
   /**
    * Friday deeper awareness — actual text CONTENT of Drive files, fetched only
    * on a file-read turn. null = not requested this turn; [] = requested but
@@ -188,6 +204,10 @@ export interface ChatContext {
         id: string;
         name: string;
         mimeType: string;
+        webViewLink?: string | null;
+        thumbnailLink?: string | null;
+        iconLink?: string | null;
+        parentFolders?: { id: string; name: string; webViewLink?: string | null }[];
         /** File body (capped). null for folders / unreadable files. */
         content: string | null;
         truncated: boolean;
@@ -195,6 +215,10 @@ export interface ChatContext {
         children: { id: string; name: string }[] | null;
       }[]
     | null;
+  /** Total Drive matches before the compact prompt/preview cap. */
+  driveFocusedTotal?: number;
+  /** Drive terms used for driveFocused. Empty when no focused read ran. */
+  driveFocusedTerms: string[];
   /**
    * Step 20 — recent LINE messages across all exported chats (read-only),
    * newest first, capped to LINE_CHAT_CONTEXT_CAP. Empty when LINE is disabled
@@ -265,6 +289,21 @@ export interface ChatContext {
      */
     boundary?: boolean;
   } | null;
+  /**
+   * Phase 02 — recent evidence scopes from prior assistant turns (newest first,
+   * capped). The structured record of WHAT each past answer retrieved (source +
+   * counts + anchor), so a short follow-up binds to the same evidence set instead
+   * of triggering a fresh source search. Metadata only (no bodies). Empty/omitted
+   * when none exist or requester is unverified.
+   */
+  recentEvidenceScopes?: CompactEvidenceScope[];
+  /**
+   * Phase 03 — how the current turn references those scopes (reuse / fresh /
+   * clarify). The router uses it to gate searches; the prompt surfaces it so the
+   * model answers from the bound scope (or asks) instead of inventing a new set.
+   * Null/omitted when there is no decision or the requester is unverified.
+   */
+  referenceDecision?: ReferenceDecision | null;
   /**
    * Step 22 — compact list of active topics the user is tracking. Empty when
    * none exist or requester is unverified. Optional so registry-smoke callers
@@ -650,8 +689,12 @@ export function buildChatPrompt(ctx: ChatContext): string {
     ctx.driveFocused === null
       ? null
       : ctx.driveFocused.length > 0
-        ? ctx.driveFocused
-            .map((f) => {
+        ? [
+            ctx.driveFocusedTotal !== undefined &&
+            ctx.driveFocusedTotal > ctx.driveFocused.length
+              ? `  (total matches before preview cap: ${ctx.driveFocusedTotal}; items shown below: ${ctx.driveFocused.length})`
+              : null,
+            ...ctx.driveFocused.map((f) => {
               if (f.children !== null) {
                 const kids =
                   f.children.length > 0
@@ -664,8 +707,10 @@ export function buildChatPrompt(ctx: ChatContext): string {
                   f.truncated ? " (content truncated)" : ""
                 }\n    content: ${f.content.replace(/\n/g, "\n    ")}`;
               }
-              return `  - id=${f.id} "${f.name}" (found, but content not readable here — open in Drive)`;
-            })
+              return `  - id=${f.id} "${f.name}" (${f.mimeType}; found, but content is not text-readable here — open in Drive)`;
+            }),
+          ]
+            .filter((line): line is string => Boolean(line))
             .join("\n")
         : "  (no matching file or folder found)";
 
@@ -745,6 +790,53 @@ export function buildChatPrompt(ctx: ChatContext): string {
           )
           .join("\n")
       : "  (none matched or LINE disabled)";
+
+  // Phase 06 - compact provider-facing evidence contract. Metadata only.
+  const providerEvidencePackSection = ctx.restricted
+    ? "  (withheld - requester not verified)"
+    : formatProviderEvidencePack(
+        buildProviderEvidencePack({
+          recentScopes: ctx.recentEvidenceScopes ?? [],
+          referenceDecision: ctx.referenceDecision ?? null,
+        }),
+      );
+
+  // Phase 02 — recent evidence scopes: the bound evidence sets of prior answers,
+  // so a short follow-up reuses them instead of re-searching. Metadata only.
+  const SCOPE_SOURCE_LABEL: Record<CompactEvidenceScope["source"], string> = {
+    google_drive: "Drive",
+    gmail: "Gmail",
+    line_export: "LINE",
+    google_calendar: "Calendar",
+    local_reminder: "Reminder",
+    google_contacts: "Contacts",
+    mixed: "Mixed",
+  };
+  const recentEvidenceScopesSection = ctx.restricted
+    ? "  (withheld — requester not verified)"
+    : (ctx.recentEvidenceScopes?.length ?? 0) > 0
+      ? ctx.recentEvidenceScopes!
+          .map((s) => {
+            const count =
+              s.total_count !== undefined
+                ? `${s.total_count} total${s.item_count && s.item_count < s.total_count ? `, ${s.item_count} shown` : ""}`
+                : `${s.item_count} item(s)`;
+            const anchor = s.label ? ` "${s.label}"` : s.query ? ` (${s.query})` : "";
+            const limits = s.limitations.length > 0 ? ` — ${s.limitations.join("; ")}` : "";
+            return `  - [${SCOPE_SOURCE_LABEL[s.source]} ${s.scope_type}, ${s.confidence}] id=${s.id}${anchor}: ${count}${limits}`;
+          })
+          .join("\n")
+      : "  (none — no prior answer bound a source scope this conversation)";
+
+  // Phase 03 — reference decision: tell the model which scope THIS turn refers to
+  // (or that it must ask). Keeps a short follow-up bound to the same evidence set.
+  const ref = ctx.restricted ? null : ctx.referenceDecision ?? null;
+  const referenceDecisionSection =
+    ref && ref.kind === "reuse_scope" && ref.selected_scope_id
+      ? `  → This turn is a follow-up about scope id=${ref.selected_scope_id}. Answer from THAT scope's counts/anchor above. Do NOT describe a different or larger set; no fresh search ran.`
+      : ref && ref.kind === "clarify"
+        ? `  → This turn is ambiguous between scopes: ${(ref.candidate_scope_ids ?? []).join(", ")}. Ask the user which one (in their language); do not guess.${ref.limitations.length > 0 ? ` Options: ${ref.limitations.join(" | ")}.` : ""}`
+        : "  (current turn does not reference a prior scope)";
 
   // Step 22 — active topics / evidence sections (all optional-chained so
   // registry-smoke callers that omit these fields don't throw at runtime)
@@ -934,7 +1026,8 @@ IDENTITY & TONE RULES:
 - In Thai conversation, use feminine polite phrasing. For yourself, prefer to OMIT the self-pronoun entirely; when one is needed use "นี่" or your name "Friday" — NEVER "ผม" or "ฉัน". Use "ค่ะ" (statements) / "คะ" (questions) SPARINGLY — AT MOST ONCE per reply, only on the final sentence, and ZERO is perfectly fine (often better). NEVER use "ค่ะ"/"คะ" after every clause or mid-sentence repeatedly, and NEVER open with a reflexive "รับทราบค่ะ"/"ได้ค่ะ" on every turn — vary it. Wrong: "โอเคค่ะ เข้าใจแล้วค่ะ ไม่เป็นไรค่ะ". Right: "โอเค เข้าใจแล้ว ไม่เป็นไร". Prefer natural openers: "ได้ นี่ดูจาก...", "เข้าใจแล้ว", "สรุปคือ...". Do not use "ผม" or "ฉัน".
 - PARTICLE BAN (ABSOLUTE): NEVER end a clause or sentence with the softener particle "นะ" or "นะคะ" / "นะครับ" in "reply" or "spoken". Wrong: "รอยืนยันก่อนนะคะ", "เข้าใจแล้วนะ". Right: "รอยืนยันก่อนค่ะ", "เข้าใจแล้ว". (You MAY quote the user's own words verbatim if they used it.)
 - You are a practical personal secretary: warm and human, concise by default, but able to go deep and analytical when the user asks for analysis/explanation/comparison. Not a butler, not a salesperson.
-- REASONING / THINKING LANGUAGE (CRITICAL): Write ALL of your internal step-by-step thinking / chain-of-thought in THAI ONLY. Even though these system instructions are written in English, your private reasoning — including the live "thinking" that streams to the user — MUST be natural Thai from the very first token, never English. Do not narrate your reasoning in English and translate after; think in Thai directly. The final "reply"/"spoken" still follow the user's message language as usual.
+- REASONING / THINKING LANGUAGE (CRITICAL): Use the private "_analysis" field FIRST as a concise constraint audit before answering: identify evidence source, ambiguity, date/time conversion, approval gate, and safety/privacy constraints that matter. Keep it short and evidence-bound; do not write a long hidden monologue. Do NOT put reasoning, step-by-step analysis, or provider analysis in "reply", "spoken", "notes", or any user-visible field. If a live thinking channel is available, keep it concise, natural Thai, and evidence-bound; never use it to add facts that are absent from the context below. The final "reply"/"spoken" still follow the user's message language as usual.
+- EVIDENCE-FIRST RULES (Phase 06): The PROVIDER EVIDENCE PACK is the compact source of truth for source, count, preview-id, and reference-binding answers. Use conversation history only for conversational continuity; never let history override the pack's source/count/ids. If the pack says a turn reuses a scope, answer from that scope only and do not imply a fresh search. If the pack says clarify or the evidence is insufficient, ask one short clarification and propose no write action. Keep evidence-grounded answers concise; do not make the prompt longer by narrating your reasoning.
 - FOLLOW-UP INFERENCE (scheduling/planning): when asked what is left, still pending, or how to plan around the schedule, infer the follow-up work the listed activities naturally generate — a lab report after a lab, action items after a meeting, a deliverable after a workshop — not ONLY the deadlines written explicitly. Surface these as LIKELY follow-ups ("น่าจะมี...", "อาจต้อง...") never as confirmed facts, so you stay evidence-honest.
 - If the user asks for their own name and the provided memory/context does not
   explicitly contain it, say you do not know their name yet. Do not invent it.
@@ -1394,7 +1487,8 @@ ${
     ? ""
     : `
 GMAIL — FULL BODIES (loaded because you asked about email; the actual message
-text, not just the snippet. Answer ONLY from what these bodies ACTUALLY contain;
+text, not just the snippet. Focused Gmail search query: ${ctx.gmailFocusedQuery ?? "in:inbox"}.
+Answer ONLY from what these bodies ACTUALLY contain;
 never invent senders, dates, links, amounts, or content not present here. A body
 marked "(body truncated)" was cut for length — say so if the user needs the rest):
 ${gmailFocused}
@@ -1418,12 +1512,17 @@ ${
     : `
 GOOGLE DRIVE — DEEP SEARCH (loaded because you asked about a file/folder; this is
 a FRESH keyword search across ALL of Drive incl. OLD files and folders — NOT
-limited to the recent list above. A "FOLDER ... contains:" block lists that
+limited to the recent list above. Search terms: ${
+        ctx.driveFocusedTerms.length > 0 ? ctx.driveFocusedTerms.join(", ") : "(name match / no keyword)"
+      }.
+A "FOLDER ... contains:" block lists that
 folder's real children; a "content:" block is a file's actual text. Answer ONLY
 from what is shown; never invent files, items, dates, or numbers. "(content
 truncated)" = cut for length, say so if more is needed. If it says "(no matching
 file or folder found)", tell the user plainly it was not found — do NOT fall back
-to guessing from the recent-files list):
+to guessing from the recent-files list. For image/file batches, summarize the
+count and related folders/sources; do not enumerate raw camera-style filenames
+unless the user explicitly asks for filenames):
 ${driveFocused}
 `
 }
@@ -1469,6 +1568,23 @@ best-effort. Times are already Asia/Bangkok — report as-is. If this list is em
 say plainly you found nothing on that topic in the exports — do NOT invent a
 message, sender, or time):
 ${lineMatches}
+
+PROVIDER EVIDENCE PACK (Phase 06 compact metadata, JSON; use this before
+CONVERSATION HISTORY for source/count/reference answers):
+${providerEvidencePackSection}
+
+RECENT EVIDENCE SCOPES (Phase 02 — the bound evidence set each recent answer used,
+newest first. When the user follows up with a short reference ("มีกี่รูป", "อะไรนะ",
+"เช็คอีกที", "อันแรก", "กี่ฉบับ", "ล่าสุดว่าไง"), REUSE the matching scope here
+instead of starting a NEW source search: answer the count from its total, and keep
+any preview/source you cite to THAT scope's source and id. The count is authoritative
+— never contradict a scope's total with a freshly searched number. Respect each
+scope's limitations (e.g. windowed preview, no recency horizon). Empty = no prior
+answer bound a scope, so a fresh lookup is fine):
+${recentEvidenceScopesSection}
+
+REFERENCE DECISION (Phase 03 — deterministic resolver verdict for THIS turn):
+${referenceDecisionSection}
 
 ACTIVE TOPICS (Step 22 — durable topics the user is tracking; empty = none created yet):
 ${activeTopicsSection}
@@ -1598,8 +1714,9 @@ ${ctx.message}
 
 OUTPUT CONTRACT (must follow exactly):
 - Output a SINGLE JSON object and nothing else.
-- No prose, no explanation, no markdown, no code fences.
-- Shape: { "reply": string, "spoken": string, "sensitivity": "private"|"normal", "actions": Action[], "clarification"?: string, "clarification_choices"?: string[], "notes"?: string }
+- No prose, no explanation, no markdown, no code fences outside the JSON.
+- Shape: { "_analysis": string, "reply": string, "spoken": string, "sensitivity": "private"|"normal", "actions": Action[], "clarification"?: string, "clarification_choices"?: string[], "notes"?: string }
+- "_analysis" is REQUIRED and MUST be the first field. Use it as a concise internal constraint audit BEFORE "reply": check the provider evidence pack, source boundaries, ambiguity, date/time conversion, approval policy, and safety/privacy rules. Never mention "_analysis" to the user.
 - "reply" is REQUIRED. It is the conversational response to the user — answer
   their question, summarise what you proposed, or ask a follow-up. Max 4000 chars.
 - "sensitivity" is REQUIRED. Set to "private" when the user asked for the owner's

@@ -12,12 +12,15 @@ const TEST_TMP = fs.mkdtempSync(path.join(os.tmpdir(), "claude-agent-phase4-"));
 const TEST_MEMORY_DIR = path.join(TEST_TMP, "memory");
 const TEST_DB_PATH = path.join(TEST_TMP, "test.db");
 fs.mkdirSync(TEST_MEMORY_DIR, { recursive: true });
+process.env.CLAUDE_AGENT_SKIP_ENV_FILE = "1";
 process.env.CLAUDE_AGENT_MEMORY_DIR = TEST_MEMORY_DIR;
 process.env.CLAUDE_AGENT_DB_PATH = TEST_DB_PATH;
 process.env.CLAUDE_AGENT_AI_ENABLED = "1";
 process.env.GOOGLE_CALENDAR_ENABLED = "";
 process.env.CLAUDE_AGENT_SCHEDULER_ENABLED = "";
 process.env.CLAUDE_AGENT_DESKTOP_NOTIFICATIONS_ENABLED = "";
+process.env.PSU_ENABLED = "";
+process.env.PSU_API_KEY = "";
 // Gemini enabled with a stub key — real API never reached (stubs injected).
 process.env.GEMINI_ENABLED = "1";
 process.env.GEMINI_API_KEY = "stub-key-phase4";
@@ -150,7 +153,7 @@ async function main(): Promise<void> {
 
   // 1. mode=auto + low-risk → routed to gemini, mode + reason echoed.
   currentInvoker = async () =>
-    JSON.stringify({ reply: "Here is your summary.", actions: [] });
+    JSON.stringify({ _analysis: "fixture constraint audit", reply: "Here is your summary.", actions: [] });
   const autoSummary = await postJson("/api/chat", {
     message: "summarize my open tasks",
     mode: "auto",
@@ -175,7 +178,7 @@ async function main(): Promise<void> {
 
   // 2. mode=auto + complex → routed to claude.
   currentInvoker = async () =>
-    JSON.stringify({ reply: "Let me reason through this.", actions: [] });
+    JSON.stringify({ _analysis: "fixture constraint audit", reply: "Let me reason through this.", actions: [] });
   const autoPlan = await postJson("/api/chat", {
     message: "help me architect a multi-step delivery plan",
     mode: "auto",
@@ -190,6 +193,7 @@ async function main(): Promise<void> {
   // 3. mode=auto + low-risk that proposes an action → approval pending only.
   currentInvoker = async () =>
     JSON.stringify({
+      _analysis: "fixture constraint audit",
       reply: "Queued for your review.",
       actions: [
         {
@@ -256,7 +260,7 @@ async function main(): Promise<void> {
 
   // 6. Manual mode still works and is NOT auto.
   currentInvoker = async () =>
-    JSON.stringify({ reply: "Manual claude here.", actions: [] });
+    JSON.stringify({ _analysis: "fixture constraint audit", reply: "Manual claude here.", actions: [] });
   const manualClaude = await postJson("/api/chat", {
     message: "summarize my tasks", // low-risk text, but manual must ignore auto policy
     provider: "claude",

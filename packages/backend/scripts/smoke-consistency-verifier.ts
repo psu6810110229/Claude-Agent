@@ -1,0 +1,353 @@
+/**
+ * Consistency Verifier smoke (Phase 04).
+ *
+ * Pure deterministic checks. No provider calls, no Google APIs, no DB reads,
+ * no LINE exports, and no .env reads. Verifies the turn-consistency gate.
+ */
+
+import type { EvidenceScope } from "../src/services/evidenceScope.js";
+import type { ChatSourcePreview } from "../src/services/chat.js";
+
+function assert(cond: unknown, msg: string): void {
+  if (!cond) throw new Error(`FAIL: ${msg}`);
+  console.log(`  PASS: ${msg}`);
+}
+
+function drivePrev(ids: string[]): ChatSourcePreview {
+  return {
+    kind: "drive",
+    query: "trip",
+    status: "found",
+    totalItems: ids.length,
+    items: ids.map((id) => ({
+      id, name: id, mimeType: "image/jpeg", webViewLink: null, thumbnailLink: null,
+      iconLink: null, folderId: "F1", folderName: "Trip", folderLink: null,
+      previewKind: "image" as const, preview: null, childNames: null,
+      truncated: false, readable: true,
+    })),
+  };
+}
+
+function gmailPrev(ids: string[]): ChatSourcePreview {
+  return {
+    kind: "gmail",
+    query: "invoices",
+    status: "found",
+    items: ids.map((id) => ({
+      id, from: "x@y.z", subject: "s", receivedAt: "2026-06-30T00:00:00Z",
+      preview: "p", truncated: false,
+    })),
+  };
+}
+
+function scope(partial: Partial<EvidenceScope> & Pick<EvidenceScope, "id">): EvidenceScope {
+  const base = {
+    source: "google_drive",
+    scope_type: "result_set",
+    item_ids: ["a", "b", "c"],
+    parent_ids: [],
+    total_count: 3,
+    fetched_at: "2026-06-30T13:00:00.000Z",
+    confidence: "medium",
+    limitations: [],
+    ...partial,
+  } as EvidenceScope;
+  // Default the preview ids to the (possibly overridden) item ids so fixtures
+  // don't trip the scope-metadata subset check unless they mean to.
+  if (partial.preview_item_ids === undefined) base.preview_item_ids = base.item_ids;
+  return base;
+}
+
+async function main(): Promise<void> {
+  console.log("Running consistency verifier smoke...");
+
+  const { verifyTurnConsistency } = await import(
+    "../src/services/consistencyVerifier.js"
+  );
+
+  // --- 1. Aligned scope (answer == preview == scope) → pass ---
+  const v1 = verifyTurnConsistency({
+    answer: "เจอ 3 ไฟล์",
+    previews: [],
+    scopes: [scope({ id: "drive:result:x" })],
+  });
+  assert(v1.status === "pass", "aligned scope passes");
+  assert(v1.reason_code === "consistent", "pass reason is consistent");
+
+  // --- 2. No scopes at all → pass (nothing to contradict) ---
+  const v2 = verifyTurnConsistency({ answer: "สวัสดี", previews: [], scopes: [] });
+  assert(v2.status === "pass", "no scopes passes");
+
+  // --- 3. Duplicate scope id within a turn → block ---
+  const v3 = verifyTurnConsistency({
+    answer: "x",
+    previews: [],
+    scopes: [scope({ id: "drive:result:dup" }), scope({ id: "drive:result:dup" })],
+  });
+  assert(v3.status === "block", "duplicate scope id blocks");
+  assert(v3.reason_code === "duplicate_scope_id", "duplicate id reason code");
+
+  // --- 4. Preview id not in item_ids → repairable ---
+  const v4 = verifyTurnConsistency({
+    answer: "x",
+    previews: [],
+    scopes: [
+      scope({ id: "drive:result:stray", item_ids: ["a", "b"], preview_item_ids: ["a", "z"] }),
+    ],
+  });
+  assert(v4.status === "repairable", "stray preview id is repairable");
+  assert(v4.reason_code === "preview_ids_not_in_scope", "stray preview reason code");
+
+  // --- 5. total_count below held item count → repairable ---
+  const v5 = verifyTurnConsistency({
+    answer: "x",
+    previews: [],
+    scopes: [scope({ id: "drive:result:lowtotal", item_ids: ["a", "b", "c"], total_count: 1 })],
+  });
+  assert(v5.status === "repairable", "total below item count is repairable");
+  assert(v5.reason_code === "total_below_item_count", "low total reason code");
+
+  // --- 6. Worst finding wins: block beats repairable ---
+  const v6 = verifyTurnConsistency({
+    answer: "x",
+    previews: [],
+    scopes: [
+      scope({ id: "drive:result:dup2", item_ids: ["a"], preview_item_ids: ["zzz"] }),
+      scope({ id: "drive:result:dup2" }),
+    ],
+  });
+  assert(v6.status === "block", "block outranks repairable");
+  assert(v6.findings.length >= 2, "all findings collected");
+
+  const { repairPreviewCounts, extractCountClaims } = await import(
+    "../src/services/consistencyVerifier.js"
+  );
+
+  // --- 7. Headline case: answer says 5 but preview total is 30 → repairable ---
+  const v7 = verifyTurnConsistency({
+    answer: "เจอ 5 รูปในโฟลเดอร์",
+    previews: [],
+    scopes: [
+      scope({
+        id: "drive:folder:F1",
+        scope_type: "folder",
+        item_ids: ["a", "b", "c", "d", "e"],
+        preview_item_ids: ["a", "b", "c", "d", "e"],
+        total_count: 30,
+      }),
+    ],
+  });
+  assert(v7.status === "repairable", "answer 5 vs preview 30 fails verifier");
+  assert(v7.reason_code === "preview_overflow_unexplained", "overflow reason code");
+
+  // --- 8. Answer overstates evidence (claims 40, scope holds 30) → block ---
+  const v8 = verifyTurnConsistency({
+    answer: "มี 40 รูป",
+    previews: [],
+    scopes: [scope({ id: "drive:f", item_ids: ["a"], total_count: 30 })],
+  });
+  assert(v8.status === "block", "answer overstating evidence blocks");
+  assert(v8.reason_code === "count_vs_evidence_mismatch", "overstate reason code");
+
+  // --- 9. Answer count matches total → pass ---
+  const v9 = verifyTurnConsistency({
+    answer: "มี 30 รูป",
+    previews: [],
+    scopes: [scope({ id: "drive:f2", item_ids: ["a"], total_count: 30 })],
+  });
+  assert(v9.status === "pass", "matching count passes");
+
+  // --- 10. Overflow explained by a limitation → pass ---
+  const v10 = verifyTurnConsistency({
+    answer: "โชว์ 5 รูป",
+    previews: [],
+    scopes: [
+      scope({
+        id: "drive:f3",
+        item_ids: ["a", "b", "c", "d", "e"],
+        total_count: 30,
+        limitations: ["preview shows 5 of 30 matches"],
+      }),
+    ],
+  });
+  assert(v10.status === "pass", "explained overflow passes");
+
+  // --- 11. Two sources → ambiguous generic count is not judged ---
+  const v11 = verifyTurnConsistency({
+    answer: "มี 2 อัน",
+    previews: [],
+    scopes: [
+      scope({ id: "drive:f4", source: "google_drive", item_ids: ["a"], total_count: 5 }),
+      scope({ id: "gmail:r", source: "gmail", scope_type: "result_set", item_ids: ["m"], total_count: 9 }),
+    ],
+  });
+  assert(v11.status === "pass", "ambiguous generic count across sources not judged");
+
+  // --- 12. repairPreviewCounts clamps inflated drive totalItems to evidence ---
+  const repaired = repairPreviewCounts(
+    [
+      {
+        kind: "drive",
+        query: "trip",
+        status: "found",
+        totalItems: 30,
+        items: [
+          {
+            id: "a", name: "a", mimeType: "image/jpeg", webViewLink: null,
+            thumbnailLink: null, iconLink: null, folderId: "F1", folderName: "Trip",
+            folderLink: null, previewKind: "image", preview: null, childNames: null,
+            truncated: false, readable: true,
+          },
+        ],
+      },
+    ],
+    [scope({ id: "drive:folder:F1", scope_type: "folder", item_ids: ["a"], total_count: 5 })],
+  );
+  const drivePreview = repaired[0];
+  assert(
+    drivePreview.kind === "drive" && drivePreview.totalItems === 5,
+    "inflated drive totalItems clamped to evidence total",
+  );
+
+  // --- 13. extractCountClaims parses Thai + Arabic digits with counters ---
+  const claims = extractCountClaims("เจอ ๓ ไฟล์ และ 12 ฉบับ");
+  assert(claims.length === 2, "extracts both count claims");
+  assert(
+    claims.some((c) => c.value === 3 && c.source === "google_drive"),
+    "thai-digit drive claim parsed",
+  );
+  assert(
+    claims.some((c) => c.value === 12 && c.source === "gmail"),
+    "arabic-digit gmail claim parsed",
+  );
+
+  const { filterPreviewsToSource } = await import(
+    "../src/services/consistencyVerifier.js"
+  );
+
+  // --- 14. Bound to gmail scope but a drive preview shown → mixed source ---
+  const v14 = verifyTurnConsistency({
+    answer: "x",
+    previews: [gmailPrev(["m1"]), drivePrev(["a"])],
+    scopes: [
+      scope({ id: "gmail:r", source: "gmail", item_ids: ["m1"], total_count: 1 }),
+      scope({ id: "drive:f", source: "google_drive", item_ids: ["a"], total_count: 1 }),
+    ],
+    reference: {
+      kind: "reuse_scope",
+      confidence: "high",
+      reason_code: "single_dominant_scope",
+      selected_scope_id: "gmail:r",
+      selected_source: "gmail",
+      limitations: [],
+    },
+  });
+  assert(v14.status === "repairable", "foreign preview on bound turn is repairable");
+  assert(v14.reason_code === "mixed_source_preview", "mixed source reason code");
+
+  // --- 15. filterPreviewsToSource keeps only the bound source ---
+  const kept = filterPreviewsToSource([gmailPrev(["m1"]), drivePrev(["a"])], "gmail");
+  assert(kept.length === 1 && kept[0].kind === "gmail", "filter keeps only bound source");
+
+  // --- 16. Orphan preview: drive card but only gmail scope → block ---
+  const v16 = verifyTurnConsistency({
+    answer: "x",
+    previews: [drivePrev(["a"])],
+    scopes: [scope({ id: "gmail:r2", source: "gmail", item_ids: ["m1"], total_count: 1 })],
+  });
+  assert(v16.status === "block", "orphan cross-source preview blocks");
+  assert(v16.reason_code === "source_mismatch", "orphan reason code");
+
+  // --- 17. Broad fresh search, two sources, both scoped → no mixing flag ---
+  const v17 = verifyTurnConsistency({
+    answer: "x",
+    previews: [gmailPrev(["m1"]), drivePrev(["a"])],
+    scopes: [
+      scope({ id: "gmail:r3", source: "gmail", item_ids: ["m1"], total_count: 1 }),
+      scope({ id: "drive:f3", source: "google_drive", item_ids: ["a"], total_count: 1 }),
+    ],
+    reference: {
+      kind: "fresh_search",
+      confidence: "low",
+      reason_code: "not_a_reference",
+      limitations: [],
+    },
+  });
+  assert(v17.status === "pass", "broad multi-source search not flagged");
+
+  // --- 18. Write-sensitive action on ambiguous reference → clarify ---
+  const v18 = verifyTurnConsistency({
+    answer: "x",
+    previews: [],
+    scopes: [],
+    reference: {
+      kind: "clarify",
+      confidence: "low",
+      reason_code: "multiple_candidate_scopes",
+      candidate_scope_ids: ["gmail:a", "gmail:b"],
+      limitations: [],
+    },
+    proposedActions: [
+      { action_type: "gmail.send", payload: {} } as never,
+    ],
+  });
+  assert(v18.status === "clarify", "write action on ambiguous ref → clarify");
+  assert(v18.reason_code === "action_reference_ambiguous", "ambiguous action reason code");
+
+  // --- 19. Write-sensitive action on unsupported reference → block ---
+  const v19 = verifyTurnConsistency({
+    answer: "x",
+    previews: [],
+    scopes: [],
+    reference: {
+      kind: "unsupported",
+      confidence: "low",
+      reason_code: "unsupported_reference",
+      limitations: [],
+    },
+    proposedActions: [
+      { action_type: "google_event.update", payload: {} } as never,
+    ],
+  });
+  assert(v19.status === "block", "write action on unsupported ref → block");
+  assert(v19.reason_code === "action_scope_unresolved", "unsupported action reason code");
+
+  // --- 20. Non-sensitive action (task.create) on ambiguous ref → pass ---
+  const v20 = verifyTurnConsistency({
+    answer: "x",
+    previews: [],
+    scopes: [],
+    reference: {
+      kind: "clarify",
+      confidence: "low",
+      reason_code: "multiple_candidate_scopes",
+      limitations: [],
+    },
+    proposedActions: [{ action_type: "task.create", payload: {} } as never],
+  });
+  assert(v20.status === "pass", "non-sensitive action not gated by reference");
+
+  // --- 21. Write-sensitive action on a RESOLVED reuse_scope → pass ---
+  const v21 = verifyTurnConsistency({
+    answer: "x",
+    previews: [],
+    scopes: [],
+    reference: {
+      kind: "reuse_scope",
+      confidence: "high",
+      reason_code: "single_dominant_scope",
+      selected_scope_id: "gmail:r",
+      selected_source: "gmail",
+      limitations: [],
+    },
+    proposedActions: [{ action_type: "gmail.draft", payload: {} } as never],
+  });
+  assert(v21.status === "pass", "write action on resolved ref proceeds");
+
+  console.log("Consistency verifier smoke OK.");
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

@@ -115,6 +115,8 @@ CREATE TABLE IF NOT EXISTS chat_message (
   role         TEXT NOT NULL,
   content      TEXT NOT NULL,
   actions_json TEXT,
+  source_previews_json TEXT,
+  evidence_scopes_json TEXT,
   status       TEXT NOT NULL DEFAULT 'active',
   created_at   TEXT NOT NULL,
   updated_at   TEXT NOT NULL
@@ -191,6 +193,41 @@ CREATE TABLE IF NOT EXISTS active_topic (
 CREATE INDEX IF NOT EXISTS idx_active_topic_status_source ON active_topic (status, source);
 CREATE INDEX IF NOT EXISTS idx_active_topic_baseline ON active_topic (baseline_at);
 CREATE INDEX IF NOT EXISTS idx_active_topic_updated ON active_topic (updated_at);
+
+-- Phase 2 / Active Job Foundation - durable backend job state. Jobs are local
+-- backend records for long-running/read-only work. They never execute external
+-- writes and never bypass the approval/action dispatcher. Progress events are
+-- short milestone lines plus sanitized metadata only: no raw LINE bodies,
+-- secrets, tokens, credentials, or uncapped snippets.
+CREATE TABLE IF NOT EXISTS active_job (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind           TEXT NOT NULL,
+  title          TEXT NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'queued',
+  source         TEXT,
+  source_ref     TEXT,
+  result_summary TEXT,
+  error          TEXT,
+  clarification  TEXT,
+  evidence_json  TEXT,
+  completed_at   TEXT,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_active_job_status ON active_job (status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_active_job_kind ON active_job (kind, updated_at);
+
+CREATE TABLE IF NOT EXISTS active_job_event (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id        INTEGER NOT NULL,
+  event_type    TEXT NOT NULL,
+  status        TEXT NOT NULL,
+  progress      TEXT NOT NULL,
+  metadata_json TEXT,
+  created_at    TEXT NOT NULL,
+  FOREIGN KEY (job_id) REFERENCES active_job(id)
+);
+CREATE INDEX IF NOT EXISTS idx_active_job_event_job ON active_job_event (job_id, id);
 
 -- Schedule Import — LOCAL weekly class/timetable blocks (NOT Google Calendar).
 -- A class_block is a recurring weekly commitment (one row per weekday occurrence:

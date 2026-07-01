@@ -19,6 +19,8 @@ import {
   Clock3,
   Copy,
   Database,
+  Folder,
+  Mail,
   MessageCircle,
   RotateCcw,
 } from "lucide-react";
@@ -78,6 +80,7 @@ import { useToast } from "@/components/ToastProvider";
 import {
   DEFAULT_GEMINI_MODEL,
   type ActionType,
+  type ActiveJobProgress,
   type AiProviderId,
   type ProviderChoice,
   type Approval,
@@ -85,6 +88,7 @@ import {
   type BriefType,
   type ChatMessage,
   type ChatResult,
+  type ChatSourcePreview,
   type VerifyResult,
 } from "@/lib/types";
 
@@ -378,6 +382,12 @@ export default function HomePage() {
     Record<number, AiProviderId>
   >({});
   const [messageMeta, setMessageMeta] = useState<Record<number, MessageMeta>>({});
+  const [messageJobProgress, setMessageJobProgress] = useState<
+    Record<number, ActiveJobProgress[]>
+  >({});
+  const [messageSourcePreviews, setMessageSourcePreviews] = useState<
+    Record<number, ChatSourcePreview[]>
+  >({});
   const [approvalMap, setApprovalMap] = useState<ApprovalMap>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -569,6 +579,27 @@ export default function HomePage() {
     }, FOLLOWUP_IDLE_MS);
   }
 
+  function attachJobProgress(messageId: number, jobs: ActiveJobProgress[] | undefined) {
+    const visibleJobs = compactChatJobProgress(jobs);
+    if (visibleJobs.length === 0) return;
+    setMessageJobProgress((prev) => ({
+      ...prev,
+      [messageId]: visibleJobs,
+    }));
+  }
+
+  function attachSourcePreviews(
+    messageId: number,
+    previews: ChatSourcePreview[] | undefined,
+  ) {
+    const visible = (previews ?? []).filter((preview) => preview.items.length > 0);
+    if (visible.length === 0) return;
+    setMessageSourcePreviews((prev) => ({
+      ...prev,
+      [messageId]: visible,
+    }));
+  }
+
   // Idle proactive nudge. Fires once after the user stays quiet; never loops
   // (it does not reschedule itself) and stays silent unless the backend offers
   // something useful. Any failure is swallowed — a nudge must never disrupt.
@@ -745,6 +776,7 @@ export default function HomePage() {
             role: "user",
             content: text,
             actions_json: null,
+            source_previews_json: null,
             status: "active",
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
@@ -764,6 +796,7 @@ export default function HomePage() {
             role: "user",
             content: text,
             actions_json: null,
+            source_previews_json: null,
             status: "active",
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
@@ -798,6 +831,7 @@ export default function HomePage() {
         role: "user",
         content: attachLines ? `${attachLines}\n${text}` : text,
         actions_json: null,
+        source_previews_json: null,
         status: "active",
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -856,6 +890,8 @@ export default function HomePage() {
               latencyMs,
             },
           }));
+          attachJobProgress(freshAssistant.id, result.jobProgress);
+          attachSourcePreviews(freshAssistant.id, result.sourcePreviews);
         }
 
         const speechText = result.spoken ?? result.reply;
@@ -919,6 +955,8 @@ export default function HomePage() {
             latencyMs,
           },
         }));
+        attachJobProgress(freshAssistant.id, result.jobProgress);
+        attachSourcePreviews(freshAssistant.id, result.sourcePreviews);
       }
       // Text is already revealed above; gate only the VOICE behind any playing
       // ack so the final answer never overlaps it (and cancel a pending long ack).
@@ -1221,6 +1259,8 @@ export default function HomePage() {
       setMessages([]);
       setMessageProvider({});
       setMessageMeta({});
+      setMessageSourcePreviews({});
+      setMessageJobProgress({});
       setActiveAttachmentIds([]);
       setPendingAttachments([]);
       setImportCard(null);
@@ -1302,6 +1342,8 @@ export default function HomePage() {
                 messageProvider={messageProvider}
                 messageMeta={messageMeta}
                 messageThinking={messageThinking}
+                messageJobProgress={messageJobProgress}
+                messageSourcePreviews={messageSourcePreviews}
                 approvalMap={approvalMap}
                 approvalBusy={approvalBusy}
                 revealingMessageIds={revealingMessageIds}
@@ -1571,6 +1613,7 @@ function fallbackAssistantMessage(content: string): ChatMessage {
     role: "assistant",
     content,
     actions_json: null,
+    source_previews_json: null,
     status: "active",
     created_at: now,
     updated_at: now,
@@ -1643,6 +1686,7 @@ function briefToMessage(result: BriefResult): ChatMessage {
     content: `${label}\n\n${result.summary}${notes}`,
     actions_json:
       result.approvals.length > 0 ? JSON.stringify(result.approvals) : null,
+    source_previews_json: null,
     status: "active",
     created_at: now,
     updated_at: now,
@@ -1813,6 +1857,8 @@ function ChatMessageGroup({
   messageProvider,
   messageMeta,
   messageThinking,
+  messageJobProgress,
+  messageSourcePreviews,
   approvalMap,
   approvalBusy,
   revealingMessageIds,
@@ -1830,6 +1876,8 @@ function ChatMessageGroup({
   messageProvider: Record<number, AiProviderId>;
   messageMeta: Record<number, MessageMeta>;
   messageThinking: Record<number, string>;
+  messageJobProgress: Record<number, ActiveJobProgress[]>;
+  messageSourcePreviews: Record<number, ChatSourcePreview[]>;
   approvalMap: ApprovalMap;
   approvalBusy: number | null;
   revealingMessageIds: Set<number>;
@@ -1849,7 +1897,11 @@ function ChatMessageGroup({
   const first = group.messages[0];
   const groupSources = mergeSourceHints(
     group.messages.flatMap((message) =>
-      inferSourceHints(message, parseActions(message.actions_json)),
+      inferSourceHints(
+        message,
+        parseActions(message.actions_json),
+        sourcePreviewsForMessage(message, messageSourcePreviews),
+      ),
     ),
   );
   return (
@@ -1860,31 +1912,36 @@ function ChatMessageGroup({
         {!isUser && <SourceHintList hints={groupSources} />}
       </div>
       <div className="chat-group-stack">
-        {group.messages.map((msg, index) => (
-          <ChatBubble
-            key={msg.id}
-            msg={msg}
-            groupedIndex={index}
-            isCoarsePointer={isCoarsePointer}
-            reduceMotion={reduceMotion}
-            approvalMap={approvalMap}
-            meta={messageMeta[msg.id]}
-            thinking={messageThinking[msg.id]}
-            approvalBusy={approvalBusy}
-            revealing={revealingMessageIds.has(msg.id)}
-            onRevealDone={onRevealDone}
-            onApproval={onApproval}
-            onRequestReject={onRequestReject}
-            clarification={
-              activeClarification?.messageId === msg.id
-                ? activeClarification
-                : null
-            }
-            onClarificationChoice={onClarificationChoice}
-            onClarificationSkip={onClarificationSkip}
-            onRegenerate={onRegenerate}
-          />
-        ))}
+        {group.messages.map((msg, index) => {
+          const sourcePreviews = sourcePreviewsForMessage(msg, messageSourcePreviews);
+          return (
+            <ChatBubble
+              key={msg.id}
+              msg={msg}
+              groupedIndex={index}
+              isCoarsePointer={isCoarsePointer}
+              reduceMotion={reduceMotion}
+              approvalMap={approvalMap}
+              meta={messageMeta[msg.id]}
+              thinking={messageThinking[msg.id]}
+              jobProgress={messageJobProgress[msg.id]}
+              sourcePreviews={sourcePreviews}
+              approvalBusy={approvalBusy}
+              revealing={revealingMessageIds.has(msg.id)}
+              onRevealDone={onRevealDone}
+              onApproval={onApproval}
+              onRequestReject={onRequestReject}
+              clarification={
+                activeClarification?.messageId === msg.id
+                  ? activeClarification
+                  : null
+              }
+              onClarificationChoice={onClarificationChoice}
+              onClarificationSkip={onClarificationSkip}
+              onRegenerate={onRegenerate}
+            />
+          );
+        })}
       </div>
     </section>
   );
@@ -1925,6 +1982,378 @@ function BubbleThinking({
   );
 }
 
+const INLINE_JOB_WINDOW_MS = 30 * 60 * 1000;
+
+const ACTIVE_JOB_STATUS_LABELS: Record<ActiveJobProgress["status"], string> = {
+  queued: "รอเริ่ม",
+  understanding: "กำลังทำความเข้าใจ",
+  searching: "กำลังค้นหา",
+  verifying: "กำลังตรวจสอบ",
+  needs_user: "รอคำตอบจากคุณ",
+  reporting: "กำลังสรุป",
+  done: "เสร็จแล้ว",
+  failed: "ไม่สำเร็จ",
+  cancelled: "ยกเลิกแล้ว",
+};
+
+const TERMINAL_JOB_STATUSES = new Set<ActiveJobProgress["status"]>([
+  "done",
+  "failed",
+  "cancelled",
+]);
+
+function compactChatJobProgress(
+  jobs: ActiveJobProgress[] | undefined,
+): ActiveJobProgress[] {
+  if (!jobs || jobs.length === 0) return [];
+  const now = Date.now();
+  return jobs
+    .filter((job) => {
+      if (!TERMINAL_JOB_STATUSES.has(job.status)) return true;
+      const updated = new Date(job.updated_at).getTime();
+      return Number.isFinite(updated) && now - updated <= INLINE_JOB_WINDOW_MS;
+    })
+    .slice(0, 3);
+}
+
+function SourcePreviewPanel({
+  previews,
+  reveal = false,
+}: {
+  previews: ChatSourcePreview[];
+  reveal?: boolean;
+}) {
+  const gmailPreviews = previews.filter((preview) => preview.kind === "gmail");
+  const drivePreviews = previews.filter((preview) => preview.kind === "drive");
+
+  return (
+    <div
+      className={`chat-source-previews${reveal ? " revealing" : ""}`}
+      aria-label="หลักฐานจาก Gmail และ Drive"
+    >
+      {gmailPreviews.map((preview) => {
+        return (
+          <section className="chat-source-preview gmail" key={`gmail-${preview.query}`}>
+            <div className="chat-source-preview-head">
+              <span className="chat-source-preview-icon" aria-hidden="true">
+                <Mail strokeWidth={1.8} />
+              </span>
+              <div>
+                <strong>Gmail ที่อ่านเจอ</strong>
+                <span>{preview.query}</span>
+              </div>
+              <span className="chat-source-preview-count">
+                {preview.items.length} รายการ
+              </span>
+            </div>
+            <div className="chat-source-preview-list">
+              {preview.items.map((item) => (
+                <article className="chat-source-item gmail" key={item.id}>
+                  <div className="chat-source-item-top">
+                    <strong>{item.subject || "(ไม่มีหัวข้อ)"}</strong>
+                    <span>{formatChatTs(item.receivedAt)}</span>
+                  </div>
+                  <div className="chat-source-item-meta">{formatMailSender(item.from)}</div>
+                  {item.preview && <p>{item.preview}</p>}
+                  {item.truncated && <span className="chat-source-note">ตัดให้สั้น</span>}
+                </article>
+              ))}
+            </div>
+          </section>
+        );
+      })}
+      {drivePreviews.length > 0 && <DriveSourceSection previews={drivePreviews} />}
+    </div>
+  );
+}
+
+type DrivePreviewItem = Extract<
+  ChatSourcePreview,
+  { kind: "drive" }
+>["items"][number];
+
+type DrivePreviewSource = Extract<ChatSourcePreview, { kind: "drive" }>;
+
+type DrivePreviewEntry = {
+  item: DrivePreviewItem;
+};
+
+const DRIVE_SOURCE_PREVIEW_LIMIT = 4;
+
+function DriveSourceSection({ previews }: { previews: DrivePreviewSource[] }) {
+  const allItems = previews.flatMap((preview) =>
+    preview.items.map((item) => ({ item })),
+  );
+  const totalItems = previews.reduce(
+    (sum, preview) => sum + (preview.totalItems ?? preview.items.length),
+    0,
+  );
+  const previewItems = allItems.slice(0, DRIVE_SOURCE_PREVIEW_LIMIT);
+  const hasOverflow =
+    previewItems.length >= DRIVE_SOURCE_PREVIEW_LIMIT &&
+    totalItems > previewItems.length;
+  const overflowIndex = hasOverflow ? previewItems.length - 1 : -1;
+  const overflowUnit = previewItems.every(({ item }) => item.previewKind === "image")
+    ? "ภาพ"
+    : "รายการ";
+  const overflowHref =
+    previewItems.find(({ item }) => item.folderLink)?.item.folderLink ??
+    previewItems[overflowIndex]?.item.folderLink ??
+    previewItems[overflowIndex]?.item.webViewLink ??
+    null;
+
+  return (
+    <section className="chat-source-preview drive">
+      <div className="chat-source-preview-list drive-grid">
+        {previewItems.map(({ item }, index) => {
+          const overflowCount =
+            index === overflowIndex ? totalItems - previewItems.length : 0;
+          return (
+            <DriveSourceItem
+              item={item}
+              key={item.id}
+              overflowCount={overflowCount}
+              overflowUnit={overflowUnit}
+              overflowHref={overflowHref}
+            />
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function DriveSourceItem({
+  item,
+  overflowCount = 0,
+  overflowUnit = "รายการ",
+  overflowHref = null,
+}: {
+  item: DrivePreviewItem;
+  overflowCount?: number;
+  overflowUnit?: string;
+  overflowHref?: string | null;
+}) {
+  const hasImagePreview = item.previewKind === "image" && item.thumbnailLink;
+  const isImage = item.previewKind === "image";
+  const isOverflow = overflowCount > 0;
+  const link = isOverflow
+    ? (overflowHref ?? item.folderLink ?? item.webViewLink)
+    : (item.webViewLink ?? item.folderLink);
+  const ariaLabel = isOverflow
+    ? `เปิดโฟลเดอร์ ${item.folderName ?? item.name} ใน Google Drive`
+    : `เปิด ${item.name} ใน Google Drive`;
+  const content = (
+    <div className={`chat-source-visual ${item.previewKind}${isOverflow ? " has-overflow" : ""}`}>
+      {hasImagePreview ? (
+        <img
+          src={item.thumbnailLink ?? undefined}
+          alt=""
+          loading="lazy"
+          onError={(event) => {
+            event.currentTarget.style.display = "none";
+            event.currentTarget.parentElement?.classList.add("is-missing");
+          }}
+        />
+      ) : (
+        <div className="chat-source-file-art" aria-hidden="true">
+          {item.iconLink ? (
+            <img src={item.iconLink} alt="" />
+          ) : (
+            <Folder strokeWidth={1.6} />
+          )}
+        </div>
+      )}
+      {isOverflow ? (
+        <span className="chat-source-overflow-count">+{overflowCount} {overflowUnit}</span>
+      ) : !isImage ? (
+        <span className="chat-source-visual-name" title={item.name}>
+          {item.name}
+        </span>
+      ) : null}
+    </div>
+  );
+
+  return (
+    <article className={`chat-source-item drive ${item.previewKind}`}>
+      {link ? (
+        <a
+          className="chat-source-visual-link"
+          href={link}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={ariaLabel}
+        >
+          {content}
+        </a>
+      ) : (
+        content
+      )}
+    </article>
+  );
+}
+
+function formatMailSender(from: string): string {
+  const match = from.match(/^"?([^"<]+)"?\s*<?[^>]*>?$/);
+  return match?.[1]?.trim() || from || "ไม่ทราบผู้ส่ง";
+}
+
+function JobProgressInline({ jobs }: { jobs: ActiveJobProgress[] }) {
+  const [selectedJob, setSelectedJob] = useState<ActiveJobProgress | null>(null);
+
+  return (
+    <div className="chat-job-progress" aria-label="ความคืบหน้างาน">
+      <div className="chat-job-progress-head">
+        <span>งานที่ Friday กำลังติดตาม</span>
+        <span>{jobs.length} รายการ</span>
+      </div>
+      <div className="chat-job-list">
+        {jobs.map((job) => {
+          const latest = latestJobMilestone(job);
+          return (
+            <div className="chat-job-row" key={job.job_id}>
+              <div className="chat-job-row-main">
+                <span className={`chat-job-status ${job.status}`}>
+                  {ACTIVE_JOB_STATUS_LABELS[job.status]}
+                </span>
+                <strong>{job.title}</strong>
+                <span>{latest?.message ?? job.result_summary ?? job.error ?? "ยังไม่มีความคืบหน้าใหม่"}</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedJob(job)}
+              >
+                รายละเอียด
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+      <Sheet
+        open={selectedJob !== null}
+        onClose={() => setSelectedJob(null)}
+        side="right"
+        size="md"
+        title="รายละเอียดงาน"
+        className="active-work-sheet"
+      >
+        {selectedJob && <ActiveJobDetail job={selectedJob} />}
+      </Sheet>
+    </div>
+  );
+}
+
+function ActiveJobDetail({
+  job,
+}: {
+  job: ActiveJobProgress;
+}) {
+  const evidenceRows = buildEvidenceRows(job);
+  return (
+    <div className="active-work-detail">
+      <div className="active-work-summary">
+        <span className={`chat-job-status ${job.status}`}>
+          {ACTIVE_JOB_STATUS_LABELS[job.status]}
+        </span>
+        <h3>{job.title}</h3>
+        <p>{job.result_summary ?? job.error ?? latestJobMilestone(job)?.message ?? "ยังไม่มีรายงานสุดท้าย"}</p>
+      </div>
+
+      <section className="active-work-section">
+        <h4>ความคืบหน้า</h4>
+        {job.milestones.length === 0 ? (
+          <p className="active-work-empty">ยังไม่มี milestone</p>
+        ) : (
+          <ol className="active-work-events">
+            {job.milestones.map((event) => (
+              <li key={event.id}>
+                <span>{formatChatTs(event.created_at)}</span>
+                <strong>{ACTIVE_JOB_STATUS_LABELS[event.status]}</strong>
+                <p>{event.message}</p>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+
+      <section className="active-work-section">
+        <h4>หลักฐานและแหล่งข้อมูล</h4>
+        {evidenceRows.length === 0 ? (
+          <p className="active-work-empty">ยังไม่มี metadata หลักฐาน</p>
+        ) : (
+          <dl className="active-work-evidence">
+            {evidenceRows.map((row) => (
+              <div key={row.label}>
+                <dt>{row.label}</dt>
+                <dd>{row.value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function latestJobMilestone(
+  job: ActiveJobProgress,
+): ActiveJobProgress["milestones"][number] | undefined {
+  return job.milestones[job.milestones.length - 1];
+}
+
+function buildEvidenceRows(job: ActiveJobProgress): { label: string; value: string }[] {
+  const evidence = asJobRecord(job.evidence);
+  const source = stringFromUnknown(evidence?.source) ?? job.source;
+  const sourceRef = stringFromUnknown(evidence?.source_ref) ?? job.source_ref;
+  const fetchedAt = stringFromUnknown(evidence?.fetched_at);
+  const newestAt = stringFromUnknown(evidence?.newest_at);
+  const confidence = stringFromUnknown(evidence?.confidence);
+  const count = numberFromUnknown(evidence?.count);
+  const limitations = stringArrayFromUnknown(evidence?.limitations);
+  const caveats = [
+    boolFromUnknown(evidence?.stale) ? "ข้อมูลอาจเก่า" : null,
+    boolFromUnknown(evidence?.capped) ? "ถูกตัดให้สั้น" : null,
+    boolFromUnknown(evidence?.partial) ? "หลักฐานบางส่วน" : null,
+  ].filter((item): item is string => Boolean(item));
+
+  return [
+    source ? { label: "แหล่งข้อมูล", value: source } : null,
+    sourceRef ? { label: "อ้างอิง", value: sourceRef } : null,
+    fetchedAt ? { label: "ดึงข้อมูลเมื่อ", value: formatChatTs(fetchedAt) } : null,
+    newestAt ? { label: "ข้อมูลล่าสุด", value: formatChatTs(newestAt) } : null,
+    typeof count === "number" ? { label: "จำนวนหลักฐาน", value: String(count) } : null,
+    confidence ? { label: "ความมั่นใจ", value: confidence } : null,
+    caveats.length > 0 ? { label: "ข้อจำกัด", value: caveats.join(", ") } : null,
+    limitations.length > 0 ? { label: "หมายเหตุ", value: limitations.join(", ") } : null,
+  ].filter((row): row is { label: string; value: string } => row !== null);
+}
+
+function asJobRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function stringFromUnknown(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function numberFromUnknown(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function boolFromUnknown(value: unknown): boolean {
+  return value === true;
+}
+
+function stringArrayFromUnknown(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item): item is string => typeof item === "string" && item.trim().length > 0,
+  );
+}
+
 function ChatBubble({
   msg,
   groupedIndex,
@@ -1932,6 +2361,8 @@ function ChatBubble({
   reduceMotion,
   meta,
   thinking,
+  jobProgress,
+  sourcePreviews,
   approvalMap,
   approvalBusy,
   revealing,
@@ -1949,6 +2380,8 @@ function ChatBubble({
   reduceMotion: boolean;
   meta?: MessageMeta;
   thinking?: string;
+  jobProgress?: ActiveJobProgress[];
+  sourcePreviews?: ChatSourcePreview[];
   approvalMap: ApprovalMap;
   approvalBusy: number | null;
   revealing: boolean;
@@ -2116,6 +2549,15 @@ function ChatBubble({
                 reveal={revealing && !isUser}
                 onRevealDone={() => onRevealDone(msg.id)}
               />
+              {!isUser && sourcePreviews && sourcePreviews.length > 0 && (
+                <SourcePreviewPanel
+                  previews={sourcePreviews}
+                  reveal={revealing && !isUser}
+                />
+              )}
+              {!isUser && jobProgress && jobProgress.length > 0 && (
+                <JobProgressInline jobs={jobProgress} />
+              )}
               {actions.length > 0 && (
                 <div className="chat-approval-stack">
                   {actions.map((action, i) => (
@@ -2752,10 +3194,12 @@ function sanitizeHref(href: string): string | null {
   return null;
 }
 
-type SourceHint = "calendar" | "tasks" | "reminders" | "memory" | "chat";
+type SourceHint = "calendar" | "gmail" | "drive" | "tasks" | "reminders" | "memory" | "chat";
 
 const SOURCE_LABELS: Record<SourceHint, string> = {
   calendar: "ปฏิทิน",
+  gmail: "Gmail",
+  drive: "Drive",
   tasks: "งาน",
   reminders: "เตือนความจำ",
   memory: "ความจำ",
@@ -2764,6 +3208,8 @@ const SOURCE_LABELS: Record<SourceHint, string> = {
 
 const SOURCE_ICONS: Record<SourceHint, typeof CalendarDays> = {
   calendar: CalendarDays,
+  gmail: Mail,
+  drive: Folder,
   tasks: CheckSquare,
   reminders: Clock3,
   memory: Database,
@@ -2787,9 +3233,17 @@ function SourceHintList({ hints }: { hints: SourceHint[] }) {
   );
 }
 
-function inferSourceHints(message: ChatMessage, actions: ActionRef[]): SourceHint[] {
+function inferSourceHints(
+  message: ChatMessage,
+  actions: ActionRef[],
+  previews?: ChatSourcePreview[],
+): SourceHint[] {
   if (message.role === "user") return [];
   const hints = new Set<SourceHint>();
+  for (const preview of previews ?? []) {
+    if (preview.kind === "gmail") hints.add("gmail");
+    if (preview.kind === "drive") hints.add("drive");
+  }
   for (const action of actions) {
     if (action.action_type.includes("event")) hints.add("calendar");
     if (action.action_type.includes("task")) hints.add("tasks");
@@ -2799,6 +3253,8 @@ function inferSourceHints(message: ChatMessage, actions: ActionRef[]): SourceHin
 
   const content = message.content.toLowerCase();
   if (/\b(calendar|schedule|event|brief)\b/.test(content)) hints.add("calendar");
+  if (/\b(gmail|email|mail|inbox)\b|อีเมล|อีเมล์|เมล/.test(content)) hints.add("gmail");
+  if (/\b(drive|file|document|folder|sheet|slide)\b|ไดรฟ์|ไดร์ฟ|ไฟล์|เอกสาร/.test(content)) hints.add("drive");
   if (/\btask|todo\b/.test(content)) hints.add("tasks");
   if (/\breminder\b/.test(content)) hints.add("reminders");
   if (/\bmemory|preference|routine|project\b/.test(content)) hints.add("memory");
@@ -2807,7 +3263,7 @@ function inferSourceHints(message: ChatMessage, actions: ActionRef[]): SourceHin
 }
 
 function mergeSourceHints(hints: SourceHint[]): SourceHint[] {
-  const order: SourceHint[] = ["calendar", "tasks", "reminders", "memory", "chat"];
+  const order: SourceHint[] = ["calendar", "gmail", "drive", "tasks", "reminders", "memory", "chat"];
   const set = new Set(hints);
   return order.filter((hint) => set.has(hint)).slice(0, 3);
 }
@@ -2830,6 +3286,38 @@ function parseActions(actionsJson: string | null): ActionRef[] {
   } catch {
     return [];
   }
+}
+
+function sourcePreviewsForMessage(
+  message: ChatMessage,
+  previewsByMessage: Record<number, ChatSourcePreview[]>,
+): ChatSourcePreview[] | undefined {
+  const live = previewsByMessage[message.id];
+  if (live && live.length > 0) return live;
+  return parseSourcePreviews(message.source_previews_json);
+}
+
+function parseSourcePreviews(previewsJson: string | null): ChatSourcePreview[] | undefined {
+  if (!previewsJson) return undefined;
+  try {
+    const parsed = JSON.parse(previewsJson) as unknown;
+    if (!Array.isArray(parsed)) return undefined;
+    const previews = parsed.filter(isChatSourcePreview);
+    return previews.length > 0 ? previews : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isChatSourcePreview(value: unknown): value is ChatSourcePreview {
+  if (typeof value !== "object" || value == null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    (record.kind === "gmail" || record.kind === "drive") &&
+    typeof record.query === "string" &&
+    (record.status === "found" || record.status === "empty") &&
+    Array.isArray(record.items)
+  );
 }
 
 function isActionRef(value: unknown): value is ActionRef {

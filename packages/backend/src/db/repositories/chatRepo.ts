@@ -6,6 +6,8 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   actions_json: string | null;
+  source_previews_json: string | null;
+  evidence_scopes_json: string | null;
   status: "active" | "archived";
   created_at: string;
   updated_at: string;
@@ -19,17 +21,19 @@ export function appendMessage(
   role: "user" | "assistant",
   content: string,
   actionsJson: string | null = null,
+  sourcePreviewsJson: string | null = null,
+  evidenceScopesJson: string | null = null,
 ): ChatMessage {
   const ts = nowIso();
   const info = getDb()
     .prepare(
-      `INSERT INTO chat_message (role, content, actions_json, status, created_at, updated_at)
-       VALUES (?, ?, ?, 'active', ?, ?)`,
+      `INSERT INTO chat_message (role, content, actions_json, source_previews_json, evidence_scopes_json, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'active', ?, ?)`,
     )
-    .run(role, content, actionsJson, ts, ts);
+    .run(role, content, actionsJson, sourcePreviewsJson, evidenceScopesJson, ts, ts);
   return getDb()
     .prepare(
-      `SELECT id, role, content, actions_json, status, created_at, updated_at
+      `SELECT id, role, content, actions_json, source_previews_json, evidence_scopes_json, status, created_at, updated_at
        FROM chat_message WHERE id = ?`,
     )
     .get(Number(info.lastInsertRowid)) as ChatMessage;
@@ -57,7 +61,7 @@ export function listRecentMessages(limit: number): ChatMessage[] {
   return (
     getDb()
       .prepare(
-        `SELECT id, role, content, actions_json, status, created_at, updated_at
+        `SELECT id, role, content, actions_json, source_previews_json, evidence_scopes_json, status, created_at, updated_at
          FROM chat_message
          WHERE status = 'active'
          ORDER BY id DESC

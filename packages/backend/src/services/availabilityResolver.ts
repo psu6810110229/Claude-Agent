@@ -6,7 +6,14 @@ import {
   type Severity,
 } from "./scheduleHealth.js";
 import type { GoogleEvent } from "../schemas/googleCalendar.js";
-import type { ScheduleConstraint } from "../schemas/scheduleConstraint.js";
+import type {
+  ScheduleConstraint,
+  ScheduleTargetTag,
+} from "../schemas/scheduleConstraint.js";
+import {
+  filterConstraintsForTarget,
+  hydrateScheduleConstraint,
+} from "./scheduleTargetClassifier.js";
 
 /**
  * Step 27 / Sprint 3 — unified availability/conflict resolver (RC1, RC5).
@@ -121,6 +128,9 @@ export function materializeConstraints(
   if (constraints.length === 0) return [];
   const out: GoogleEvent[] = [];
   const startB = new Date(now.getTime() + BANGKOK_OFFSET_MS);
+  const activeConstraints = constraints
+    .map(hydrateScheduleConstraint)
+    .filter((c) => c.status === "active");
 
   for (let i = 0; i < horizonDays; i++) {
     // A UTC-fielded date that represents the Bangkok CALENDAR day i days out.
@@ -137,7 +147,7 @@ export function materializeConstraints(
     const dayStr = `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(
       d.getUTCDate(),
     )}`;
-    for (const c of constraints) {
+    for (const c of activeConstraints) {
       if (c.weekdays.length > 0 && !c.weekdays.includes(dow)) continue;
       // Term bounds (class_block): skip days outside [activeFrom, activeUntil].
       // ISO date strings sort lexicographically, so plain comparison is correct.
@@ -205,8 +215,10 @@ export function findConstraintViolations(
   constraints: ScheduleConstraint[],
   now: Date,
   options: ScheduleHealthOptions = DEFAULT_SCHEDULE_HEALTH_OPTIONS,
+  target?: ScheduleTargetTag | null,
 ): ConstraintViolation[] {
-  if (constraints.length === 0) return [];
+  const scopedConstraints = filterConstraintsForTarget(constraints, target);
+  if (scopedConstraints.length === 0) return [];
   const isPoint = !item.endUtc || item.endUtc === item.startUtc;
   const report = resolveAvailability(
     {
@@ -217,7 +229,7 @@ export function findConstraintViolations(
       reminders: isPoint
         ? [{ id: 0, title: item.title, due_at: item.startUtc }]
         : [],
-      constraints,
+      constraints: scopedConstraints,
     },
     now,
     options,
@@ -253,7 +265,10 @@ export function resolveAvailability(
   now: Date,
   options: ScheduleHealthOptions = DEFAULT_SCHEDULE_HEALTH_OPTIONS,
 ): AvailabilityReport {
-  const constraintEvents = materializeConstraints(sources.constraints, now);
+  const constraintEvents = materializeConstraints(
+    filterConstraintsForTarget(sources.constraints, undefined),
+    now,
+  );
 
   const normalized: GoogleEvent[] = [
     ...sources.googleEvents.map((e) =>

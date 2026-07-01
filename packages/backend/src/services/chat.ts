@@ -31,6 +31,21 @@ import type {
 } from "../schemas/calendarPlan.js";
 import { buildCalendarPlan } from "./calendarPlanService.js";
 import { buildChatPrompt, type ChatContext } from "./chatPrompt.js";
+import { buildTurnEvidenceScopes } from "./evidenceScopeBuilders.js";
+import {
+  serializeEvidenceScopes,
+  collectRecentScopes,
+} from "./evidenceScope.js";
+import {
+  resolveReference,
+  type ReferenceDecision,
+} from "./referenceResolver.js";
+import {
+  verifyTurnConsistency,
+  repairPreviewCounts,
+  filterPreviewsToSource,
+  isReferenceGatedAction,
+} from "./consistencyVerifier.js";
 import {
   agendaBounds,
   bangkokWallClock,
@@ -58,9 +73,11 @@ import {
   getRecentDriveFiles,
   searchDriveByKeywords,
   listFolderChildren,
+  getDriveFolderSummaries,
   getDriveFileContent,
   isDriveEnabled,
   DRIVE_FOLDER_MIME,
+  type DriveSearchKind,
 } from "./googleDrive.js";
 import {
   getLineChatSummariesSafe,
@@ -124,6 +141,81 @@ function detectGmailReadIntent(message: string): boolean {
   return GMAIL_READ_MARKERS.some((k) => m.includes(k));
 }
 
+const GMAIL_QUERY_STOPWORDS = new Set([
+  ...GMAIL_READ_MARKERS,
+  "อ่าน", "ดู", "หา", "ค้นหา", "เช็ค", "ตรวจ", "ช่วย", "ให้", "หน่อย",
+  "ล่าสุด", "จาก", "เรื่อง", "เกี่ยวกับ", "มี", "ไหม", "อะไร", "บ้าง",
+  "read", "show", "find", "search", "check", "latest", "recent", "from",
+  "about", "subject", "the", "a", "an", "my", "me", "please",
+]);
+
+function extractSearchTerms(message: string, stopwords: Set<string>, cap = 6): string[] {
+  return Array.from(
+    new Set(
+      message
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}@._+\s-]/gu, " ")
+        .split(/\s+/)
+        .map((t) => t.trim())
+        .filter((t) => t.length >= 2 && t.length <= 30 && !stopwords.has(t)),
+    ),
+  ).slice(0, cap);
+}
+
+function gmailTerm(term: string): string {
+  const clean = term.replace(/["{}()[\]]/g, " ").trim();
+  if (!clean) return "";
+  return /\s/.test(clean) ? `"${clean}"` : clean;
+}
+
+function buildGmailFocusedQuery(
+  message: string,
+  contacts: { name: string; email?: string }[],
+): string {
+  const lower = message.toLowerCase();
+  const clauses = ["in:inbox"];
+
+  if (/(unread|ยังไม่อ่าน|ไม่ได้อ่าน|ยังไม่ได้อ่าน)/i.test(message)) {
+    clauses.push("is:unread");
+  }
+  if (/(วันนี้|today)/i.test(message)) clauses.push("newer_than:1d");
+  else if (/(สัปดาห์นี้|week|7\s*days?)/i.test(message)) clauses.push("newer_than:7d");
+  else if (/(เดือนนี้|month|30\s*days?)/i.test(message)) clauses.push("newer_than:30d");
+
+  const emails = Array.from(message.matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi))
+    .map((m) => m[0].toLowerCase())
+    .slice(0, 2);
+  for (const email of emails) clauses.push(`from:${email}`);
+
+  const matchedContact = contacts.find(
+    (c) =>
+      c.email &&
+      c.name.length >= 2 &&
+      lower.includes(c.name.toLowerCase()),
+  );
+  if (matchedContact?.email && !emails.includes(matchedContact.email.toLowerCase())) {
+    clauses.push(`from:${matchedContact.email}`);
+  }
+  const contactTokens = new Set(
+    matchedContact
+      ? matchedContact.name
+          .toLowerCase()
+          .split(/\s+/)
+          .map((t) => t.trim())
+          .filter((t) => t.length >= 2)
+      : [],
+  );
+
+  const terms = extractSearchTerms(message, GMAIL_QUERY_STOPWORDS, 5)
+    .filter((term) => !term.includes("@"))
+    .filter((term) => !contactTokens.has(term))
+    .map(gmailTerm)
+    .filter(Boolean);
+  clauses.push(...terms);
+
+  return clauses.join(" ");
+}
+
 const DRIVE_READ_MARKERS = [
   "ไดร์ฟ", "ไดรฟ์", "drive", "ไฟล์", "file", "เอกสาร", "document", "doc",
   "ชีท", "sheet", "สไลด์", "slide", "โฟลเดอร์", "folder", "รูป", "ภาพ",
@@ -137,14 +229,14 @@ function detectDriveReadIntent(message: string): boolean {
 /** Recent Drive files whose (extension-stripped) name appears in the message. */
 function matchDriveFilesByName(
   message: string,
-  files: { id: string; name: string; mimeType: string }[],
-): { id: string; name: string; mimeType: string }[] {
+  files: DriveTarget[],
+): DriveTarget[] {
   const m = message.toLowerCase();
-  const hits: { id: string; name: string; mimeType: string }[] = [];
+  const hits: DriveTarget[] = [];
   for (const f of files) {
     const base = f.name.toLowerCase().replace(/\.[a-z0-9]{1,5}$/, "");
     if (base.length >= 3 && m.includes(base)) {
-      hits.push({ id: f.id, name: f.name, mimeType: f.mimeType });
+      hits.push(f);
     }
   }
   return hits;
@@ -160,18 +252,238 @@ const DRIVE_STOPWORDS = new Set([
   "search", "find", "open", "the", "a", "an", "in", "my", "me", "of", "for",
   "about", "เกี่ยวกับ", "ที", "ว่า",
 ]);
+
+const DRIVE_KEYWORD_PREFIXES = [
+  "ในโฟลเดอร์",
+  "โฟลเดอร์",
+  "folder",
+  "รูป",
+  "ภาพ",
+  "ไฟล์",
+  "file",
+  "ใน",
+];
+
+const DRIVE_KEYWORD_SUFFIXES = [
+  "ทั้งหมด",
+  "หน่อย",
+  "ด้วย",
+  "บ้าง",
+  "ไหม",
+  "ค่ะ",
+  "ครับ",
+];
+
+function stripDriveKeywordAffixes(term: string): string {
+  let out = term;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const prefix of DRIVE_KEYWORD_PREFIXES) {
+      if (out.startsWith(prefix) && out.length - prefix.length >= 2) {
+        out = out.slice(prefix.length);
+        changed = true;
+      }
+    }
+    for (const suffix of DRIVE_KEYWORD_SUFFIXES) {
+      if (out.endsWith(suffix) && out.length - suffix.length >= 2) {
+        out = out.slice(0, -suffix.length);
+        changed = true;
+      }
+    }
+  }
+  return out.trim();
+}
+
 // Thai is space-less, so a natural sentence often collapses into ONE giant glued
 // token that matches nothing. Keep only space-separated terms that are short
 // enough to be a real name/keyword (users typically space out the keyword, e.g.
 // "...คีย์เวิร์ด สักการะ"); drop glued phrases (> 20 chars) that are pure noise.
 function extractDriveKeywords(message: string): string[] {
-  return message
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter((t) => t.length >= 2 && t.length <= 20 && !DRIVE_STOPWORDS.has(t))
-    .slice(0, 6);
+  const terms = extractSearchTerms(message, DRIVE_STOPWORDS, 6).filter((t) => t.length <= 30);
+  const expanded = terms.flatMap((term) => {
+    const stripped = stripDriveKeywordAffixes(term);
+    return stripped && stripped !== term ? [term, stripped] : [term];
+  });
+  return Array.from(new Set(expanded.filter((t) => t.length >= 2 && t.length <= 20))).slice(0, 6);
+}
+
+type DriveTarget = {
+  id: string;
+  name: string;
+  mimeType: string;
+  webViewLink?: string | null;
+  thumbnailLink?: string | null;
+  iconLink?: string | null;
+  parents?: string[];
+};
+
+type DriveDesiredKind = "image" | "pdf" | "folder" | "sheet" | "doc" | "slide" | "text" | null;
+
+const DRIVE_FOLDER_CHILD_SCAN_LIMIT = 500;
+
+function driveSearchKind(kind: DriveDesiredKind): DriveSearchKind | undefined {
+  return kind ?? undefined;
+}
+
+function driveNameBase(file: { name: string }): string {
+  return file.name.toLowerCase().replace(/\.[a-z0-9]{1,6}$/, "");
+}
+
+function detectDriveDesiredKind(message: string): DriveDesiredKind {
+  const m = message.toLowerCase();
+  if (/(รูป|ภาพ|photo|image|picture|jpg|jpeg|png|gif|webp|heic)/i.test(m)) return "image";
+  if (/(pdf|พีดีเอฟ)/i.test(m)) return "pdf";
+  if (/(folder|โฟลเดอร์)/i.test(m)) return "folder";
+  if (/(sheet|spreadsheet|ชีท|ตาราง)/i.test(m)) return "sheet";
+  if (/(slide|presentation|สไลด์)/i.test(m)) return "slide";
+  if (/(doc|document|เอกสาร)/i.test(m)) return "doc";
+  if (/(txt|text|ข้อความ)/i.test(m)) return "text";
+  return null;
+}
+
+function driveKind(file: DriveTarget): Exclude<DriveDesiredKind, null> | "file" {
+  const mime = file.mimeType.toLowerCase();
+  const name = file.name.toLowerCase();
+  if (mime === DRIVE_FOLDER_MIME) return "folder";
+  if (mime.startsWith("image/") || /\.(jpe?g|png|gif|webp|heic)$/i.test(name)) return "image";
+  if (mime.includes("pdf") || name.endsWith(".pdf")) return "pdf";
+  if (mime.includes("google-apps.spreadsheet") || /\.(csv|xlsx?)$/i.test(name)) return "sheet";
+  if (mime.includes("google-apps.presentation") || /\.(pptx?)$/i.test(name)) return "slide";
+  if (mime.includes("google-apps.document") || /\.(docx?)$/i.test(name)) return "doc";
+  if (mime.startsWith("text/") || /\.(txt|md|json|xml|csv)$/i.test(name)) return "text";
+  return "file";
+}
+
+function driveKindMatches(file: DriveTarget, desiredKind: DriveDesiredKind): boolean {
+  return desiredKind === null || driveKind(file) === desiredKind;
+}
+
+function mentionsDriveFolder(message: string): boolean {
+  return /(folder|โฟลเดอร์)/i.test(message);
+}
+
+function shouldExpandDriveFolderContainers(
+  message: string,
+  desiredKind: DriveDesiredKind,
+): boolean {
+  return desiredKind !== null && desiredKind !== "folder" && mentionsDriveFolder(message);
+}
+
+function driveFileToTarget(file: {
+  id: string;
+  name: string;
+  mimeType: string;
+  webViewLink?: string | null;
+  thumbnailLink?: string | null;
+  iconLink?: string | null;
+  parents?: string[];
+}): DriveTarget {
+  return {
+    id: file.id,
+    name: file.name,
+    mimeType: file.mimeType,
+    webViewLink: file.webViewLink ?? null,
+    thumbnailLink: file.thumbnailLink ?? null,
+    iconLink: file.iconLink ?? null,
+    parents: file.parents ?? undefined,
+  };
+}
+
+async function expandDriveFolderTargets(
+  targets: DriveTarget[],
+  desiredKind: DriveDesiredKind,
+): Promise<{ targets: DriveTarget[]; total: number }> {
+  if (desiredKind === null || desiredKind === "folder") {
+    return { targets, total: targets.length };
+  }
+
+  const expanded = new Map<string, DriveTarget>();
+  let sawFolder = false;
+
+  for (const target of targets) {
+    if (target.mimeType === DRIVE_FOLDER_MIME) {
+      sawFolder = true;
+      const children = await listFolderChildren(target.id, DRIVE_FOLDER_CHILD_SCAN_LIMIT);
+      for (const child of children) {
+        const childTarget = driveFileToTarget(child);
+        if (!driveKindMatches(childTarget, desiredKind)) continue;
+        expanded.set(childTarget.id, {
+          ...childTarget,
+          parents: [
+            target.id,
+            ...(childTarget.parents ?? []).filter((id) => id !== target.id),
+          ],
+        });
+      }
+      continue;
+    }
+
+    if (driveKindMatches(target, desiredKind)) {
+      expanded.set(target.id, target);
+    }
+  }
+
+  const expandedTargets = Array.from(expanded.values());
+  if (expandedTargets.length > 0) {
+    return { targets: expandedTargets, total: expandedTargets.length };
+  }
+
+  return {
+    targets: sawFolder ? targets.filter((target) => target.mimeType === DRIVE_FOLDER_MIME) : targets,
+    total: sawFolder ? 0 : targets.length,
+  };
+}
+
+function scoreDriveFile(
+  file: DriveTarget,
+  terms: string[],
+  message: string,
+  desiredKind: DriveDesiredKind,
+): number {
+  const lowerName = driveNameBase(file);
+  const lowerMessage = message.toLowerCase();
+  let score = 0;
+  if (desiredKind !== null) score += driveKindMatches(file, desiredKind) ? 220 : -120;
+  if (lowerName.length >= 3 && lowerMessage.includes(lowerName)) score += 120;
+  for (const term of terms) {
+    if (lowerName.includes(term)) score += 45;
+    else if (file.name.toLowerCase().includes(term)) score += 25;
+  }
+  if (file.mimeType === DRIVE_FOLDER_MIME) score += 8;
+  return score;
+}
+
+function rankDriveTargets(
+  files: DriveTarget[],
+  terms: string[],
+  message: string,
+  desiredKind: DriveDesiredKind,
+): DriveTarget[] {
+  let ranked = uniqueDriveTargets(files).map((file) => ({
+    file,
+    score: scoreDriveFile(file, terms, message, desiredKind),
+  }));
+  if (desiredKind !== null) {
+    const kindMatches = ranked.filter(({ file }) => driveKindMatches(file, desiredKind));
+    if (kindMatches.length > 0) ranked = kindMatches;
+  }
+  const positiveMatches = ranked.filter(({ score }) => score > 0);
+  if (positiveMatches.length > 0) ranked = positiveMatches;
+  return ranked
+    .sort((a, b) => b.score - a.score)
+    .map(({ file }) => file);
+}
+
+function uniqueDriveTargets(files: DriveTarget[]): DriveTarget[] {
+  const seen = new Set<string>();
+  const out: DriveTarget[] = [];
+  for (const file of files) {
+    if (!file.id || seen.has(file.id)) continue;
+    seen.add(file.id);
+    out.push(file);
+  }
+  return out;
 }
 
 /**
@@ -200,8 +512,10 @@ export type ChatResult =
        * `calendar.bulk_create` action carrying many events). The dashboard renders
        * a review card from this; nothing is on the calendar until the user
        * approves the selected items. Absent for ordinary turns.
-       */
+      */
       calendarPlan?: { plan: CalendarPlan; items: CalendarPlanItem[] };
+      /** Deterministic source previews from Gmail/Drive evidence read this turn. */
+      sourcePreviews?: ChatSourcePreview[];
       clarification?: string;
       clarificationChoices?: string[];
       notes?: string;
@@ -214,6 +528,156 @@ export type ChatResult =
     }
   | { kind: "rejected"; message: string; detail?: string }
   | { kind: "failed"; reason: string; message: string; userMessage: string };
+
+export type ChatSourcePreview =
+  | {
+      kind: "gmail";
+      query: string;
+      status: "found" | "empty";
+      items: {
+        id: string;
+        from: string;
+        subject: string;
+        receivedAt: string;
+        preview: string;
+        truncated: boolean;
+      }[];
+    }
+  | {
+      kind: "drive";
+      query: string;
+      status: "found" | "empty";
+      totalItems?: number;
+      items: {
+        id: string;
+        name: string;
+        mimeType: string;
+        webViewLink: string | null;
+        thumbnailLink: string | null;
+        iconLink: string | null;
+        folderId: string | null;
+        folderName: string | null;
+        folderLink: string | null;
+        previewKind: "image" | "pdf" | "folder" | "text" | "file";
+        preview: string | null;
+        childNames: string[] | null;
+        truncated: boolean;
+        readable: boolean;
+      }[];
+    };
+
+function previewText(value: string, max = 260): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (compact.length <= max) return compact;
+  return `${compact.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+}
+
+function driveOpenLink(id: string, webViewLink?: string | null): string | null {
+  if (webViewLink) return webViewLink;
+  return id ? `https://drive.google.com/open?id=${encodeURIComponent(id)}` : null;
+}
+
+function normalizeDriveMention(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function replyMentionsDrivePreviewItem(
+  reply: string,
+  item: Extract<ChatSourcePreview, { kind: "drive" }>["items"][number],
+): boolean {
+  const normalizedReply = normalizeDriveMention(reply);
+  const name = normalizeDriveMention(item.name);
+  const baseName = normalizeDriveMention(driveNameBase(item));
+  return (
+    (name.length >= 3 && normalizedReply.includes(name)) ||
+    (baseName.length >= 3 && normalizedReply.includes(baseName))
+  );
+}
+
+function alignDriveSourcePreviewsToReply(
+  previews: ChatSourcePreview[],
+  reply: string,
+): ChatSourcePreview[] {
+  return previews.map((preview) => {
+    if (preview.kind !== "drive") return preview;
+
+    const mentionedItems = preview.items.filter((item) =>
+      replyMentionsDrivePreviewItem(reply, item),
+    );
+    if (mentionedItems.length === 0) return preview;
+
+    return {
+      ...preview,
+      totalItems: mentionedItems.length,
+      items: mentionedItems,
+    };
+  });
+}
+
+function buildChatSourcePreviews(ctx: ChatContext): ChatSourcePreview[] {
+  const previews: ChatSourcePreview[] = [];
+
+  if (ctx.gmailFocused !== null) {
+    previews.push({
+      kind: "gmail",
+      query: ctx.gmailFocusedQuery ?? "in:inbox",
+      status: ctx.gmailFocused.length > 0 ? "found" : "empty",
+      items: ctx.gmailFocused.slice(0, CHAT_GMAIL_FOCUSED_CAP).map((m) => ({
+        id: m.id,
+        from: m.from,
+        subject: m.subject,
+        receivedAt: m.receivedAt,
+        preview: previewText(m.body, 280),
+        truncated: m.truncated,
+      })),
+    });
+  }
+
+  if (ctx.driveFocused !== null) {
+    previews.push({
+      kind: "drive",
+      query:
+        ctx.driveFocusedTerms.length > 0
+          ? ctx.driveFocusedTerms.join(" ")
+          : "name match",
+      status: ctx.driveFocused.length > 0 ? "found" : "empty",
+      totalItems: ctx.driveFocusedTotal ?? ctx.driveFocused.length,
+      items: ctx.driveFocused.slice(0, Math.max(CHAT_DRIVE_FOCUSED_HITS, 12)).map((f) => {
+        const selfIsFolder = f.mimeType === DRIVE_FOLDER_MIME;
+        const folder = selfIsFolder
+          ? { id: f.id, name: f.name, webViewLink: f.webViewLink ?? null }
+          : f.parentFolders?.[0] ?? null;
+        return {
+          id: f.id,
+          name: f.name,
+          mimeType: f.mimeType,
+          webViewLink: driveOpenLink(f.id, f.webViewLink),
+          thumbnailLink: f.thumbnailLink ?? null,
+          iconLink: f.iconLink ?? null,
+          folderId: folder?.id ?? null,
+          folderName: folder?.name ?? null,
+          folderLink: folder ? driveOpenLink(folder.id, folder.webViewLink) : null,
+          previewKind:
+            driveKind(f) === "image"
+              ? "image"
+              : driveKind(f) === "pdf"
+                ? "pdf"
+                : driveKind(f) === "folder"
+                  ? "folder"
+                  : f.content !== null
+                    ? "text"
+                    : "file",
+          preview: f.content ? previewText(f.content, 320) : null,
+          childNames: f.children ? f.children.slice(0, 8).map((c) => c.name) : null,
+          truncated: f.truncated,
+          readable: f.content !== null || f.children !== null,
+        };
+      }),
+    });
+  }
+
+  return previews.filter((preview) => preview.status === "found" || preview.items.length > 0);
+}
 
 /**
  * Build a TRUTHFUL, deterministic outcome message from the real dispatch
@@ -660,12 +1124,32 @@ export async function buildChatContext(
   // Fetch history AFTER the user message is persisted (caller handles that),
   // so `listRecentMessages` already includes this turn in the history for the
   // next invocation — but for THIS turn we read history BEFORE appending.
-  const history = listRecentMessages(CHAT_HISTORY_LIMIT).map((m) => ({
+  const rawHistory = listRecentMessages(CHAT_HISTORY_LIMIT);
+  const history = rawHistory.map((m) => ({
     role: m.role,
     content: m.content,
   }));
+  // Phase 02 / Sprint 4 — recent evidence scopes from prior assistant turns, so
+  // Friday can answer a short follow-up ("มีกี่รูป") from the bound evidence set
+  // instead of guessing from text history. Compact + capped; verified path only.
+  const recentEvidenceScopes = collectRecentScopes(
+    rawHistory.map((m) => m.evidence_scopes_json),
+  );
+  // Phase 03 / Sprint 3 — Source Router: decide ONCE whether this turn references
+  // a prior evidence set. A `reuse_scope` decision suppresses the matching fresh
+  // focused search below (so a short follow-up like "มีกี่รูป" answers from the
+  // bound scope instead of re-searching and drifting to a different set).
+  const referenceDecision = resolveReference(message, { recentScopes: recentEvidenceScopes });
+  // Suppress the matching fresh focused search when this turn either reuses a
+  // bound scope OR is ambiguous between several scopes of that source. In both
+  // cases a new search would drift away from the evidence the user is referring
+  // to (Sprint 4 — clarify must not silently re-search and pick a wrong set).
+  const suppressesSource = (source: ReferenceDecision["selected_source"]): boolean =>
+    (referenceDecision.kind === "reuse_scope" ||
+      referenceDecision.kind === "clarify") &&
+    referenceDecision.selected_source === source;
 
-  // Step 17 — Gmail unread (capped at 5; fail gracefully when disabled/error).
+  // Step 17 — Gmail unread (capped by config; fail gracefully when disabled/error).
   let gmailUnread: ChatContext["gmailUnread"] = [];
   if (isGmailEnabled()) {
     try {
@@ -964,14 +1448,20 @@ export async function buildChatContext(
       history: [],
       gmailUnread: [],
       gmailFocused: null,
+      gmailFocusedQuery: null,
       contacts: [],
       contactsStatus: "redacted",
       recentDriveFiles: [],
       driveFocused: null,
+      driveFocusedTerms: [],
       lineChats: [],
       lineMessages: [],
       lineFocusedChat: null,
       lineMatches: [],
+      // Phase 02 — evidence scopes derive from prior verified turns: withhold.
+      recentEvidenceScopes: [],
+      // Phase 03 — no reference reuse on the unverified path.
+      referenceDecision: null,
       // Step 22 — redact all active topic / evidence fields for unverified
       activeTopics: [],
       resolvedActiveTopic: null,
@@ -992,10 +1482,12 @@ export async function buildChatContext(
   // Friday deeper awareness (verified path only) — fetch FULL Gmail bodies on an
   // email-read turn so Friday answers from content, not just the snippet list.
   let gmailFocused: ChatContext["gmailFocused"] = null;
-  if (isGmailEnabled() && detectGmailReadIntent(message)) {
+  let gmailFocusedQuery: string | null = null;
+  if (isGmailEnabled() && detectGmailReadIntent(message) && !suppressesSource("gmail")) {
     try {
+      gmailFocusedQuery = buildGmailFocusedQuery(message, contacts);
       gmailFocused = await fetchGmailFullMessages(
-        "in:inbox",
+        gmailFocusedQuery,
         CHAT_GMAIL_FOCUSED_CAP,
         CHAT_GMAIL_BODY_MAX_CHARS,
       );
@@ -1009,29 +1501,71 @@ export async function buildChatContext(
   // OLD files + folders, no recency horizon). A folder → list its children; a
   // file → read content; an unreadable file → still surface its existence.
   let driveFocused: ChatContext["driveFocused"] = null;
-  if (isDriveEnabled() && detectDriveReadIntent(message)) {
+  let driveFocusedTotal = 0;
+  let driveFocusedTerms: string[] = [];
+  if (isDriveEnabled() && detectDriveReadIntent(message) && !suppressesSource("google_drive")) {
     driveFocused = [];
     try {
-      let targets: { id: string; name: string; mimeType: string }[] =
+      let targets: DriveTarget[] =
         matchDriveFilesByName(message, recentDriveFiles);
+      driveFocusedTerms = extractDriveKeywords(message);
+      const desiredKind = detectDriveDesiredKind(message);
+      const shouldExpandFolders = shouldExpandDriveFolderContainers(message, desiredKind);
+      let folderTargets: DriveTarget[] = shouldExpandFolders
+        ? targets.filter((target) => target.mimeType === DRIVE_FOLDER_MIME)
+        : [];
+
       if (targets.length === 0) {
-        const terms = extractDriveKeywords(message);
-        const found = await searchDriveByKeywords(terms, 10);
-        // Rank name-matches ahead of fullText-only matches.
-        found.sort((a, b) => {
-          const am = terms.some((t) => a.name.toLowerCase().includes(t)) ? 0 : 1;
-          const bm = terms.some((t) => b.name.toLowerCase().includes(t)) ? 0 : 1;
-          return am - bm;
-        });
-        targets = found.map((f) => ({
-          id: f.id,
-          name: f.name,
-          mimeType: f.mimeType,
-        }));
+        const found = await searchDriveByKeywords(
+          driveFocusedTerms,
+          30,
+          driveSearchKind(desiredKind),
+        );
+        targets = found.map(driveFileToTarget);
+        if (shouldExpandFolders) {
+          const folders = await searchDriveByKeywords(driveFocusedTerms, 10, "folder");
+          folderTargets = folders.map(driveFileToTarget);
+        }
+      } else if (driveFocusedTerms.length > 0) {
+        const found = await searchDriveByKeywords(
+          driveFocusedTerms,
+          30,
+          driveSearchKind(desiredKind),
+        );
+        targets = uniqueDriveTargets([
+          ...targets,
+          ...found.map(driveFileToTarget),
+        ]);
+        if (shouldExpandFolders) {
+          const folders = await searchDriveByKeywords(driveFocusedTerms, 10, "folder");
+          folderTargets = uniqueDriveTargets([
+            ...folderTargets,
+            ...folders.map(driveFileToTarget),
+          ]);
+        }
       }
-      targets = targets.slice(0, CHAT_DRIVE_FOCUSED_HITS);
+      const rankedFolders = shouldExpandFolders
+        ? rankDriveTargets(folderTargets, driveFocusedTerms, message, "folder")
+        : [];
+      const rankedTargets = rankDriveTargets(targets, driveFocusedTerms, message, desiredKind);
+      const expanded = await expandDriveFolderTargets(
+        uniqueDriveTargets([...rankedFolders, ...rankedTargets]),
+        desiredKind,
+      );
+      targets = rankDriveTargets(expanded.targets, driveFocusedTerms, message, desiredKind);
+      driveFocusedTotal = expanded.total;
+      const parentSummaries = await getDriveFolderSummaries(
+        targets.flatMap((target) => target.parents ?? []),
+      );
+      const focusedTargetLimit = desiredKind === "image"
+        ? Math.max(CHAT_DRIVE_FOCUSED_HITS, 12)
+        : CHAT_DRIVE_FOCUSED_HITS;
+      targets = targets.slice(0, focusedTargetLimit);
 
       for (const t of targets) {
+        const parentFolders = (t.parents ?? [])
+          .map((id) => parentSummaries.get(id))
+          .filter((folder): folder is NonNullable<typeof folder> => Boolean(folder));
         if (t.mimeType === DRIVE_FOLDER_MIME) {
           const children = (await listFolderChildren(t.id, 50)).map((c) => ({
             id: c.id,
@@ -1041,9 +1575,29 @@ export async function buildChatContext(
             id: t.id,
             name: t.name,
             mimeType: t.mimeType,
+            webViewLink: t.webViewLink ?? null,
+            thumbnailLink: t.thumbnailLink ?? null,
+            iconLink: t.iconLink ?? null,
+            parentFolders,
             content: null,
             truncated: false,
             children,
+          });
+          continue;
+        }
+        const kind = driveKind(t);
+        if (kind === "image" || kind === "pdf") {
+          driveFocused.push({
+            id: t.id,
+            name: t.name,
+            mimeType: t.mimeType,
+            webViewLink: t.webViewLink ?? null,
+            thumbnailLink: t.thumbnailLink ?? null,
+            iconLink: t.iconLink ?? null,
+            parentFolders,
+            content: null,
+            truncated: false,
+            children: null,
           });
           continue;
         }
@@ -1053,6 +1607,10 @@ export async function buildChatContext(
             id: t.id,
             name: doc.name,
             mimeType: t.mimeType,
+            webViewLink: t.webViewLink ?? null,
+            thumbnailLink: t.thumbnailLink ?? null,
+            iconLink: t.iconLink ?? null,
+            parentFolders,
             content: doc.content.slice(0, CHAT_DRIVE_FOCUSED_CHARS),
             truncated:
               doc.truncated || doc.content.length > CHAT_DRIVE_FOCUSED_CHARS,
@@ -1064,6 +1622,10 @@ export async function buildChatContext(
             id: t.id,
             name: t.name,
             mimeType: t.mimeType,
+            webViewLink: t.webViewLink ?? null,
+            thumbnailLink: t.thumbnailLink ?? null,
+            iconLink: t.iconLink ?? null,
+            parentFolders,
             content: null,
             truncated: false,
             children: null,
@@ -1089,14 +1651,21 @@ export async function buildChatContext(
     history,
     gmailUnread,
     gmailFocused,
+    gmailFocusedQuery,
     contacts,
     contactsStatus,
     recentDriveFiles,
     driveFocused,
+    driveFocusedTotal,
+    driveFocusedTerms,
     lineChats,
     lineMessages,
     lineFocusedChat,
     lineMatches,
+    // Phase 02 — recent evidence scopes (verified path only)
+    recentEvidenceScopes,
+    // Phase 03 — reference resolver verdict for this turn (verified path only)
+    referenceDecision,
     // Step 22 — active topics and evidence (verified path only)
     activeTopics: activeTopicsCompact,
     resolvedActiveTopic,
@@ -1224,12 +1793,34 @@ export async function runChat(
     }
   }
 
+  // Phase 04 / Sprint 4 — consistency gate (action side). A write-sensitive
+  // proposal (Calendar/Gmail/Reminder mutation) must rest on a RESOLVED reference.
+  // When this turn's reference is ambiguous (`clarify`) or unsupported, drop those
+  // proposals BEFORE dispatch and force a clarify, so the backend never mutates the
+  // wrong event/thread/reminder on a guess. The approval queue/dispatcher remain
+  // the system of record; this only withholds an ambiguous proposal.
+  const refDecision = ctx.referenceDecision ?? null;
+  const referenceGatesWrites =
+    refDecision !== null &&
+    (refDecision.kind === "clarify" || refDecision.kind === "unsupported");
+  const gatedWriteActions = referenceGatesWrites
+    ? actionsToDispatch.filter((a) => isReferenceGatedAction(a.action_type))
+    : [];
+  const dispatchActions =
+    gatedWriteActions.length > 0
+      ? actionsToDispatch.filter((a) => !isReferenceGatedAction(a.action_type))
+      : actionsToDispatch;
+  if (gatedWriteActions.length > 0 && !check.data.clarification) {
+    check.data.clarification =
+      "ขอเช็คให้ชัดก่อน — หมายถึงรายการไหนนะ บอกอีกนิดเดียวเดี๋ยวจัดให้";
+  }
+
   // Each action is dispatched — auto-executed when eligible, else a pending
   // approval. Unverified requesters: skip dispatch entirely (defense in depth —
   // prompt also instructs the model not to propose writes for guests).
   const dispatched: DispatchResult[] = verified
     ? await Promise.all(
-        actionsToDispatch.map((action: AiAction) =>
+        dispatchActions.map((action: AiAction) =>
           dispatchProposedAction(action.action_type, action.payload, "chat"),
         ),
       )
@@ -1315,7 +1906,53 @@ export async function runChat(
   // The reply is an ACK (written before execution). Attach the action buttons to
   // it, then append the TRUE outcome as a second assistant message so reporting
   // is never faked — it reflects the real executor result.
-  appendMessage("assistant", check.data.reply, actionsJson);
+  let sourcePreviews = alignDriveSourcePreviewsToReply(
+    buildChatSourcePreviews(ctx),
+    check.data.reply,
+  );
+  // Phase 04 — consistency gate (preview side). Verify the answer, its previews,
+  // and the evidence scope describe ONE set; on a non-pass, apply deterministic
+  // repairs so the user never sees a count/source that contradicts the answer:
+  //  - clamp an inflated Drive `totalItems` to the evidence (the "+26" bug)
+  //  - on a turn BOUND to one scope, drop preview cards from any other source.
+  // Scopes are then rebuilt from the REPAIRED previews so the next follow-up binds
+  // to the corrected set.
+  {
+    const lineFocus = ctx.lineFocusedChat ?? null;
+    const turnScopes = buildTurnEvidenceScopes(sourcePreviews, { lineFocusedChat: lineFocus });
+    const verdict = verifyTurnConsistency({
+      answer: check.data.reply,
+      previews: sourcePreviews,
+      scopes: turnScopes,
+      reference: refDecision,
+      proposedActions: dispatchActions,
+    });
+    if (verdict.status !== "pass") {
+      sourcePreviews = repairPreviewCounts(sourcePreviews, turnScopes);
+      if (
+        refDecision &&
+        refDecision.kind === "reuse_scope" &&
+        refDecision.selected_source
+      ) {
+        sourcePreviews = filterPreviewsToSource(sourcePreviews, refDecision.selected_source);
+      }
+    }
+  }
+  // Phase 02 — capture the metadata-only evidence scope of THIS turn from the
+  // same aligned previews the answer uses, so the next short follow-up can bind
+  // to this exact evidence set instead of triggering a fresh source search.
+  const evidenceScopesJson = serializeEvidenceScopes(
+    buildTurnEvidenceScopes(sourcePreviews, {
+      lineFocusedChat: ctx.lineFocusedChat ?? null,
+    }),
+  );
+  appendMessage(
+    "assistant",
+    check.data.reply,
+    actionsJson,
+    sourcePreviews.length > 0 ? JSON.stringify(sourcePreviews) : null,
+    evidenceScopesJson,
+  );
   const report = buildActionReport(dispatched);
   if (report) appendMessage("assistant", report.text);
 
@@ -1331,6 +1968,7 @@ export async function runChat(
     resultSpoken: report?.spoken,
     approvals,
     calendarPlan,
+    sourcePreviews,
     clarification: check.data.clarification,
     clarificationChoices: check.data.clarification_choices,
     notes: check.data.notes,

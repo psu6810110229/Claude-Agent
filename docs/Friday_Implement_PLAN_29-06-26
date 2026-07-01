@@ -1,0 +1,374 @@
+# Friday Implementation Plan
+
+## Principles
+
+- Backend remains the deterministic system of record.
+- AI and workers are proposal/read-only only.
+- All writes stay behind backend validation and the approval/action dispatcher.
+- LINE remains export-based read-only.
+- UX stays chat-native: Friday reports important progress in the chat surface, not hidden in a debug page.
+- Tests are focused and proportional: build/lint plus smoke or unit tests only around changed risk.
+
+---
+
+## Phase 1: Scoped Rules Safety Fix
+
+Branch: `phase/scoped-rules`
+
+Goal: protected windows block only the actions they semantically apply to.
+
+### Sprint 1.1: Rule Shape
+
+Commit: `scoped-rules: add semantic scope model`
+
+Work:
+- Extend schedule constraint/rule model with minimal fields:
+  - `domain`
+  - `applies_to`
+  - `status`
+  - `source_ref`
+  - freshness/provenance timestamps where applicable
+- Preserve backward compatibility for existing fact-derived constraints.
+- Default legacy `protected_window` safely, but avoid making aquarium windows global forever.
+
+Tests:
+- Unit tests for parsing/hydrating legacy constraints.
+- `npm run build`
+
+### Sprint 1.2: Target Classification
+
+Commit: `scoped-rules: classify proposed action targets`
+
+Work:
+- Add deterministic target tagging for proposed actions.
+- Examples:
+  - normal event -> `schedule.event`
+  - reminder -> `schedule.reminder`
+  - aquarium water change -> `aquarium.water_change`
+- Keep classifier conservative and auditable.
+
+Tests:
+- Focused unit tests:
+  - “นัดทั่วไป 15:00” does not become aquarium.
+  - “เปลี่ยนน้ำตู้ปลา 15:00” becomes aquarium water change.
+- `npm run build`
+
+### Sprint 1.3: Constraint Gate Integration
+
+Commit: `scoped-rules: gate only matching protected windows`
+
+Work:
+- Update availability/constraint violation path to filter protected windows by `applies_to`.
+- Keep `recurring_block` behavior global for schedule occupation.
+- Keep dispatcher hold behavior unchanged once a matching violation exists.
+
+Tests:
+- Focused tests:
+  - CO2 window does not block generic event.
+  - CO2 window blocks aquarium water change.
+  - class block still blocks normal scheduling.
+- `npm run smoke:persona` only if prompt wording changes.
+- `npm run build`
+
+### Sprint 1.4: Regression Smoke
+
+Commit: `scoped-rules: add safety regression coverage`
+
+Work:
+- Add one narrow smoke or regression script around scoped scheduling behavior.
+- No UI work unless required to expose breakage.
+
+Tests:
+- New focused smoke.
+- `npm run build`
+
+---
+
+## Phase 2: Active Job Foundation
+
+Branch: `phase/active-job-foundation`
+
+Goal: backend job state engine for long-running work, with chat-native progress.
+
+### Sprint 2.1: Job Store
+
+Commit: `active-job: add durable job store`
+
+Work:
+- Add `active_job` and `active_job_event` tables.
+- States:
+  - `queued`
+  - `understanding`
+  - `searching`
+  - `verifying`
+  - `needs_user`
+  - `reporting`
+  - `done`
+  - `failed`
+  - `cancelled`
+- Events store short progress, not raw LINE bodies or secrets.
+
+Tests:
+- Repository tests for create/update/event append.
+- `npm run build`
+
+### Sprint 2.2: Job Service
+
+Commit: `active-job: add backend workflow service`
+
+Work:
+- Add service API:
+  - create job
+  - append progress
+  - attach evidence metadata
+  - mark done/failed
+  - request user clarification
+- No worker/subagent yet.
+- No direct writes to external systems.
+
+Tests:
+- Unit tests for legal state transitions.
+- Test that worker/job progress cannot contain raw LINE snippets beyond allowed caps.
+- `npm run build`
+
+### Sprint 2.3: Chat-Native Progress Contract
+
+Commit: `active-job: expose chat progress milestones`
+
+Work:
+- Add backend response shape for job progress in chat.
+- Friday can show short milestone lines in the existing chat page.
+- Examples:
+  - `กำลังดู LINE export ล่าสุด...`
+  - `เจอหลักฐาน 3 รายการ กำลังตรวจความสดของข้อมูล`
+  - `ข้อมูลบางส่วนอาจเก่า เดี๋ยวผมสรุปแบบระบุข้อจำกัด`
+
+Tests:
+- Chat response type test or focused smoke.
+- `npm run build`
+- `npm run build:dashboard` only if dashboard types/components change.
+
+### Sprint 2.4: Active Topic Triage as First Job
+
+Commit: `active-job: run active topic triage through jobs`
+
+Work:
+- Route LINE active-topic triage through Active Job.
+- Preserve existing scheduler behavior and notification dedup.
+- Evidence remains LINE export only.
+- Job emits progress/evidence metadata, not raw bodies in logs.
+
+Tests:
+- `npm run smoke:step20`
+- `npm run smoke:step21`
+- focused active-topic smoke if present/new
+- `npm run build`
+
+---
+
+## Phase 3: Dashboard Surfaces
+
+Branch: `phase/dashboard-job-surfaces`
+
+Goal: make important job state visible in the chat/home surface without turning Friday into an admin panel.
+
+### Sprint 3.1: Dashboard Type Sync
+
+Commit: `dashboard: sync active topic actions and notifications`
+
+Work:
+- Add `active_topic.create` to dashboard action types.
+- Add Thai approval wording.
+- Add notification kinds:
+  - `line.followup`
+  - `line.active_topic`
+- Fix labels:
+  - `reminder.due` -> `ถึงเวลา`
+  - `event.soon` -> `ใกล้ถึง`
+  - `line.followup` -> `ผลเช็ก LINE`
+  - `line.active_topic` -> `มีความเคลื่อนไหว`
+
+Tests:
+- Type check/build dashboard.
+- `npm run build:dashboard`
+
+### Sprint 3.2: Chat Progress UI
+
+Commit: `dashboard: show active job progress in chat`
+
+Work:
+- Show job progress inline in the existing chat page.
+- Keep it compact and Thai-only.
+- No separate mandatory monitoring page.
+- Details hidden behind disclosure/sheet only when useful.
+
+Tests:
+- `npm run build:dashboard`
+- Manual browser check if layout risk is visible.
+
+### Sprint 3.3: Settings Toggle
+
+Commit: `dashboard: expose active topic triage setting`
+
+Work:
+- Add `active_topic_triage_enabled` to Settings.
+- Thai wording, calm and clear.
+- No new connector or advanced config surface.
+
+Tests:
+- `npm run build`
+- `npm run build:dashboard`
+
+### Sprint 3.4: Minimal Active Work Detail Surface
+
+Commit: `dashboard: add optional active work details`
+
+Work:
+- Add optional detail sheet/page for job history and evidence metadata.
+- This is secondary, not required for normal use.
+- Show:
+  - status
+  - progress
+  - sources
+  - freshness/capped/stale caveats
+  - final report
+- No raw LINE bodies unless already safely capped and allowed by existing UI rules.
+
+Tests:
+- `npm run build:dashboard`
+
+---
+
+## Phase 4: Read-Only Workers / Subagents
+
+Branch: `phase/read-only-workers`
+
+Goal: allow research-heavy jobs to use read-only workers under backend control.
+
+### Sprint 4.1: Worker Contract
+
+Commit: `workers: add read-only worker contract`
+
+Work:
+- Define worker input/output schema.
+- Worker output must be an evidence bundle:
+  - `job_id`
+  - `worker_id`
+  - `source`
+  - `source_ref`
+  - `fetched_at`
+  - `newest_at`
+  - `stale`
+  - `capped`
+  - `partial`
+  - `confidence`
+  - `limitations`
+- Worker cannot execute actions.
+
+Tests:
+- Schema validation tests.
+- Test invalid output is rejected.
+- `npm run build`
+
+### Sprint 4.2: Backend Verifier
+
+Commit: `workers: verify evidence bundles before use`
+
+Work:
+- Add deterministic freshness/provenance verifier.
+- Mark stale/capped/partial evidence.
+- Prevent unverifiable worker output from reaching Friday as fact.
+
+Tests:
+- Unit tests for stale, capped, missing source, missing fetched_at.
+- `npm run build`
+
+### Sprint 4.3: LINE / Google Read Workers
+
+Commit: `workers: add backend-read worker adapters`
+
+Work:
+- Worker adapters read only through existing backend read routes/services:
+  - Google Calendar read
+  - Gmail read
+  - Drive read
+  - ingested LINE export read
+- No credential exposure.
+- No direct writes.
+
+Tests:
+- Stubbed tests only.
+- No real Google API.
+- `npm run smoke:step17`
+- `npm run smoke:step19`
+- `npm run smoke:step20`
+- `npm run build`
+
+### Sprint 4.4: Web Research Worker
+
+Commit: `workers: add web research evidence worker`
+
+Work:
+- Add read-only web research worker.
+- Every claim needs URL/source/fetched_at.
+- Friday main summarizes verified evidence briefly.
+- No autonomous browsing-to-action.
+
+Tests:
+- Mocked fetch/search where possible.
+- Unit tests for evidence metadata.
+- `npm run build`
+
+### Sprint 4.5: Local File Worker Allowlist
+
+Commit: `workers: add local file allowlist reader`
+
+Work:
+- Add local file worker only for explicitly approved paths.
+- No recursive broad scan by default.
+- Never read `.env`, `data/`, DB, tokens, Google creds, real LINE exports directly.
+- Prefer backend-ingested sources.
+
+Tests:
+- Unit tests:
+  - allowed path passes
+  - forbidden path blocked
+  - traversal blocked
+- `npm run build`
+
+---
+
+## Merge / Commit Discipline
+
+- Each sprint ends with one intentional commit.
+- Each phase uses its own branch.
+- Merge phase branch only after its sprint tests pass.
+- Do not mix UI refactors with backend safety changes.
+- Do not commit generated noise or unrelated formatting.
+
+Suggested branch order:
+1. `phase/scoped-rules`
+2. `phase/active-job-foundation`
+3. `phase/dashboard-job-surfaces`
+4. `phase/read-only-workers`
+
+---
+
+## Definition of Done
+
+For each sprint:
+- Relevant focused tests pass.
+- `npm run build` passes for backend changes.
+- `npm run build:dashboard` passes for dashboard changes.
+- Lint runs if the repo has a lint script.
+- No raw LINE bodies, secrets, tokens, DB contents, or credentials in logs/job events.
+- Dashboard copy remains Thai-only except proper nouns and technical terms.
+- No write bypass around approval/action dispatcher.
+
+For the whole program:
+- Aquarium CO2 protected window blocks only aquarium water-change style tasks.
+- Normal calendar/reminder actions are not blocked by unrelated protected windows.
+- Active jobs show useful progress in chat.
+- Friday does not require the user to monitor a separate debug page.
+- Workers are read-only and return verified evidence bundles.
+- Friday main answers shortly, clearly, and honestly from verified evidence.

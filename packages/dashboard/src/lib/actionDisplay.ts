@@ -2,8 +2,8 @@
  * Action display registry (Sprint 2, dashboard mirror).
  *
  * Single wording source for the dashboard: the allowed action types, the inline
- * approval question/approve/reject copy (Thai, the conversational UI tone), an
- * English `humanLabel`, and a compact `summarizePayload` for the Approvals page.
+ * approval question/approve/reject copy (Thai, the conversational UI tone), a
+ * Thai `humanLabel`, and a compact `summarizePayload` for the Approvals page.
  *
  * Mirrors the backend `services/actionRegistry.ts` set (hand-kept in sync like
  * the rest of `lib/types.ts`). The backend `smoke:registry` guards the backend
@@ -36,34 +36,36 @@ export const ACTION_TYPES: readonly ActionType[] = [
   "gmail.draft",
   "gmail.send",
   "line_followup.create",
+  "active_topic.create",
 ];
 
 export function isActionType(value: string): value is ActionType {
   return (ACTION_TYPES as readonly string[]).includes(value);
 }
 
-/** Short English label for headers / fallbacks. */
+/** Short Thai label for headers / fallbacks. */
 const HUMAN_LABELS: Record<ActionType, string> = {
-  "task.create": "Create task",
-  "task.update": "Update task",
-  "task.archive": "Archive task",
-  "memory.write": "Write memory",
-  "event.create": "Create event",
-  "event.update": "Update event",
-  "event.archive": "Archive event",
-  "reminder.create": "Create reminder",
-  "reminder.update": "Update reminder",
-  "reminder.done": "Mark reminder done",
-  "reminder.archive": "Archive reminder",
-  "google_event.create": "Create Google Calendar event",
-  "google_event.update": "Update Google Calendar event",
-  "google_event.delete": "Delete Google Calendar event",
-  "fact.remember": "Remember a fact",
-  "fact.update": "Update a fact",
-  "fact.forget": "Forget a fact",
-  "gmail.draft": "Create Gmail draft",
-  "gmail.send": "Send Gmail email",
-  "line_followup.create": "Schedule LINE follow-up check",
+  "task.create": "สร้างงาน",
+  "task.update": "อัปเดตงาน",
+  "task.archive": "เก็บงาน",
+  "memory.write": "บันทึกความจำ",
+  "event.create": "สร้างอีเวนต์",
+  "event.update": "อัปเดตอีเวนต์",
+  "event.archive": "เก็บอีเวนต์",
+  "reminder.create": "สร้าง reminder",
+  "reminder.update": "อัปเดต reminder",
+  "reminder.done": "ทำ reminder เสร็จ",
+  "reminder.archive": "เก็บ reminder",
+  "google_event.create": "สร้างอีเวนต์ Google Calendar",
+  "google_event.update": "อัปเดตอีเวนต์ Google Calendar",
+  "google_event.delete": "ลบอีเวนต์ Google Calendar",
+  "fact.remember": "จำ fact",
+  "fact.update": "อัปเดต fact",
+  "fact.forget": "ลืม fact",
+  "gmail.draft": "สร้างร่าง Gmail",
+  "gmail.send": "ส่ง Gmail",
+  "line_followup.create": "ตั้งเช็ก LINE",
+  "active_topic.create": "ติดตามหัวข้อ",
 };
 
 export function humanLabel(actionType: ActionType): string {
@@ -189,6 +191,13 @@ export function actionQuestion(action: ActionLike): ActionQuestion {
         reject: "ไม่ตั้ง",
       };
     }
+    case "active_topic.create": {
+      return {
+        question: `ให้ Friday ติดตามหัวข้อ${title ? ` "${title}"` : "นี้"} แล้วแจ้งเมื่อมีหลักฐานใหม่ไหม`,
+        approve: "ติดตาม",
+        reject: "ไม่ติดตาม",
+      };
+    }
     default:
       return {
         question: "ต้องการดำเนินการนี้ไหม",
@@ -208,10 +217,12 @@ export function summarizePayload(action: ActionLike): string | null {
   const title = stringField(payload, "title");
   const target = stringField(payload, "target");
   const time = stringField(payload, "starts_at") ?? stringField(payload, "due_at");
+  const keywords = arrayField(payload, "keywords");
   const parts = [
     id != null ? `#${id}` : strId ? `#${strId}` : null,
     title ?? target ?? null,
     time ? formatTs(time) : null,
+    keywords ? keywords.join(", ") : null,
   ].filter(Boolean);
 
   return parts.length > 0 ? parts.join(" · ") : null;
@@ -228,6 +239,8 @@ export function summarizePayloadDetail(action: ActionLike): string | null {
     stringField(payload, "location"),
     stringField(payload, "mode"),
     stringField(payload, "content"),
+    stringField(payload, "source"),
+    stringField(payload, "chat_filter"),
   ]
     .filter(Boolean)
     .map((value) => truncate(value!, 140));
@@ -254,6 +267,18 @@ function numberField(
 ): number | undefined {
   const value = record?.[key];
   return typeof value === "number" ? value : undefined;
+}
+
+function arrayField(
+  record: Record<string, unknown> | undefined,
+  key: string,
+): string[] | undefined {
+  const value = record?.[key];
+  if (!Array.isArray(value)) return undefined;
+  const strings = value.filter(
+    (item): item is string => typeof item === "string" && item.trim().length > 0,
+  );
+  return strings.length > 0 ? strings.slice(0, 4) : undefined;
 }
 
 function truncate(value: string, max: number): string {

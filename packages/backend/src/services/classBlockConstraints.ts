@@ -1,6 +1,7 @@
 import { listActiveClassBlocks } from "../db/repositories/classBlockRepo.js";
 import type { ClassBlock } from "../schemas/classBlock.js";
 import type { ScheduleConstraint } from "../schemas/scheduleConstraint.js";
+import { defaultAppliesToForDomain } from "./scheduleTargetClassifier.js";
 
 /**
  * class_block → ScheduleConstraint bridge.
@@ -16,6 +17,12 @@ export function classBlockToConstraint(b: ClassBlock): ScheduleConstraint {
   return {
     kind: "recurring_block",
     label: b.subject.slice(0, 60),
+    domain: "schedule",
+    applies_to: defaultAppliesToForDomain("recurring_block", "schedule"),
+    status: b.status === "active" ? "active" : "inactive",
+    source_ref: `class_block#${b.id}`,
+    provenance_created_at: b.created_at,
+    provenance_updated_at: b.updated_at,
     weekdays: [b.weekday],
     startLocal: b.start_local,
     endLocal: b.end_local,

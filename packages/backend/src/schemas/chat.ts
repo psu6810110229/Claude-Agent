@@ -76,6 +76,11 @@ export const chatHistoryQuerySchema = z.object({
  */
 export const chatOutputSchema = z
   .object({
+    _analysis: z
+      .string()
+      .trim()
+      .min(1)
+      .max(2000),
     reply: z.string().trim().min(1).max(4000),
     // Detail-preserving spoken rendering of `reply` for TTS. Same Claude/Gemini
     // call produces both — no extra round trip. Capped to match `reply` (4000) so

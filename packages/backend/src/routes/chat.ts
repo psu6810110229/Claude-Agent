@@ -38,6 +38,7 @@ import {
   loadChatAttachment,
   type ChatAttachment,
 } from "../services/attachmentService.js";
+import { getRecentChatJobProgress } from "../services/activeJob.js";
 import {
   geminiVisionExtract,
   isGeminiConfigured,
@@ -267,9 +268,9 @@ async function prepareChat(
         logActivity("chat.identity.verified", "owner verified via inline credentials");
         let remainder = message.substring(removeLength).trim();
         if (remainder.length === 0) {
-          remainder = "[ผู้ใช้ไม่ได้พิมพ์คำสั่งใดๆ เพิ่มเติม ให้คุณตอบกลับสั้นๆ ยืนยันว่ายืนยันตัวตนสำเร็จแล้วและพร้อมดำเนินการต่อ]";
+          remainder = "ตอบกลับสั้นๆ ว่ายืนยันตัวตนสำเร็จแล้วและพร้อมดำเนินการต่อ";
         }
-        message = `[System: ผู้ใช้เพิ่งยืนยันตัวตนด้วยรหัสสำเร็จ ตอนนี้คุณสามารถเข้าถึงข้อมูลส่วนตัวและดำเนินการต่อได้เลย] ${remainder}`;
+        message = `ผู้ใช้เพิ่งยืนยันตัวตนด้วยรหัสสำเร็จ ตอนนี้เข้าถึงข้อมูลส่วนตัวได้แล้ว ให้ดำเนินการต่อจากคำขอนี้: ${remainder}`;
       }
     }
   }
@@ -456,13 +457,23 @@ function chatResultResponse(
       providerReason: resolved.selection.reason,
       approvals: result.approvals,
       calendarPlan: result.calendarPlan ?? null,
+      sourcePreviews: result.sourcePreviews ?? [],
       clarification: result.clarification,
       clarification_choices: result.clarificationChoices,
       notes: result.notes,
       verificationRequired: result.verificationRequired || undefined,
       sensitivity: result.sensitivity ?? "normal",
+      jobProgress: safeJobProgress(),
     },
   };
+}
+
+function safeJobProgress(): ReturnType<typeof getRecentChatJobProgress> {
+  try {
+    return getRecentChatJobProgress(5, 6);
+  } catch {
+    return [];
+  }
 }
 
 async function handleChat(

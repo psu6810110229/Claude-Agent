@@ -16,6 +16,8 @@ export function initDb(): void {
   const schema = fs.readFileSync(schemaPath, "utf8");
   db.exec(schema);
   ensureApprovalExecutionColumns();
+  ensureChatMessageSourcePreviewsColumn();
+  ensureChatMessageEvidenceScopesColumn();
   ensureNotificationDedupColumn();
   ensureCalendarPlanItemTriageColumns();
   ensureMemoryFiles();
@@ -46,6 +48,44 @@ function ensureCalendarPlanItemTriageColumns(): void {
     if (!columns.has(name)) {
       db.exec(`ALTER TABLE calendar_plan_item ADD COLUMN ${name} ${decl}`);
     }
+  }
+}
+
+/**
+ * Source previews are deterministic evidence cards for assistant turns. Persist
+ * them with chat history so Drive/Gmail previews survive dashboard refreshes.
+ */
+function ensureChatMessageSourcePreviewsColumn(): void {
+  const db = getDb();
+  const columns = new Set(
+    (
+      db
+        .prepare("PRAGMA table_info(chat_message)")
+        .all() as { name: string }[]
+    ).map((col) => col.name),
+  );
+  if (!columns.has("source_previews_json")) {
+    db.exec("ALTER TABLE chat_message ADD COLUMN source_previews_json TEXT");
+  }
+}
+
+/**
+ * Phase 02 — Evidence Scope Store. Persist the structured, metadata-only scope
+ * of each assistant turn (source + ids + counts) so short follow-ups bind to the
+ * same evidence the previous answer used. Fresh DBs get the column from
+ * schema.sql; pre-existing DBs add it here (mirrors source_previews_json).
+ */
+function ensureChatMessageEvidenceScopesColumn(): void {
+  const db = getDb();
+  const columns = new Set(
+    (
+      db
+        .prepare("PRAGMA table_info(chat_message)")
+        .all() as { name: string }[]
+    ).map((col) => col.name),
+  );
+  if (!columns.has("evidence_scopes_json")) {
+    db.exec("ALTER TABLE chat_message ADD COLUMN evidence_scopes_json TEXT");
   }
 }
 

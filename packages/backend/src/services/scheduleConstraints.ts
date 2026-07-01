@@ -5,6 +5,10 @@ import type {
   ScheduleConstraintKind,
 } from "../schemas/scheduleConstraint.js";
 import { resolveClassBlockConstraints } from "./classBlockConstraints.js";
+import {
+  defaultAppliesToForDomain,
+  inferConstraintDomainFromText,
+} from "./scheduleTargetClassifier.js";
 
 /**
  * Step 27 / Sprint 2 — fact → structured constraint resolver (RC3, RC4).
@@ -217,8 +221,13 @@ export function parseScheduleConstraintsFromFact(
   ).sort((a, b) => a - b);
 
   const kind: ScheduleConstraintKind = classifyConstraintKind(fact, lower);
+  const domain = inferConstraintDomainFromText(
+    kind,
+    `${text} ${fact.keywords ?? ""}`,
+  );
   const hint = LABEL_HINTS.find((h) => lower.includes(h.kw));
   const label = hint ? hint.label : text.trim().slice(0, 24);
+  const sourceRef = `fact#${fact.id}`;
 
   const out: ScheduleConstraint[] = [];
   for (const m of text.matchAll(WINDOW_RE_G)) {
@@ -233,10 +242,16 @@ export function parseScheduleConstraintsFromFact(
     out.push({
       kind,
       label,
+      domain,
+      applies_to: defaultAppliesToForDomain(kind, domain),
+      status: "active",
+      source_ref: sourceRef,
+      provenance_created_at: fact.created_at,
+      provenance_updated_at: fact.updated_at,
       weekdays,
       startLocal,
       endLocal,
-      source: `fact#${fact.id}`,
+      source: sourceRef,
       raw: text.slice(0, 200),
     });
   }

@@ -42,7 +42,7 @@ async function runGuardOff() {
   let lastPrompt = "";
   const dynamicInvoker = async (prompt: string) => {
     lastPrompt = prompt;
-    return JSON.stringify({ reply: "Hi", sensitivity: "normal", actions: [] });
+    return JSON.stringify({ _analysis: "fixture constraint audit", reply: "Hi", sensitivity: "normal", actions: [] });
   };
 
   const HOST = "127.0.0.1";
@@ -98,7 +98,7 @@ async function runGuardOn() {
   let lastPrompt = "";
   const dynamicInvoker = async (prompt: string) => {
     lastPrompt = prompt;
-    return JSON.stringify({ reply: "Hi", sensitivity: "normal", actions: [] });
+    return JSON.stringify({ _analysis: "fixture constraint audit", reply: "Hi", sensitivity: "normal", actions: [] });
   };
 
   const HOST = "127.0.0.1";
@@ -237,7 +237,7 @@ async function runGuardUnconfigured() {
   let lastPrompt = "";
   const dynamicInvoker = async (prompt: string) => {
     lastPrompt = prompt;
-    return JSON.stringify({ reply: "Hi", sensitivity: "normal", actions: [] });
+    return JSON.stringify({ _analysis: "fixture constraint audit", reply: "Hi", sensitivity: "normal", actions: [] });
   };
 
   const HOST = "127.0.0.1";

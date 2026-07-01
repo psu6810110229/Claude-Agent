@@ -114,7 +114,7 @@ export async function searchDriveFiles(
     q: parts.join(" and "),
     pageSize,
     orderBy: "modifiedTime desc",
-    fields: "files(id,name,mimeType,webViewLink,modifiedTime,owners,size)",
+    fields: "files(id,name,mimeType,webViewLink,thumbnailLink,iconLink,parents,modifiedTime,owners,size)",
   });
 
   return (res.data.files ?? []).map((f) => ({
@@ -122,6 +122,9 @@ export async function searchDriveFiles(
     name: f.name ?? "(unnamed)",
     mimeType: f.mimeType ?? "",
     webViewLink: f.webViewLink ?? undefined,
+    thumbnailLink: f.thumbnailLink ?? undefined,
+    iconLink: f.iconLink ?? undefined,
+    parents: f.parents ?? undefined,
     modifiedTime: f.modifiedTime ?? undefined,
     owners: f.owners?.map((o) => ({ displayName: o.displayName ?? "" })),
     size: f.size ?? undefined,
@@ -130,6 +133,29 @@ export async function searchDriveFiles(
 
 /** Drive MIME type for folders. */
 export const DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder";
+
+export type DriveSearchKind = "image" | "pdf" | "folder" | "sheet" | "doc" | "slide" | "text";
+
+function driveKindClause(kind?: DriveSearchKind): string | null {
+  switch (kind) {
+    case "image":
+      return "mimeType contains 'image/'";
+    case "pdf":
+      return "mimeType = 'application/pdf'";
+    case "folder":
+      return `mimeType = '${DRIVE_FOLDER_MIME}'`;
+    case "sheet":
+      return "mimeType = 'application/vnd.google-apps.spreadsheet'";
+    case "doc":
+      return "mimeType = 'application/vnd.google-apps.document'";
+    case "slide":
+      return "mimeType = 'application/vnd.google-apps.presentation'";
+    case "text":
+      return "mimeType contains 'text/'";
+    default:
+      return null;
+  }
+}
 
 /**
  * Search Drive by a list of keywords (OR across name + fullText). Unlike
@@ -140,27 +166,34 @@ export const DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder";
 export async function searchDriveByKeywords(
   terms: string[],
   limit?: number,
+  kind?: DriveSearchKind,
 ): Promise<DriveFile[]> {
   if (!isDriveEnabled()) {
     throw new DriveError("disabled", "Google Drive is not enabled.");
   }
   const clean = terms.map((t) => t.trim()).filter(Boolean).slice(0, 8);
-  if (clean.length === 0) return [];
+  const kindClause = driveKindClause(kind);
+  if (clean.length === 0 && !kindClause) return [];
 
   const drive = buildDriveClient();
   const pageSize = Math.min(limit ?? GOOGLE_DRIVE_MAX_RESULTS, 100);
-  const nameClause = clean
-    .map((t) => `name contains '${escapeDriveQuery(t)}'`)
-    .join(" or ");
-  const fullClause = clean
-    .map((t) => `fullText contains '${escapeDriveQuery(t)}'`)
-    .join(" or ");
+  const clauses = ["trashed = false"];
+  if (clean.length > 0) {
+    const nameClause = clean
+      .map((t) => `name contains '${escapeDriveQuery(t)}'`)
+      .join(" or ");
+    const fullClause = clean
+      .map((t) => `fullText contains '${escapeDriveQuery(t)}'`)
+      .join(" or ");
+    clauses.push(`((${nameClause}) or (${fullClause}))`);
+  }
+  if (kindClause) clauses.push(kindClause);
 
   const res = await drive.files.list({
-    q: `trashed = false and ((${nameClause}) or (${fullClause}))`,
+    q: clauses.join(" and "),
     pageSize,
     orderBy: "modifiedTime desc",
-    fields: "files(id,name,mimeType,webViewLink,modifiedTime)",
+    fields: "files(id,name,mimeType,webViewLink,thumbnailLink,iconLink,parents,modifiedTime)",
   });
 
   return (res.data.files ?? []).map((f) => ({
@@ -168,8 +201,48 @@ export async function searchDriveByKeywords(
     name: f.name ?? "(unnamed)",
     mimeType: f.mimeType ?? "",
     webViewLink: f.webViewLink ?? undefined,
+    thumbnailLink: f.thumbnailLink ?? undefined,
+    iconLink: f.iconLink ?? undefined,
+    parents: f.parents ?? undefined,
     modifiedTime: f.modifiedTime ?? undefined,
   }));
+}
+
+export type DriveFolderSummary = {
+  id: string;
+  name: string;
+  webViewLink?: string | null;
+};
+
+/** Fetch folder labels for Drive evidence grouping. Fails soft per folder. */
+export async function getDriveFolderSummaries(
+  folderIds: string[],
+): Promise<Map<string, DriveFolderSummary>> {
+  const summaries = new Map<string, DriveFolderSummary>();
+  if (!isDriveEnabled()) return summaries;
+
+  const uniqueIds = Array.from(new Set(folderIds.filter(Boolean))).slice(0, 25);
+  if (uniqueIds.length === 0) return summaries;
+
+  const drive = buildDriveClient();
+  for (const fileId of uniqueIds) {
+    try {
+      const res = await drive.files.get({
+        fileId,
+        fields: "id,name,mimeType,webViewLink",
+      });
+      if (res.data.mimeType !== DRIVE_FOLDER_MIME) continue;
+      const id = res.data.id ?? fileId;
+      summaries.set(id, {
+        id,
+        name: res.data.name ?? "โฟลเดอร์",
+        webViewLink: res.data.webViewLink ?? null,
+      });
+    } catch {
+      // Parent metadata is presentation-only; never break the chat turn for it.
+    }
+  }
+  return summaries;
 }
 
 /** List the direct children of a Drive folder. Fails soft → []. */
@@ -178,20 +251,39 @@ export async function listFolderChildren(
   limit = 50,
 ): Promise<DriveFile[]> {
   if (!isDriveEnabled()) return [];
+  const max = Math.max(0, limit);
+  if (max === 0) return [];
   try {
     const drive = buildDriveClient();
-    const res = await drive.files.list({
-      q: `'${escapeDriveQuery(folderId)}' in parents and trashed = false`,
-      pageSize: Math.min(limit, 100),
-      orderBy: "folder,name",
-      fields: "files(id,name,mimeType,modifiedTime)",
-    });
-    return (res.data.files ?? []).map((f) => ({
-      id: f.id ?? "",
-      name: f.name ?? "(unnamed)",
-      mimeType: f.mimeType ?? "",
-      modifiedTime: f.modifiedTime ?? undefined,
-    }));
+    const files: DriveFile[] = [];
+    let pageToken: string | undefined;
+
+    do {
+      const remaining = max - files.length;
+      if (remaining <= 0) break;
+      const res = await drive.files.list({
+        q: `'${escapeDriveQuery(folderId)}' in parents and trashed = false`,
+        pageSize: Math.min(remaining, 100),
+        pageToken,
+        orderBy: "folder,name",
+        fields: "nextPageToken,files(id,name,mimeType,webViewLink,thumbnailLink,iconLink,parents,modifiedTime)",
+      });
+      files.push(
+        ...(res.data.files ?? []).map((f) => ({
+          id: f.id ?? "",
+          name: f.name ?? "(unnamed)",
+          mimeType: f.mimeType ?? "",
+          webViewLink: f.webViewLink ?? undefined,
+          thumbnailLink: f.thumbnailLink ?? undefined,
+          iconLink: f.iconLink ?? undefined,
+          parents: f.parents ?? undefined,
+          modifiedTime: f.modifiedTime ?? undefined,
+        })),
+      );
+      pageToken = res.data.nextPageToken ?? undefined;
+    } while (pageToken && files.length < max);
+
+    return files;
   } catch {
     return [];
   }
@@ -308,13 +400,16 @@ export async function getRecentDriveFiles(limit = 10): Promise<DriveFile[]> {
       q: "trashed = false",
       pageSize: limit,
       orderBy: "modifiedTime desc",
-      fields: "files(id,name,mimeType,webViewLink,modifiedTime)",
+      fields: "files(id,name,mimeType,webViewLink,thumbnailLink,iconLink,parents,modifiedTime)",
     });
     return (res.data.files ?? []).map((f) => ({
       id: f.id ?? "",
       name: f.name ?? "(unnamed)",
       mimeType: f.mimeType ?? "",
       webViewLink: f.webViewLink ?? undefined,
+      thumbnailLink: f.thumbnailLink ?? undefined,
+      iconLink: f.iconLink ?? undefined,
+      parents: f.parents ?? undefined,
       modifiedTime: f.modifiedTime ?? undefined,
     }));
   } catch {

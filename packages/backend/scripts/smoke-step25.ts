@@ -71,6 +71,7 @@ async function main(): Promise<void> {
   {
     // Move evt-b to 10:30–11:30 Bangkok = 03:30–04:30Z. Targets a real id.
     const aiRaw = JSON.stringify({
+      _analysis: "fixture schedule constraint audit",
       proposals: [
         {
           payload: {
@@ -124,6 +125,7 @@ async function main(): Promise<void> {
   {
     setConfigBool("auto_execute_enabled", true);
     const aiRaw = JSON.stringify({
+      _analysis: "fixture schedule constraint audit",
       proposals: [
         {
           payload: {
@@ -160,6 +162,7 @@ async function main(): Promise<void> {
   // --- 3. fabricated/unknown target id is dropped (never queued) ---
   {
     const aiRaw = JSON.stringify({
+      _analysis: "fixture schedule constraint audit",
       proposals: [
         {
           payload: {

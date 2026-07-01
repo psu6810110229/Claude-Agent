@@ -12,7 +12,7 @@ import type { Setting } from "@/lib/types";
 function SettingsSkeleton() {
   return (
     <div className="panel">
-      {[1, 2, 3, 4].map((i) => (
+      {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
         <div key={i} className="row setting-row">
           <div className="setting-row-inner">
             <span className="skel setting-skel-label" />
@@ -33,9 +33,9 @@ export default function SettingsPage() {
     <>
       <header className="page-header">
         <div>
-          <p className="page-kicker">System</p>
-          <h2>Settings</h2>
-          <p className="lede">Enable or disable integrations at runtime. No restart needed.</p>
+          <p className="page-kicker">ระบบ</p>
+          <h2>ตั้งค่า</h2>
+          <p className="lede">เปิดหรือปิดการทำงานของ Friday ได้ทันที โดยไม่ต้องรีสตาร์ต</p>
         </div>
       </header>
 
@@ -87,14 +87,14 @@ function SettingRow({
       onChanged();
       notify({
         kind: "success",
-        title: nextEnabled ? "Enabled" : "Disabled",
+        title: nextEnabled ? "เปิดแล้ว" : "ปิดแล้ว",
         description: setting.label,
       });
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : String(e));
       notify({
         kind: "error",
-        title: "Setting failed",
+        title: "ตั้งค่าไม่สำเร็จ",
         description: e instanceof ApiError ? e.message : String(e),
       });
     } finally {
@@ -108,7 +108,7 @@ function SettingRow({
         <div className="grow">
           <strong>{setting.label}</strong>
           <span className={`badge setting-badge ${setting.enabled ? "" : "muted"}`}>
-            {setting.enabled ? "enabled" : "disabled"}
+            {setting.enabled ? "เปิด" : "ปิด"}
           </span>
         </div>
         <Button
@@ -119,7 +119,7 @@ function SettingRow({
           title={setting.configured ? undefined : setting.description}
           onClick={toggle}
         >
-          {setting.enabled ? "Disable" : "Enable"}
+          {setting.enabled ? "ปิด" : "เปิด"}
         </Button>
       </div>
       <div className="muted setting-desc">{setting.description}</div>
