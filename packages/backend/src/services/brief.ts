@@ -143,6 +143,7 @@ async function buildBriefContext(
         title: e.title.slice(0, 120),
         allDay: e.allDay,
         bucket,
+        calendarName: e.calendarName ? e.calendarName.slice(0, 80) : null,
       }));
   } catch {
     googleEvents = [];

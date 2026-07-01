@@ -24,6 +24,12 @@ export const googleEventSchema = z.object({
   description: z.string().nullable(),
   htmlLink: z.string().nullable(),
   source: z.literal("google"),
+  /** Source calendar metadata for multi-calendar reads. Null/omitted for old stubs. */
+  calendarId: z.string().nullable().optional(),
+  calendarName: z.string().nullable().optional(),
+  calendarPrimary: z.boolean().optional(),
+  /** True only when this event belongs to the configured write calendar. */
+  writable: z.boolean().optional(),
 });
 export type GoogleEvent = z.infer<typeof googleEventSchema>;
 

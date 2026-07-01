@@ -37,6 +37,7 @@ export interface BriefContext {
     title: string;
     allDay: boolean;
     bucket: "today" | "upcoming";
+    calendarName?: string | null;
   }[];
   /** Local (secondary) events (id + start + short title). */
   events: { id: number; starts_at: string; title: string }[];
@@ -97,7 +98,7 @@ export function buildBriefPrompt(type: BriefType, ctx: BriefContext): string {
       ? ctx.googleEvents
           .map(
             (e) =>
-              `  - [${e.bucket}] ${e.start}${e.allDay ? " (all-day)" : ""}: ${e.title}`,
+              `  - [${e.bucket}]${e.calendarName ? ` calendar=${e.calendarName}` : ""} ${e.start}${e.allDay ? " (all-day)" : ""}: ${e.title}`,
           )
           .join("\n")
       : "  (none)";

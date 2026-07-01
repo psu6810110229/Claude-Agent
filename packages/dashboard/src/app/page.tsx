@@ -433,12 +433,12 @@ export default function HomePage() {
   const [thinkingStatus, setThinkingStatus] = useState<string | null>(null);
   const [streamThinking, setStreamThinking] = useState("");
   const [thinkingDone, setThinkingDone] = useState(false);
-  // Ref mirror of streamThinking so doSend can read the FULL accumulated
-  // reasoning after awaits (state closure would be stale = "").
+  // Ref mirror of streamThinking so doSend can read the full accumulated
+  // provider thinking summary after awaits (state closure would be stale = "").
   const streamThinkingRef = useRef("");
-  // Persisted CoT per assistant message id (session-scoped, like messageMeta):
-  // once a turn finishes, its reasoning attaches to that bubble as a collapsed
-  // expandable panel instead of floating in a separate orphan bubble.
+  // Persisted thinking summary per assistant message id (session-scoped, like
+  // messageMeta): once a turn finishes, it attaches to that bubble as a
+  // collapsed expandable panel instead of floating in a separate orphan bubble.
   const [messageThinking, setMessageThinking] = useState<Record<number, string>>({});
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
@@ -710,6 +710,10 @@ export default function HomePage() {
     return cleaned || content;
   }
 
+  function thinkingTextFor(result: ChatResult): string {
+    return streamThinkingRef.current.trim() || result.thinkingSummary?.trim() || "";
+  }
+
   async function regenerateFromAssistant(assistantId: number) {
     if (sending || briefBusy || resetting) return;
     const index = messages.findIndex((message) => message.id === assistantId);
@@ -873,7 +877,7 @@ export default function HomePage() {
         setMessages(visible);
 
         if (freshAssistant) {
-          const reasoning = streamThinkingRef.current.trim();
+          const reasoning = thinkingTextFor(result);
           if (reasoning) {
             setMessageThinking((prev) => ({ ...prev, [freshAssistant.id]: reasoning }));
           }
@@ -936,7 +940,7 @@ export default function HomePage() {
       settleVisualThinking();
       setMessages(visible);
       if (freshAssistant) {
-        const reasoning = streamThinkingRef.current.trim();
+        const reasoning = thinkingTextFor(result);
         if (reasoning) {
           setMessageThinking((prev) => ({ ...prev, [freshAssistant.id]: reasoning }));
         }
@@ -1446,25 +1450,25 @@ export default function HomePage() {
               </div>
             )}
 
-            {/* Live thinking: a COMPACT fixed-size indicator only. We no longer
-                stream the growing reasoning here — an expanding bubble during
-                thinking caused the viewport to jump on every token. The full
-                reasoning is still accumulated (streamThinking) and attaches to
-                the reply bubble afterward as the expandable in-bubble CoT, so
-                the page scrolls exactly once, when the answer lands. */}
+            {/* Live thinking: provider thought summaries stream here only when
+                the provider actually emits them. Final fallback audits attach to
+                the assistant bubble after the turn completes. */}
             {sending && (
               <div className="chat-bubble-wrapper assistant">
                 <AssistantOrbAvatar thinking />
                 <div className="chat-import-slot">
                   <div className="chat-bubble assistant typing">
                     <ThinkingContent status={thinkingStatus} />
+                    {streamThinking.trim() && (
+                      <LiveThinkingPanel text={streamThinking.trim()} />
+                    )}
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Persisted CoT no longer floats as its own orphan bubble. Once the
-                turn lands, the accumulated reasoning attaches to the assistant
+            {/* Persisted thinking summary no longer floats as its own orphan bubble. Once the
+                turn lands, the accumulated summary attaches to the assistant
                 message bubble itself (messageThinking) as a collapsed, expandable
                 panel — seamless with the reply instead of a leftover box. */}
 
@@ -1810,6 +1814,15 @@ function ThinkingContent({
   );
 }
 
+function LiveThinkingPanel({ text }: { text: string }) {
+  return (
+    <div className="chat-live-thinking" aria-live="polite">
+      <span className="chat-live-thinking-title">Friday กำลังคิด</span>
+      <div className="chat-live-thinking-text">{text}</div>
+    </div>
+  );
+}
+
 function TypingSkeleton() {
   return (
     <div className="typing-skeleton" aria-hidden="true">
@@ -1947,9 +1960,9 @@ function ChatMessageGroup({
   );
 }
 
-// Chain-of-thought disclosure: a quiet control above the assistant bubble,
-// Claude-style. The reasoning panel opens below that control but above the
-// answer, so it does not become another message card.
+// Thinking summary disclosure: a quiet control above the assistant bubble.
+// Provider thought summaries are shown when available; otherwise the backend
+// can supply a compact constraint audit generated before the final answer.
 function BubbleThinking({
   text,
   reduceMotion,

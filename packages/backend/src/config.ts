@@ -156,6 +156,17 @@ export const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
 /** Default "upcoming" window length in days (excludes today). */
 export const UPCOMING_WINDOW_DAYS = 7;
 
+/** Default read/search horizon for user-requested searches. */
+export const SEARCH_WINDOW_PAST_DAYS = Number(
+  process.env.CLAUDE_AGENT_SEARCH_WINDOW_PAST_DAYS ?? 365,
+);
+export const SEARCH_WINDOW_FUTURE_DAYS = Number(
+  process.env.CLAUDE_AGENT_SEARCH_WINDOW_FUTURE_DAYS ?? 365,
+);
+export const GMAIL_DRIVE_SEARCH_PAST_DAYS = Number(
+  process.env.CLAUDE_AGENT_GMAIL_DRIVE_SEARCH_PAST_DAYS ?? 5 * 365,
+);
+
 /** Cap on events included in a brief's compact context. */
 export const BRIEF_EVENT_CAP = 20;
 
@@ -167,7 +178,7 @@ export const BRIEF_EVENT_CAP = 20;
  * prompt size.
  */
 export const CHAT_GOOGLE_WINDOW_DAYS = Number(
-  process.env.CLAUDE_AGENT_CHAT_GOOGLE_WINDOW_DAYS ?? 150,
+  process.env.CLAUDE_AGENT_CHAT_GOOGLE_WINDOW_DAYS ?? SEARCH_WINDOW_FUTURE_DAYS,
 );
 export const CHAT_GOOGLE_EVENT_CAP = Number(
   process.env.CLAUDE_AGENT_CHAT_GOOGLE_EVENT_CAP ?? 200,
@@ -180,7 +191,7 @@ export const CHAT_GOOGLE_EVENT_CAP = Number(
  * brief, and schedule-health stay forward-only (they pass the default 0).
  */
 export const CHAT_GOOGLE_PAST_DAYS = Number(
-  process.env.CLAUDE_AGENT_CHAT_GOOGLE_PAST_DAYS ?? 14,
+  process.env.CLAUDE_AGENT_CHAT_GOOGLE_PAST_DAYS ?? SEARCH_WINDOW_PAST_DAYS,
 );
 
 /** Cap on reminders included in a brief's compact context. */
@@ -201,8 +212,18 @@ export const GOOGLE_CALENDAR_ENABLED = /^(1|true)$/i.test(
   process.env.GOOGLE_CALENDAR_ENABLED ?? "",
 );
 
-/** Which calendar to read/write. Defaults to the user's primary calendar. */
+/** Which calendar to write to. Defaults to the user's primary calendar. */
 export const GOOGLE_CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID ?? "primary";
+
+/**
+ * Read calendar IDs. Empty = auto-discover selected calendars from the user's
+ * Google Calendar list, falling back to GOOGLE_CALENDAR_ID if discovery is not
+ * authorized yet. Comma-separated when the user wants an explicit allowlist.
+ */
+export const GOOGLE_CALENDAR_READ_IDS = (process.env.GOOGLE_CALENDAR_READ_IDS ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 /** OAuth client secret JSON (Desktop app). Gitignored; never logged. */
 export const GOOGLE_CLIENT_SECRET_PATH =
@@ -214,9 +235,10 @@ export const GOOGLE_TOKEN_PATH =
   process.env.GOOGLE_CALENDAR_TOKEN_PATH ??
   path.join(DATA_DIR, "google-token.json");
 
-/** Narrow event scope: view/edit events only, not calendar sharing/settings. */
+/** Calendar scopes: event writes stay approval-gated; readonly is for calendarList. */
 export const GOOGLE_CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/calendar.readonly",
 ];
 
 /** Loopback redirect port used only by the one-time `google-auth` script. */

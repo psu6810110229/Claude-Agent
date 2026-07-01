@@ -10,8 +10,8 @@ export function GoogleEventList({ events }: { events: GoogleEvent[] }) {
   return (
     <div className="panel">
       {events.map((e) => (
-        <div className="row" key={e.id}>
-          <span className="badge calendar">calendar</span>
+        <div className="row" key={`${e.calendarId ?? "calendar"}:${e.id}`}>
+          <span className="badge calendar">{e.calendarName ?? "calendar"}</span>
           <span className="item-main">
             <strong className="item-title">{e.title}</strong>
             {e.location ? <span className="item-meta">{e.location}</span> : null}

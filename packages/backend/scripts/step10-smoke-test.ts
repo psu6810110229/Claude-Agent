@@ -61,10 +61,9 @@ async function main(): Promise<void> {
     "allowlist has Google Calendar create/update/delete write action types",
   );
   assert(
-    GOOGLE_CALENDAR_SCOPES.length === 1 &&
-      GOOGLE_CALENDAR_SCOPES[0] ===
-        "https://www.googleapis.com/auth/calendar.events",
-    "Google OAuth scope is limited to Calendar events",
+    GOOGLE_CALENDAR_SCOPES.includes("https://www.googleapis.com/auth/calendar.events") &&
+      GOOGLE_CALENDAR_SCOPES.includes("https://www.googleapis.com/auth/calendar.readonly"),
+    "Google OAuth scopes include event writes plus readonly calendar discovery",
   );
 
   // initDb() before the disabled-gate check: isGoogleCalendarEnabled() reads
@@ -96,6 +95,10 @@ async function main(): Promise<void> {
       description: "Bring the deck",
       htmlLink: "https://example.test/g1",
       source: "google" as const,
+      calendarId: "primary",
+      calendarName: "Fran",
+      calendarPrimary: true,
+      writable: true,
     },
     {
       id: "g2",
@@ -107,6 +110,10 @@ async function main(): Promise<void> {
       description: null,
       htmlLink: null,
       source: "google" as const,
+      calendarId: "addressbook#contacts@group.v.calendar.google.com",
+      calendarName: "Birthdays",
+      calendarPrimary: false,
+      writable: false,
     },
   ];
   const stubFetcher = async () => stubEvents;
@@ -145,6 +152,10 @@ async function main(): Promise<void> {
   assert(
     g1.location === "Meet" && g1.description === "Bring the deck",
     "read route returns event location + description",
+  );
+  assert(
+    today.json.events.find((e: any) => e.id === "g2").calendarName === "Birthdays",
+    "read route preserves source calendar metadata",
   );
 
   const upcoming = await getJson("/api/calendar/upcoming");

@@ -568,6 +568,47 @@ async function main(): Promise<void> {
     "unverified guest never sees event location/notes (redacted)",
   );
 
+  // Birthday/year calendar requests must expand beyond the default 14-day past
+  // window. This catches the real bug where "วันเกิดทุกคนในปีนี้" only saw one
+  // nearby birthday instead of the full selected Birthdays calendar for 2026.
+  const birthdays = [
+    { id: "b-mar", title: "PORGEEZ birthday", start: "2026-03-23", end: "2026-03-24" },
+    { id: "b-jun", title: "วันเกิด ภูดิช's birthday", start: "2026-06-28", end: "2026-06-29" },
+    { id: "b-oct", title: "KRIT birthday", start: "2026-10-24", end: "2026-10-25" },
+  ].map((e) => ({
+    ...e,
+    allDay: true,
+    location: null,
+    description: null,
+    htmlLink: null,
+    source: "google" as const,
+    calendarId: "addressbook#contacts@group.v.calendar.google.com",
+    calendarName: "Birthdays",
+    calendarPrimary: false,
+    writable: false,
+  }));
+  const birthdayFetcher = async (min: string, max: string) =>
+    birthdays.filter((e) => e.start >= min.slice(0, 10) && e.start < max.slice(0, 10));
+  const birthdayCtx = await buildChatContext(
+    "ค้นหาในปฏิทิน google calendar ว่าขอวันเกิดทุกคนในปีนี้",
+    birthdayFetcher,
+    true,
+    [],
+    { now: new Date("2026-07-01T12:00:00.000Z") },
+  );
+  const birthdayPrompt = buildChatPrompt(birthdayCtx);
+  assert(
+    birthdayPrompt.includes("PORGEEZ birthday") &&
+      birthdayPrompt.includes("วันเกิด ภูดิช") &&
+      birthdayPrompt.includes("KRIT birthday") &&
+      birthdayPrompt.includes("calendar=Birthdays"),
+    "birthday calendar year intent expands to the full Bangkok calendar year",
+  );
+  assert(
+    birthdayPrompt.includes("answer from Google Calendar events only"),
+    "prompt forbids mixing Known Facts into explicit Google Calendar answers",
+  );
+
   // --- 13. Drive source previews persist with chat history + total count prompt ---
   const { appendMessage } = await import("../src/db/repositories/chatRepo.js");
   const persistedPreview = [

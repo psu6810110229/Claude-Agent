@@ -18,6 +18,10 @@ import {
   runWebResearchWorker,
   type WebResearchWorkerDeps,
 } from "./webResearchWorker.js";
+import {
+  SEARCH_WINDOW_FUTURE_DAYS,
+  SEARCH_WINDOW_PAST_DAYS,
+} from "../config.js";
 
 const DEFAULT_LIMIT = 10;
 
@@ -121,10 +125,13 @@ async function runCalendarWorker(
   deps?: ReadOnlyWorkerDeps,
 ): Promise<ReadOnlyWorkerEvidenceBundle> {
   const fetchedAt = isoNow(deps);
-  const since = input.since ?? fetchedAt;
+  const fetchedMs = Date.parse(fetchedAt);
+  const since =
+    input.since ??
+    new Date(fetchedMs - SEARCH_WINDOW_PAST_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const until =
     input.until ??
-    new Date(Date.parse(since) + 7 * 24 * 60 * 60 * 1000).toISOString();
+    new Date(fetchedMs + SEARCH_WINDOW_FUTURE_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const fetcher = deps?.calendarEvents ?? defaultCalendarEvents;
   try {
     const events = await fetcher(since, until, input.query);

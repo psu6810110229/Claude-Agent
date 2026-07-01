@@ -144,7 +144,9 @@ export function WelcomeAgenda({
       .then(([today, upcoming, ev, rem, tk]) => {
         if (!alive) return;
         const byId = new Map<string, GoogleEvent>();
-        for (const e of [...today.events, ...upcoming.events]) byId.set(e.id, e);
+        for (const e of [...today.events, ...upcoming.events]) {
+          byId.set(`${e.calendarId ?? "calendar"}:${e.id}`, e);
+        }
         setCalendar([...byId.values()]);
         setEvents(ev);
         setReminders(rem);
@@ -175,12 +177,13 @@ export function WelcomeAgenda({
 
     for (const e of calendar) {
       if (isoToKey(e.start) !== selectedKey) continue;
+      const calendarSub = e.location ?? e.calendarName ?? "ปฏิทิน";
       out.push({
-        key: `g-${e.id}`,
+        key: `g-${e.calendarId ?? "calendar"}:${e.id}`,
         startsAt: e.allDay ? null : e.start,
         endsAt: e.allDay ? null : e.end,
         title: e.title,
-        sub: e.location ?? "ปฏิทิน",
+        sub: calendarSub,
         urgency: urgencyOf(
           e.allDay ? null : e.start,
           e.allDay ? null : e.end,

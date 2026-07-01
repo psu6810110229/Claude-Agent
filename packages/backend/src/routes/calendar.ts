@@ -10,8 +10,8 @@ import {
   type GoogleEventsFetcher,
 } from "../services/googleCalendar.js";
 import {
-  CHAT_GOOGLE_WINDOW_DAYS,
-  CHAT_GOOGLE_PAST_DAYS,
+  SEARCH_WINDOW_FUTURE_DAYS,
+  SEARCH_WINDOW_PAST_DAYS,
 } from "../config.js";
 import { z } from "zod";
 import { analyzeSchedule } from "../services/scheduleHealth.js";
@@ -78,11 +78,11 @@ export async function calendarRoutes(
         .code(400)
         .send({ error: parsed.error.issues.map((i) => i.message).join("; ") });
     }
-    const forwardDays = parsed.data.days ?? CHAT_GOOGLE_WINDOW_DAYS;
+    const forwardDays = parsed.data.days ?? SEARCH_WINDOW_FUTURE_DAYS;
     const { pastStartUtc, upcomingEndUtc } = agendaBounds(
       new Date(),
       forwardDays,
-      CHAT_GOOGLE_PAST_DAYS,
+      SEARCH_WINDOW_PAST_DAYS,
     );
     try {
       const events = await searchEvents(

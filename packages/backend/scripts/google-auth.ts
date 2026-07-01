@@ -13,8 +13,9 @@ import { extractClientConfig } from "../src/services/googleCalendar.js";
  * One-time Google OAuth setup (Step 10). Runs the loopback (127.0.0.1) consent
  * flow and stores ONLY the refresh token to the gitignored token file.
  *
- * Requests the narrow Calendar events scope (GOOGLE_CALENDAR_SCOPES), enough to
- * write events through Google APIs. This app only exposes approval-gated create.
+ * Requests Calendar event write + readonly calendar-list scopes. Writes remain
+ * approval-gated; readonly is needed to discover selected calendars like
+ * Birthdays, LMS, and holidays for read context.
  * Secrets and tokens are never logged; we print the consent URL and a success
  * path only.
  *

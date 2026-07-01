@@ -3,6 +3,7 @@ import { google } from "googleapis";
 import {
   GOOGLE_CALENDAR_ENABLED,
   GOOGLE_CALENDAR_ID,
+  GOOGLE_CALENDAR_READ_IDS,
   GOOGLE_CLIENT_SECRET_PATH,
   GOOGLE_TOKEN_PATH,
   GOOGLE_CALENDAR_MAX_RESULTS,
@@ -105,6 +106,13 @@ export interface DeletedGoogleEvent {
   undoSnapshot: GoogleEventSnapshot;
 }
 
+interface ReadCalendarRef {
+  id: string;
+  name: string | null;
+  primary: boolean;
+  writable: boolean;
+}
+
 /**
  * Whether the connector is enabled. DB config overrides the env-var so the
  * dashboard can toggle at runtime without a restart.
@@ -192,7 +200,7 @@ function normalizeEvent(item: {
   htmlLink?: string | null;
   start?: { date?: string | null; dateTime?: string | null } | null;
   end?: { date?: string | null; dateTime?: string | null } | null;
-}): GoogleEvent | null {
+}, calendarRef?: ReadCalendarRef): GoogleEvent | null {
   if (!item.id) return null;
   const allDay = Boolean(item.start?.date && !item.start?.dateTime);
   const start = item.start?.dateTime ?? item.start?.date ?? null;
@@ -208,7 +216,67 @@ function normalizeEvent(item: {
     description: item.description ?? null,
     htmlLink: item.htmlLink ?? null,
     source: "google",
+    calendarId: calendarRef?.id ?? null,
+    calendarName: calendarRef?.name ?? null,
+    calendarPrimary: calendarRef?.primary ?? false,
+    writable: calendarRef?.writable ?? true,
   });
+}
+
+function isWriteCalendar(id: string, primary: boolean): boolean {
+  return id === GOOGLE_CALENDAR_ID || (GOOGLE_CALENDAR_ID === "primary" && primary);
+}
+
+async function listReadCalendars(
+  calendar: ReturnType<typeof google.calendar>,
+): Promise<ReadCalendarRef[]> {
+  const fallback: ReadCalendarRef[] = [
+    {
+      id: GOOGLE_CALENDAR_ID,
+      name: GOOGLE_CALENDAR_ID === "primary" ? "Primary" : GOOGLE_CALENDAR_ID,
+      primary: GOOGLE_CALENDAR_ID === "primary",
+      writable: true,
+    },
+  ];
+
+  if (GOOGLE_CALENDAR_READ_IDS.length > 0) {
+    return GOOGLE_CALENDAR_READ_IDS.map((id) => ({
+      id,
+      name: id === "primary" ? "Primary" : id,
+      primary: id === "primary",
+      writable: isWriteCalendar(id, id === "primary"),
+    }));
+  }
+
+  const refs: ReadCalendarRef[] = [];
+  let pageToken: string | undefined;
+  try {
+    do {
+      const res = await calendar.calendarList.list({
+        maxResults: 250,
+        minAccessRole: "reader",
+        showHidden: false,
+        pageToken,
+      });
+      for (const entry of res.data.items ?? []) {
+        if (!entry.id || entry.hidden || entry.selected === false) continue;
+        const primary = Boolean(entry.primary);
+        refs.push({
+          id: entry.id,
+          name: entry.summary ?? entry.id,
+          primary,
+          writable: isWriteCalendar(entry.id, primary),
+        });
+      }
+      pageToken = res.data.nextPageToken ?? undefined;
+    } while (pageToken);
+  } catch {
+    // Tokens issued before calendar.readonly cannot list calendars. Keep the
+    // legacy primary-only read path until the user re-runs google-auth.
+    return fallback;
+  }
+
+  return refs.length > 0 ? refs : fallback;
 }
 
 /**
@@ -228,28 +296,39 @@ async function listEventsPaginated(
   }
   const auth = buildOAuthClient();
   const calendar = google.calendar({ version: "v3", auth });
+  const calendars = await listReadCalendars(calendar);
 
-  const items: Parameters<typeof normalizeEvent>[0][] = [];
-  let pageToken: string | undefined;
+  const events: GoogleEvent[] = [];
+  let successCount = 0;
   try {
-    do {
-      const res = await calendar.events.list({
-        calendarId: GOOGLE_CALENDAR_ID,
-        timeMin: timeMinIso,
-        timeMax: timeMaxIso,
-        singleEvents: true,
-        orderBy: "startTime",
-        maxResults: GOOGLE_CALENDAR_MAX_RESULTS,
-        pageToken,
-        ...(q ? { q } : {}),
-      });
-      const page = res.data.items ?? [];
-      for (const it of page) {
-        if (items.length >= GOOGLE_CALENDAR_MAX_TOTAL) break;
-        items.push(it);
+    for (const calRef of calendars) {
+      let pageToken: string | undefined;
+      try {
+        do {
+          const res = await calendar.events.list({
+            calendarId: calRef.id,
+            timeMin: timeMinIso,
+            timeMax: timeMaxIso,
+            singleEvents: true,
+            orderBy: "startTime",
+            maxResults: GOOGLE_CALENDAR_MAX_RESULTS,
+            pageToken,
+            ...(q ? { q } : {}),
+          });
+          successCount += 1;
+          const page = res.data.items ?? [];
+          for (const it of page) {
+            if (events.length >= GOOGLE_CALENDAR_MAX_TOTAL) break;
+            const normalized = normalizeEvent(it, calRef);
+            if (normalized) events.push(normalized);
+          }
+          pageToken = res.data.nextPageToken ?? undefined;
+        } while (pageToken && events.length < GOOGLE_CALENDAR_MAX_TOTAL);
+      } catch {
+        console.warn(`[gcal] skipped unreadable calendar ${calRef.name ?? calRef.id}`);
       }
-      pageToken = res.data.nextPageToken ?? undefined;
-    } while (pageToken && items.length < GOOGLE_CALENDAR_MAX_TOTAL);
+      if (events.length >= GOOGLE_CALENDAR_MAX_TOTAL) break;
+    }
   } catch {
     // Never surface the raw error (may carry request/token detail).
     throw new GoogleCalendarError(
@@ -258,16 +337,18 @@ async function listEventsPaginated(
     );
   }
 
-  if (pageToken && items.length >= GOOGLE_CALENDAR_MAX_TOTAL) {
+  if (successCount === 0) {
+    throw new GoogleCalendarError("api", "Failed to fetch Google Calendar events.");
+  }
+
+  if (events.length >= GOOGLE_CALENDAR_MAX_TOTAL) {
     // Truncated at the safety ceiling — visibility only, never bodies.
     console.warn(
       `[gcal] window truncated at GOOGLE_CALENDAR_MAX_TOTAL=${GOOGLE_CALENDAR_MAX_TOTAL} events`,
     );
   }
 
-  return items
-    .map((it) => normalizeEvent(it))
-    .filter((e): e is GoogleEvent => e !== null);
+  return events.sort((a, b) => a.start.localeCompare(b.start));
 }
 
 /**

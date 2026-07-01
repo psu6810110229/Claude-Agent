@@ -447,6 +447,7 @@ function chatResultResponse(
     body: {
       kind: "chat",
       reply: result.reply,
+      thinkingSummary: result.thinkingSummary ?? null,
       spoken: result.spoken ?? null,
       resultReport: result.resultReport ?? null,
       resultSpoken: result.resultSpoken ?? null,

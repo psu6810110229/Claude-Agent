@@ -76,6 +76,10 @@ export interface GoogleEvent {
   description: string | null;
   htmlLink: string | null;
   source: "google";
+  calendarId?: string | null;
+  calendarName?: string | null;
+  calendarPrimary?: boolean;
+  writable?: boolean;
 }
 
 /** GET /api/calendar/* — `available` is false when disabled or on fetch error. */
@@ -666,6 +670,8 @@ export const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
 export interface ChatResult {
   kind: "chat";
   reply: string;
+  /** Model constraint audit for the thinking panel; null when unavailable. */
+  thinkingSummary?: string | null;
   /** Short spoken summary of `reply` for TTS; null when the model omitted it. */
   spoken?: string | null;
   /** Truthful outcome line posted AFTER the ack reply; null for pure Q&A. */

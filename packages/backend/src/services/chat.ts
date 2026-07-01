@@ -112,6 +112,9 @@ import {
   CHAT_GOOGLE_WINDOW_DAYS,
   CHAT_GOOGLE_EVENT_CAP,
   CHAT_GOOGLE_PAST_DAYS,
+  SEARCH_WINDOW_PAST_DAYS,
+  SEARCH_WINDOW_FUTURE_DAYS,
+  GMAIL_DRIVE_SEARCH_PAST_DAYS,
   CHAT_HISTORY_LIMIT,
   CHAT_GMAIL_UNREAD_CAP,
   CHAT_GMAIL_FOCUSED_CAP,
@@ -119,6 +122,7 @@ import {
   CHAT_DRIVE_RECENT_CAP,
   CHAT_DRIVE_FOCUSED_HITS,
   CHAT_DRIVE_FOCUSED_CHARS,
+  BANGKOK_OFFSET_MS,
   LINE_CONTEXT_PER_CHAT,
   LINE_CONTEXT_MAX_CHATS,
   LINE_FOCUSED_MSG_CAP,
@@ -139,6 +143,61 @@ const GMAIL_READ_MARKERS = [
 function detectGmailReadIntent(message: string): boolean {
   const m = message.toLowerCase();
   return GMAIL_READ_MARKERS.some((k) => m.includes(k));
+}
+
+const BIRTHDAY_MARKERS = ["birthday", "birth day", "วันเกิด", "วันรเกิด"];
+
+function isBirthdayCalendarIntent(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    (m.includes("google calendar") || m.includes("ปฏิทิน")) &&
+    BIRTHDAY_MARKERS.some((marker) => m.includes(marker.toLowerCase()))
+  );
+}
+
+function isYearScopeIntent(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("ปีนี้") ||
+    m.includes("ทั้งปี") ||
+    m.includes("this year") ||
+    /\b20\d{2}\b/.test(m)
+  );
+}
+
+function isSearchWindowIntent(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    isYearScopeIntent(message) ||
+    [
+      "ค้นหา",
+      "หา",
+      "ลิสต์",
+      "list",
+      "search",
+      "find",
+      "ทั้งหมด",
+      "ทุก",
+      "ย้อนหลัง",
+      "อนาคต",
+      "past",
+      "future",
+    ].some((marker) => m.includes(marker))
+  );
+}
+
+function bangkokYearBounds(now: Date): { startUtc: string; endUtc: string } {
+  const b = new Date(now.getTime() + BANGKOK_OFFSET_MS);
+  const year = b.getUTCFullYear();
+  return {
+    startUtc: new Date(Date.UTC(year, 0, 1) - BANGKOK_OFFSET_MS).toISOString(),
+    endUtc: new Date(Date.UTC(year + 1, 0, 1) - BANGKOK_OFFSET_MS).toISOString(),
+  };
+}
+
+function isBirthdayEvent(event: GoogleEvent): boolean {
+  const haystack = `${event.title} ${event.calendarName ?? ""}`.toLowerCase();
+  return BIRTHDAY_MARKERS.some((marker) => haystack.includes(marker.toLowerCase()));
 }
 
 const GMAIL_QUERY_STOPWORDS = new Set([
@@ -181,6 +240,7 @@ function buildGmailFocusedQuery(
   if (/(วันนี้|today)/i.test(message)) clauses.push("newer_than:1d");
   else if (/(สัปดาห์นี้|week|7\s*days?)/i.test(message)) clauses.push("newer_than:7d");
   else if (/(เดือนนี้|month|30\s*days?)/i.test(message)) clauses.push("newer_than:30d");
+  else clauses.push(`newer_than:${GMAIL_DRIVE_SEARCH_PAST_DAYS}d`);
 
   const emails = Array.from(message.matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi))
     .map((m) => m[0].toLowerCase())
@@ -501,6 +561,8 @@ export type ChatResult =
   | {
       kind: "replied";
       reply: string;
+      /** Private model constraint audit for the UI thinking panel; not persisted. */
+      thinkingSummary?: string;
       spoken?: string;
       /** Deterministic, truthful outcome line posted AFTER the ack reply. */
       resultReport?: string;
@@ -1006,6 +1068,7 @@ export async function buildChatContext(
   fetchGoogle: GoogleEventsFetcher,
   verified: boolean = true,
   attachments: ChatContext["attachments"] = [],
+  opts: { now?: Date } = {},
 ): Promise<ChatContext> {
   const openTasks = listTasks()
     .filter((t) => t.status === "open")
@@ -1031,23 +1094,55 @@ export async function buildChatContext(
     pinned: f.pinned,
   }));
 
-  const now = new Date();
-  const eb = bucketEvents(listEvents(), now);
-  const events = [...eb.today, ...eb.upcoming]
-    .slice(0, BRIEF_EVENT_CAP)
+  const now = opts.now ?? new Date();
+  const searchWindow = isSearchWindowIntent(message)
+    ? agendaBounds(now, SEARCH_WINDOW_FUTURE_DAYS, SEARCH_WINDOW_PAST_DAYS)
+    : null;
+  const localEventRows = listEvents();
+  const localEventBuckets = bucketEvents(localEventRows, now);
+  const eventRows = searchWindow
+    ? localEventRows.filter(
+        (e) =>
+          e.starts_at >= searchWindow.pastStartUtc &&
+          e.starts_at < searchWindow.upcomingEndUtc,
+      )
+    : [...localEventBuckets.today, ...localEventBuckets.upcoming];
+  const localContextCap = searchWindow ? CHAT_GOOGLE_EVENT_CAP : BRIEF_EVENT_CAP;
+  const events = eventRows
+    .slice(0, localContextCap)
     .map((e) => ({
       id: e.id,
       starts_at: e.starts_at,
       title: e.title.slice(0, 120),
     }));
 
-  const rb = bucketReminders(listReminders(), now);
-  const reminders = [
-    ...rb.overdue.map((r) => ({ r, bucket: "overdue" as const })),
-    ...rb.today.map((r) => ({ r, bucket: "today" as const })),
-    ...rb.upcoming.map((r) => ({ r, bucket: "upcoming" as const })),
-  ]
-    .slice(0, BRIEF_REMINDER_CAP)
+  const reminderRows = listReminders();
+  const reminderBuckets = bucketReminders(reminderRows, now);
+  const reminderCandidates = searchWindow
+    ? reminderRows
+        .filter(
+          (r) =>
+            r.due_at >= searchWindow.pastStartUtc &&
+            r.due_at < searchWindow.upcomingEndUtc,
+        )
+        .map((r) => ({
+          r,
+          bucket:
+            r.due_at < searchWindow.todayStartUtc
+              ? ("overdue" as const)
+              : r.due_at < searchWindow.todayEndUtc
+                ? ("today" as const)
+                : ("upcoming" as const),
+        }))
+    : (() => {
+        return [
+          ...reminderBuckets.overdue.map((r) => ({ r, bucket: "overdue" as const })),
+          ...reminderBuckets.today.map((r) => ({ r, bucket: "today" as const })),
+          ...reminderBuckets.upcoming.map((r) => ({ r, bucket: "upcoming" as const })),
+        ];
+      })();
+  const reminders = reminderCandidates
+    .slice(0, searchWindow ? CHAT_GOOGLE_EVENT_CAP : BRIEF_REMINDER_CAP)
     .map(({ r, bucket }) => ({
       id: r.id,
       due_at: r.due_at,
@@ -1098,11 +1193,34 @@ export async function buildChatContext(
         ? fetchGoogle(pastStartUtc, todayStartUtc)
         : Promise.resolve([] as GoogleEvent[]),
     ]);
+    const extraEvents: Array<{ e: GoogleEvent; bucket: "past" | "today" | "upcoming" }> = [];
+    if (isBirthdayCalendarIntent(message) && isYearScopeIntent(message)) {
+      const { startUtc, endUtc } = bangkokYearBounds(now);
+      const seen = new Set(
+        [...gToday, ...gUpcoming, ...gPast].map(
+          (e) => `${e.calendarId ?? "calendar"}:${e.id}`,
+        ),
+      );
+      try {
+        const yearBirthdays = (await fetchGoogle(startUtc, endUtc)).filter(isBirthdayEvent);
+        for (const e of yearBirthdays) {
+          const key = `${e.calendarId ?? "calendar"}:${e.id}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const bucket =
+            e.start < todayStartUtc ? "past" : e.start < todayEndUtc ? "today" : "upcoming";
+          extraEvents.push({ e, bucket });
+        }
+      } catch {
+        // Base calendar context is still useful; keep the turn fail-soft.
+      }
+    }
     rawGoogleEvents = [...gToday, ...gUpcoming];
     googleEvents = [
       // Future first so the cap always favours upcoming over history.
       ...gToday.map((e) => ({ e, bucket: "today" as const })),
       ...gUpcoming.map((e) => ({ e, bucket: "upcoming" as const })),
+      ...extraEvents,
       ...gPast.map((e) => ({ e, bucket: "past" as const })),
     ]
       .slice(0, CHAT_GOOGLE_EVENT_CAP)
@@ -1116,6 +1234,8 @@ export async function buildChatContext(
         // detail questions. Notes capped to keep the prompt small.
         location: e.location ? e.location.slice(0, 200) : null,
         notes: e.description ? e.description.slice(0, 300) : null,
+        calendarName: e.calendarName ? e.calendarName.slice(0, 80) : null,
+        writable: e.writable,
       }));
   } catch {
     googleEvents = [];
@@ -1361,13 +1481,13 @@ export async function buildChatContext(
       availability = resolveAvailability(
         {
           googleEvents: rawGoogleEvents,
-          localEvents: [...eb.today, ...eb.upcoming].map((e) => ({
+          localEvents: [...localEventBuckets.today, ...localEventBuckets.upcoming].map((e) => ({
             id: e.id,
             title: e.title,
             starts_at: e.starts_at,
             ends_at: e.ends_at,
           })),
-          reminders: [...rb.overdue, ...rb.today, ...rb.upcoming].map((r) => ({
+          reminders: [...reminderBuckets.overdue, ...reminderBuckets.today, ...reminderBuckets.upcoming].map((r) => ({
             id: r.id,
             title: r.title,
             due_at: r.due_at,
@@ -1405,7 +1525,7 @@ export async function buildChatContext(
       const targetDay = resolveFreeTimeDay(message, now);
       const slots = findFreeSlotsForDay(targetDay, {
         googleEvents: rawGoogleEvents,
-        localEvents: [...eb.today, ...eb.upcoming].map((e) => ({
+        localEvents: [...localEventBuckets.today, ...localEventBuckets.upcoming].map((e) => ({
           id: e.id,
           title: e.title,
           starts_at: e.starts_at,
@@ -1441,6 +1561,7 @@ export async function buildChatContext(
         // Privacy gate: a guest never sees the real place / notes either.
         location: null,
         notes: null,
+        calendarName: null,
       })),
       events: events.map((e) => ({ ...e, title: GENERIC_BUSY })),
       reminders: reminders.map((r) => ({ ...r, title: GENERIC_REMINDER })),
@@ -1963,6 +2084,7 @@ export async function runChat(
   return {
     kind: "replied",
     reply: check.data.reply,
+    thinkingSummary: check.data._analysis,
     spoken: check.data.spoken,
     resultReport: report?.text,
     resultSpoken: report?.spoken,
