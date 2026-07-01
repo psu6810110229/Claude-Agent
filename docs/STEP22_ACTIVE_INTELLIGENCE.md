@@ -32,6 +32,30 @@ Goal: Replace the one-shot, heuristic-driven pre-fetch execution model with a mu
 
 ---
 
+## 2. Deep Architectural Audit & Identified Gaps
+
+Upon inspecting the inner workings of the project, several critical holes must be addressed before proceeding with the architecture:
+
+**2.1 Streaming API Contract (`api.ts` / `psuClient.ts`)**
+- *Current:* The SSE parser `handleFrame` inside `api.ts` only acknowledges `thinking` and `done` events.
+- *Gap:* It will silently drop `task_*` events. We must expand `ChatStreamCallbacks` and the Fastify `aiStreaming.ts` payloads to handle progressive updates without breaking legacy streams.
+
+**2.2 Approvals & Action Dispatching**
+- *Current:* Actions like `google_calendar.create` trigger an Approval queue.
+- *Gap:* If the Orchestrator loop proposes a Write action mid-loop, it would halt execution waiting for user confirmation.
+- *Rule:* The `agentLoop.ts` must **strictly** execute Read-Only tools. Write actions (Proposals) must be deferred to the final Synthesizer phase to ensure non-blocking execution.
+
+**2.3 Context (Token) Explosion**
+- *Current:* `detectGmailReadIntent` injects raw message snippets.
+- *Gap:* Fetching from 4 disparate sources sequentially could cause context window overflow or high latency.
+- *Rule:* Tool executors must strictly return compressed JSON (e.g. max 3 emails, max 50 chars per LINE message).
+
+**2.4 Speech (TTS) Integration**
+- *Current:* Voice synthesis triggers upon receiving `result.spoken`.
+- *Gap:* We must guarantee that `task_progress` events do not trigger TTS. TTS must be strictly gated until the final `done` (Synthesis) event.
+
+---
+
 ## 3. Architecture
 
 ```
@@ -91,8 +115,8 @@ User Prompt ──> chat.runChat
 **Branch:** `phase/step22-ux`
 **Goal:** Build the dynamic UI without real AI logic, ensuring flawless layout transitions.
 
-- **Sprint 2.1: Client-side State**
-  - Update `psuClient.ts` to parse `task_*` events. Add `tasks` to `ChatMessage`.
+- **Sprint 2.1: Client-side State & Streaming API**
+  - Update `api.ts` (`ChatStreamCallbacks`) and `psuClient.ts` to parse `task_*` events. Add `tasks` to `ChatMessage`.
   - Tests: Static mock rendering. `npm run build:dashboard`.
 - **Sprint 2.2: `TaskProgressStack` & Micro-Cards**
   - Build `TaskProgressStack` using `framer-motion` `<motion.div layout>`.
@@ -107,13 +131,13 @@ User Prompt ──> chat.runChat
 **Goal:** Replace legacy heuristics with a deterministic LLM Tool-Calling loop.
 
 - **Sprint 3.1: Formal Tool Definitions**
-  - Convert `gmail`, `calendar`, `line`, `drive` read operations into JSON-schema Tools.
+  - Convert `gmail`, `calendar`, `line`, `drive` read operations into JSON-schema Tools with strict token caps.
   - Tests: Unit tests for Tool executors. `npm run build`.
 - **Sprint 3.2: Orchestrator Loop (`agentLoop.ts`)**
   - Implement the `while` loop handling Tool Calls and emitting SSE `task` events.
   - Tests: Headless test with stubbed LLM client returning fake tool calls.
-- **Sprint 3.3: Synthesizer Prompt**
-  - Build the final pass logic to summarize gathered data.
+- **Sprint 3.3: Synthesizer Prompt & Approvals**
+  - Build the final pass logic to summarize gathered data and propose any Write actions.
   - Tests: `npm run smoke:persona` / Prompt evaluation tests.
 
 ### Phase 4: Full Integration & Edge Cases
@@ -123,8 +147,9 @@ User Prompt ──> chat.runChat
 - **Sprint 4.1: End-to-End Integration**
   - Wire main `chat.ts` to use `agentLoop.ts`.
   - Tests: Real compound query in Dashboard.
-- **Sprint 4.2: Edge Cases & Rate Limits**
+- **Sprint 4.2: Edge Cases, TTS, & Rate Limits**
   - Handle Tool timeouts gracefully (`task_failed`).
+  - Guarantee TTS is only engaged on the final `done` event.
   - Tests: E2E Smoke tests forcing network errors.
 - **Sprint 4.3: Cleanup & Final Audit**
   - Deprecate old heuristic pre-fetch functions.
