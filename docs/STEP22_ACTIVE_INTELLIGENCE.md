@@ -124,6 +124,10 @@ The new UX must strictly adhere to `DESIGN.md` and `.impeccable/design.json`. `J
    - **Semantic Colors Only:** Use OK Green (`#5fdf94`) for success icons, Rose (`#ff7088`) for errors, and Amber (`#ffcf66`) for waiting states. Do NOT use Arc Blue/Halo Violet for mere task status (The One Signature Rule).
 3. **Embedded Previews:** Refactor `SourcePreviewPanel` to embed *inside* the expanded Task Card. It must use the same tonal base. **The Earned-Blur Rule:** Do not nest blurred layers; the parent card provides the blur.
 4. **Fluid Layout (Framer Motion):** Use `<motion.div layout>` for layout shifts. Ensure an instant fallback for `prefers-reduced-motion`. The UI must feel responsive and spring-based (`ease-out-expo`), never bouncy or jittery.
+5. **Mobile & Responsive (Strict Constraints):**
+   - Must flawlessly adapt to the `compact` breakpoint (`<= 680px`).
+   - Touch targets for expanding/collapsing Task Cards must be **≥44px** (per Apple HIG).
+   - Long source titles or deep layout hierarchies must safely truncate or wrap without blowing out the horizontal viewport.
 
 - **Sprint 2.1: Client-side State & Streaming API**
   - Update `api.ts` (`ChatStreamCallbacks`) and `psuClient.ts` to parse `task_*` events. Add `tasks` to `ChatMessage`.
