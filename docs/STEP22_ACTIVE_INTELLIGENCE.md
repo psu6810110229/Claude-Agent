@@ -102,10 +102,12 @@ User Prompt ──> chat.runChat
 **Goal:** Build the backend infrastructure capable of emitting discrete Task Events over SSE.
 
 - **Sprint 1.1: Data Models & Zod Schemas**
-  - Define `TaskState` and `TaskEvent` payload schemas for SSE multiplexing.
+  - Define `TaskState` (`queued`, `running`, `done`, `error`) and `TaskEvent` payload schemas in `schemas/chat.ts`.
+  - Extend `StreamEvent` in `services/aiStreaming.ts` to support `type: "task"` alongside `"thinking"` and `"content"`.
   - Tests: Schema validation unit tests. `npm run build`.
 - **Sprint 1.2: SSE Streaming Updates**
-  - Refactor Fastify SSE (`aiStreaming.ts`) to dispatch Task Events.
+  - Refactor Fastify SSE (`handleChatStream` in `chat.ts`) to correctly multiplex the new `StreamEvent` task payloads into `event: task_*` SSE chunks.
+  - Expand `ChatStreamCallbacks` and `handleFrame` in `dashboard/src/lib/api.ts` to parse `task_*` events without dropping them.
   - Tests: Integration test asserting valid JSON SSE chunks.
 - **Sprint 1.3: Mock Route for UI Testing**
   - Create `/api/chat/mock-multi-step` simulating a 5-second task flow.
