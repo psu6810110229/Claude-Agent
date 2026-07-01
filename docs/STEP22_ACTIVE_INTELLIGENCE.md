@@ -115,12 +115,15 @@ User Prompt ──> chat.runChat
 **Branch:** `phase/step22-ux`
 **Goal:** Build the dynamic UI without real AI logic, ensuring flawless layout transitions.
 
-**UX/UI Masterpiece Presentation:**
-Currently, `JobProgressInline` and `SourcePreviewPanel` are monolithic blocks appended to the bottom of the chat bubble, causing visual clutter when multiple sources are fetched. To fix this:
-1. **Task-Scoped Cards:** Introduce `TaskProgressStack`, an accordion-style component rendered *before* or *interleaved with* the chat text.
-2. **Progressive Disclosure:** Each tool call (e.g., `gmail.search`) renders a sleek glassy skeleton ("🔍 กำลังหาอีเมล..."). Once finished, it snaps into a compact summary card ("📧 หาอีเมลเจอ 3 ฉบับ").
-3. **Embedded Previews:** `SourcePreviewPanel` will no longer be monolithic. It will be refactored to embed *inside* the respective Task Card. Users must tap to expand it, preserving vertical space.
-4. **Fluid Layout:** Use `framer-motion` (`<motion.div layout>`) so when a task completes, the UI gently rearranges itself without jarring jumps.
+**UX/UI Masterpiece Presentation (Strictly "Liquid Glass Atelier"):**
+The new UX must strictly adhere to `DESIGN.md` and `.impeccable/design.json`. `JobProgressInline` and `SourcePreviewPanel` currently stack monotonically, breaking the immersive conversational flow. To fix this:
+1. **Task-Scoped Cards (Glass Panels):** Introduce `TaskProgressStack` interleaved with chat text. It must be a translucent white film (`rgba(255,255,255,0.05)`) with `backdrop-filter: blur(22px) saturate(140%)`, an inner-light highlight (`inset 0 1px 0 rgba(255,255,255,0.07)`), and NO hard borders.
+2. **Progressive Disclosure:** 
+   - **Running:** A glassy skeleton loader / spinner ("🔍 กำลังหาอีเมล...").
+   - **Done:** Smoothly snaps into a compact card ("📧 หาอีเมลเจอ 3 ฉบับ").
+   - **Semantic Colors Only:** Use OK Green (`#5fdf94`) for success icons, Rose (`#ff7088`) for errors, and Amber (`#ffcf66`) for waiting states. Do NOT use Arc Blue/Halo Violet for mere task status (The One Signature Rule).
+3. **Embedded Previews:** Refactor `SourcePreviewPanel` to embed *inside* the expanded Task Card. It must use the same tonal base. **The Earned-Blur Rule:** Do not nest blurred layers; the parent card provides the blur.
+4. **Fluid Layout (Framer Motion):** Use `<motion.div layout>` for layout shifts. Ensure an instant fallback for `prefers-reduced-motion`. The UI must feel responsive and spring-based (`ease-out-expo`), never bouncy or jittery.
 
 - **Sprint 2.1: Client-side State & Streaming API**
   - Update `api.ts` (`ChatStreamCallbacks`) and `psuClient.ts` to parse `task_*` events. Add `tasks` to `ChatMessage`.
