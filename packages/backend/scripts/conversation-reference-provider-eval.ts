@@ -9,24 +9,17 @@
  */
 
 import {
-  GEMINI_MODEL,
-  PSU_QWEN_MODEL,
-} from "../src/config.js";
-import {
   ConversationReferenceActualSchema,
   evaluateConversationReferenceActual,
   validateConversationReferenceSuite,
   type ConversationReferenceCase,
 } from "../src/evals/conversationReferenceEval.js";
 import { conversationReferenceBaselineSuite } from "../src/evals/conversationReferenceFixtures.js";
-import {
-  isGeminiConfigured,
-  realGeminiInvoker,
-} from "../src/services/geminiClient.js";
-import {
-  isPsuConfigured,
-  makePsuInvoker,
-} from "../src/services/psuClient.js";
+
+const DEFAULT_GEMINI_MODEL =
+  process.env.GEMINI_MODEL ?? "gemini-3.1-flash-lite";
+const DEFAULT_QWEN_MODEL =
+  process.env.PSU_QWEN_MODEL ?? "qwen/qwen3.7-plus";
 
 type ProviderEvalRow = {
   provider: string;
@@ -152,37 +145,77 @@ async function main(): Promise<void> {
   );
   const cases = suite.cases.slice(0, liveLimit(suite.cases.length));
 
-  const rows = await Promise.all([
-    runProvider(
+  let rows: ProviderEvalRow[];
+  if (!liveEvalEnabled()) {
+    rows = [
       {
         provider: "gemini",
-        model: GEMINI_MODEL,
-        configured: isGeminiConfigured(),
-        invoke: (prompt) =>
-          realGeminiInvoker(prompt, {
-            model: GEMINI_MODEL,
-            timeoutMs: 60_000,
-            thinkingBudget:
-              process.env.GEMINI_THINKING_BUDGET === undefined
-                ? undefined
-                : Number(process.env.GEMINI_THINKING_BUDGET),
-          }),
+        model: DEFAULT_GEMINI_MODEL,
+        status: "skipped",
+        cases: 0,
+        passed: 0,
+        latency_ms: null,
+        reason:
+          "set CONVERSATION_REFERENCE_LIVE_EVAL=1 to enable live calls; .env is not read",
       },
-      cases,
-    ),
-    runProvider(
       {
         provider: "qwen",
-        model: PSU_QWEN_MODEL,
-        configured: isPsuConfigured(),
-        invoke: makePsuInvoker(PSU_QWEN_MODEL),
+        model: DEFAULT_QWEN_MODEL,
+        status: "skipped",
+        cases: 0,
+        passed: 0,
+        latency_ms: null,
+        reason:
+          "set CONVERSATION_REFERENCE_LIVE_EVAL=1 to enable live calls; .env is not read",
       },
-      cases,
-    ),
-  ]);
+    ];
+  } else {
+    // Provider clients import config.ts; disable its local .env loader first so
+    // live evals use only explicit process environment supplied by the runner.
+    process.env.CLAUDE_AGENT_SKIP_ENV_FILE = "1";
+    const [
+      { GEMINI_MODEL, PSU_QWEN_MODEL },
+      { isGeminiConfigured, realGeminiInvoker },
+      { isPsuConfigured, makePsuInvoker },
+    ] = await Promise.all([
+      import("../src/config.js"),
+      import("../src/services/geminiClient.js"),
+      import("../src/services/psuClient.js"),
+    ]);
+
+    rows = await Promise.all([
+      runProvider(
+        {
+          provider: "gemini",
+          model: GEMINI_MODEL,
+          configured: isGeminiConfigured(),
+          invoke: (prompt) =>
+            realGeminiInvoker(prompt, {
+              model: GEMINI_MODEL,
+              timeoutMs: 60_000,
+              thinkingBudget:
+                process.env.GEMINI_THINKING_BUDGET === undefined
+                  ? undefined
+                  : Number(process.env.GEMINI_THINKING_BUDGET),
+            }),
+        },
+        cases,
+      ),
+      runProvider(
+        {
+          provider: "qwen",
+          model: PSU_QWEN_MODEL,
+          configured: isPsuConfigured(),
+          invoke: makePsuInvoker(PSU_QWEN_MODEL),
+        },
+        cases,
+      ),
+    ]);
+  }
 
   console.log("Conversation reference provider eval");
   console.log(`fixture_cases=${suite.cases.length}`);
+  console.log("env_file_loaded=false");
   console.table(rows);
 
   const failed = rows.some((row) => row.status === "failed");
@@ -196,4 +229,3 @@ main().catch((err: unknown) => {
   );
   process.exit(1);
 });
-

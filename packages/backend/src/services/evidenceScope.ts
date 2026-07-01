@@ -188,6 +188,7 @@ export interface CompactEvidenceScope {
   query?: string;
   total_count?: number;
   item_count: number;
+  preview_item_ids: string[];
   confidence: z.infer<typeof EvidenceScopeConfidenceSchema>;
   fetched_at: string;
   limitations: string[];
@@ -202,6 +203,7 @@ export function toCompactScope(scope: EvidenceScope): CompactEvidenceScope {
     query: scope.query,
     total_count: scope.total_count,
     item_count: scope.item_ids.length,
+    preview_item_ids: scope.preview_item_ids,
     confidence: scope.confidence,
     fetched_at: scope.fetched_at,
     limitations: scope.limitations,

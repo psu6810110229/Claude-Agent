@@ -108,11 +108,12 @@ async function main(): Promise<void> {
   // --- Stub helpers ---
 
   function stubOk(reply: string, actions: unknown[] = []): ClaudeInvoker {
-    return async () => JSON.stringify({ reply, actions });
+    return async () => JSON.stringify({ _analysis: "fixture constraint audit", reply, actions });
   }
 
   const stubWithTask: ClaudeInvoker = async () =>
     JSON.stringify({
+      _analysis: "fixture constraint audit",
       reply: "I'll add that task for you. Check Approvals to confirm.",
       actions: [
         {
@@ -126,12 +127,14 @@ async function main(): Promise<void> {
 
   const stubBadAction: ClaudeInvoker = async () =>
     JSON.stringify({
+      _analysis: "fixture constraint audit",
       reply: "Sure",
       actions: [{ action_type: "hack.system", payload: {} }],
     });
 
   const stubClarification: ClaudeInvoker = async () =>
     JSON.stringify({
+      _analysis: "fixture constraint audit",
       reply: "ไม่แน่ใจว่าหมายถึงนัดไหนคะ เลือกจากตัวเลือกนี้ก่อนได้ไหม",
       actions: [],
       clarification: "หมายถึงนัดไหนคะ",
@@ -147,6 +150,7 @@ async function main(): Promise<void> {
   currentInvoker = async (prompt) => {
     readOnlyPrompt = prompt;
     return JSON.stringify({
+      _analysis: "fixture constraint audit",
       reply: "You have 3 open tasks. Anything I can help with?",
       actions: [],
     });
@@ -384,6 +388,7 @@ async function main(): Promise<void> {
   currentInvoker = async (prompt) => {
     capturedPrompt = prompt;
     return JSON.stringify({
+      _analysis: "fixture constraint audit",
       reply: "I see the latest action outcomes.",
       actions: [],
     });

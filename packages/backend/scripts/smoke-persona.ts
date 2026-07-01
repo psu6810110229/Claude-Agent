@@ -183,6 +183,15 @@ function main(): void {
     normal.includes("RECOMMENDATION & ADVICE RULES"),
     "normal prompt has RECOMMENDATION & ADVICE grounding rules",
   );
+  assert(
+    normal.includes("EVIDENCE-FIRST RULES (Phase 06)") &&
+      normal.includes("PROVIDER EVIDENCE PACK"),
+    "normal prompt has Phase 06 evidence-first provider-pack rules",
+  );
+  assert(
+    !normal.includes("Write ALL of your internal step-by-step thinking"),
+    "normal prompt no longer forces chain-of-thought output",
+  );
 
   // --- 7. New imitable templates carry no นะ particle ---
   const NEW_TEMPLATES = [

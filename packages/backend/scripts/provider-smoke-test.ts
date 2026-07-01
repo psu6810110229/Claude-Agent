@@ -1,5 +1,10 @@
 // Ensure the real-binary path is never reachable from this test.
+process.env.CLAUDE_AGENT_SKIP_ENV_FILE = "1";
 process.env.CLAUDE_AGENT_AI_ENABLED = "";
+process.env.GEMINI_ENABLED = "";
+process.env.GEMINI_API_KEY = "";
+process.env.PSU_ENABLED = "";
+process.env.PSU_API_KEY = "";
 
 function assert(cond: unknown, msg: string): void {
   if (!cond) throw new Error(msg);
