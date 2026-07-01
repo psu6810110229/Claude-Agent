@@ -19,6 +19,7 @@ function scope(
   return {
     confidence: "high",
     item_count: 5,
+    preview_item_ids: [],
     fetched_at: "2026-06-30T13:00:00.000Z",
     limitations: [],
     ...partial,

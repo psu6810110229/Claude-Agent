@@ -38,8 +38,15 @@ function loadEnvFile(file: string): void {
 }
 
 // Repo root first, then the backend package; existing process.env still wins.
-loadEnvFile(path.resolve(__dirname, "..", "..", "..", ".env"));
-loadEnvFile(path.resolve(__dirname, "..", ".env"));
+// Eval tooling can opt out so provider comparison scripts use only the explicit
+// environment passed to that process and never silently read gitignored secrets.
+const SKIP_ENV_FILE = /^(1|true)$/i.test(
+  process.env.CLAUDE_AGENT_SKIP_ENV_FILE ?? "",
+);
+if (!SKIP_ENV_FILE) {
+  loadEnvFile(path.resolve(__dirname, "..", "..", "..", ".env"));
+  loadEnvFile(path.resolve(__dirname, "..", ".env"));
+}
 
 /** Backend binds to localhost only (safety: no external exposure). */
 export const HOST = "127.0.0.1";

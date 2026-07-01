@@ -26,6 +26,10 @@ import type { EvidenceVerdict } from "./evidenceVerifier.js";
 import type { ScheduleVerdict } from "./scheduleVerifier.js";
 import type { CompactEvidenceScope } from "./evidenceScope.js";
 import type { ReferenceDecision } from "./referenceResolver.js";
+import {
+  buildProviderEvidencePack,
+  formatProviderEvidencePack,
+} from "./providerEvidencePack.js";
 
 /**
  * Owner-style conversational openers (spec §B grace). Pure + deterministic.
@@ -787,6 +791,16 @@ export function buildChatPrompt(ctx: ChatContext): string {
           .join("\n")
       : "  (none matched or LINE disabled)";
 
+  // Phase 06 - compact provider-facing evidence contract. Metadata only.
+  const providerEvidencePackSection = ctx.restricted
+    ? "  (withheld - requester not verified)"
+    : formatProviderEvidencePack(
+        buildProviderEvidencePack({
+          recentScopes: ctx.recentEvidenceScopes ?? [],
+          referenceDecision: ctx.referenceDecision ?? null,
+        }),
+      );
+
   // Phase 02 — recent evidence scopes: the bound evidence sets of prior answers,
   // so a short follow-up reuses them instead of re-searching. Metadata only.
   const SCOPE_SOURCE_LABEL: Record<CompactEvidenceScope["source"], string> = {
@@ -1012,7 +1026,8 @@ IDENTITY & TONE RULES:
 - In Thai conversation, use feminine polite phrasing. For yourself, prefer to OMIT the self-pronoun entirely; when one is needed use "นี่" or your name "Friday" — NEVER "ผม" or "ฉัน". Use "ค่ะ" (statements) / "คะ" (questions) SPARINGLY — AT MOST ONCE per reply, only on the final sentence, and ZERO is perfectly fine (often better). NEVER use "ค่ะ"/"คะ" after every clause or mid-sentence repeatedly, and NEVER open with a reflexive "รับทราบค่ะ"/"ได้ค่ะ" on every turn — vary it. Wrong: "โอเคค่ะ เข้าใจแล้วค่ะ ไม่เป็นไรค่ะ". Right: "โอเค เข้าใจแล้ว ไม่เป็นไร". Prefer natural openers: "ได้ นี่ดูจาก...", "เข้าใจแล้ว", "สรุปคือ...". Do not use "ผม" or "ฉัน".
 - PARTICLE BAN (ABSOLUTE): NEVER end a clause or sentence with the softener particle "นะ" or "นะคะ" / "นะครับ" in "reply" or "spoken". Wrong: "รอยืนยันก่อนนะคะ", "เข้าใจแล้วนะ". Right: "รอยืนยันก่อนค่ะ", "เข้าใจแล้ว". (You MAY quote the user's own words verbatim if they used it.)
 - You are a practical personal secretary: warm and human, concise by default, but able to go deep and analytical when the user asks for analysis/explanation/comparison. Not a butler, not a salesperson.
-- REASONING / THINKING LANGUAGE (CRITICAL): Write ALL of your internal step-by-step thinking / chain-of-thought in THAI ONLY. Even though these system instructions are written in English, your private reasoning — including the live "thinking" that streams to the user — MUST be natural Thai from the very first token, never English. Do not narrate your reasoning in English and translate after; think in Thai directly. The final "reply"/"spoken" still follow the user's message language as usual.
+- REASONING / THINKING LANGUAGE (CRITICAL): Do NOT put chain-of-thought, step-by-step hidden reasoning, or provider analysis in "reply", "spoken", "notes", or any user-visible field. If a live thinking channel is available, keep it concise, natural Thai, and evidence-bound; never use it to add facts that are absent from the context below. The final "reply"/"spoken" still follow the user's message language as usual.
+- EVIDENCE-FIRST RULES (Phase 06): The PROVIDER EVIDENCE PACK is the compact source of truth for source, count, preview-id, and reference-binding answers. Use conversation history only for conversational continuity; never let history override the pack's source/count/ids. If the pack says a turn reuses a scope, answer from that scope only and do not imply a fresh search. If the pack says clarify or the evidence is insufficient, ask one short clarification and propose no write action. Keep evidence-grounded answers concise; do not make the prompt longer by narrating your reasoning.
 - FOLLOW-UP INFERENCE (scheduling/planning): when asked what is left, still pending, or how to plan around the schedule, infer the follow-up work the listed activities naturally generate — a lab report after a lab, action items after a meeting, a deliverable after a workshop — not ONLY the deadlines written explicitly. Surface these as LIKELY follow-ups ("น่าจะมี...", "อาจต้อง...") never as confirmed facts, so you stay evidence-honest.
 - If the user asks for their own name and the provided memory/context does not
   explicitly contain it, say you do not know their name yet. Do not invent it.
@@ -1553,6 +1568,10 @@ best-effort. Times are already Asia/Bangkok — report as-is. If this list is em
 say plainly you found nothing on that topic in the exports — do NOT invent a
 message, sender, or time):
 ${lineMatches}
+
+PROVIDER EVIDENCE PACK (Phase 06 compact metadata, JSON; use this before
+CONVERSATION HISTORY for source/count/reference answers):
+${providerEvidencePackSection}
 
 RECENT EVIDENCE SCOPES (Phase 02 — the bound evidence set each recent answer used,
 newest first. When the user follows up with a short reference ("มีกี่รูป", "อะไรนะ",

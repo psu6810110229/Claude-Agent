@@ -12,12 +12,15 @@ const TEST_TMP = fs.mkdtempSync(path.join(os.tmpdir(), "claude-agent-phase4-"));
 const TEST_MEMORY_DIR = path.join(TEST_TMP, "memory");
 const TEST_DB_PATH = path.join(TEST_TMP, "test.db");
 fs.mkdirSync(TEST_MEMORY_DIR, { recursive: true });
+process.env.CLAUDE_AGENT_SKIP_ENV_FILE = "1";
 process.env.CLAUDE_AGENT_MEMORY_DIR = TEST_MEMORY_DIR;
 process.env.CLAUDE_AGENT_DB_PATH = TEST_DB_PATH;
 process.env.CLAUDE_AGENT_AI_ENABLED = "1";
 process.env.GOOGLE_CALENDAR_ENABLED = "";
 process.env.CLAUDE_AGENT_SCHEDULER_ENABLED = "";
 process.env.CLAUDE_AGENT_DESKTOP_NOTIFICATIONS_ENABLED = "";
+process.env.PSU_ENABLED = "";
+process.env.PSU_API_KEY = "";
 // Gemini enabled with a stub key — real API never reached (stubs injected).
 process.env.GEMINI_ENABLED = "1";
 process.env.GEMINI_API_KEY = "stub-key-phase4";

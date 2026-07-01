@@ -49,9 +49,9 @@ async function main(): Promise<void> {
   const { buildServer } = await import("../src/server.js");
   const { initDb } = await import("../src/db/init.js");
   const { closeDb } = await import("../src/db/connection.js");
-  const { classifyIntent, routeChat, selectProvider, ProviderError } =
+  const { classifyIntent, classifyReasoningDepth, routeChat, selectProvider, ProviderError } =
     await import("../src/services/aiProvider.js");
-  const { GEMINI_MODEL, PSU_GPT4O_MODEL } = await import(
+  const { GEMINI_MODEL, PSU_GPT4O_MODEL, PSU_QWEN_MODEL } = await import(
     "../src/config.js"
   );
 
@@ -81,6 +81,10 @@ async function main(): Promise<void> {
     classifyIntent("เล่าอะไรก็ได้", { hasFiles: true }) === "schedule",
     "classify with files → schedule (a file is real work)",
   );
+  assert(
+    classifyReasoningDepth("please audit the root cause and compare provider evidence trade-off") === "hard",
+    "classify hard provider/evidence analysis → hard reasoning",
+  );
 
   // ---- Unit: routeChat tier → provider/model/budget/stream ----
   const casual = routeChat({ message: "คุยเล่นหน่อยสิ เบื่อ" });
@@ -108,8 +112,22 @@ async function main(): Promise<void> {
   assert(
     deep.selection.selectedProvider === "gemini" &&
       deep.selection.thinkingBudget === 2048 &&
+      deep.selection.reasoningDepth === "standard" &&
       deep.selection.stream === true,
     "deep → gemini, budget 2048, stream",
+  );
+
+  const hardDeep = routeChat({
+    message:
+      "please audit the root cause and compare provider evidence failure trade-off for a multi-source follow-up drift",
+  });
+  assert(
+    hardDeep.selection.selectedProvider === "qwen" &&
+      hardDeep.selection.selectedModel === PSU_QWEN_MODEL &&
+      hardDeep.selection.reasoningDepth === "hard" &&
+      hardDeep.selection.thinkingBudget === undefined &&
+      hardDeep.selection.stream === true,
+    "hard deep → qwen, no Gemini thinking budget, stream",
   );
 
   const files = routeChat({ message: "อันนี้คืออะไร", hasFiles: true });

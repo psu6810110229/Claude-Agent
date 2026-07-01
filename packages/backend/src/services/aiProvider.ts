@@ -81,6 +81,8 @@ export interface ProviderSelection {
   reason: string;
   /** Intent class the auto router classified this turn as (auto mode only). */
   intent?: ChatIntent;
+  /** Whether a deep turn is hard enough to justify the slower reasoning tier. */
+  reasoningDepth?: ReasoningDepth;
   /**
    * Gemini thinking-budget hint (tokens). Consumed by the Gemini thinking path
    * in a later phase; carried here so the router decides depth in one place.
@@ -242,6 +244,7 @@ function resolve(
 
 /** Intent tier for a chat turn. */
 export type ChatIntent = "casual" | "trivial" | "schedule" | "deep";
+export type ReasoningDepth = "standard" | "hard";
 
 /** Schedule/calendar/task signals (Thai + English). */
 const SCHEDULE_PATTERNS: RegExp[] = [
@@ -253,6 +256,23 @@ const SCHEDULE_PATTERNS: RegExp[] = [
 /** Deep-reasoning signals: multi-step / analytical / planning. */
 const DEEP_PATTERNS: RegExp[] = [
   /วิเคราะห์|ทำไม|เพราะอะไร|ควร.*(ก่อน|ดี|ไหม)|วางแผน|จัดการให้|เปรียบเทียบ|ผลกระทบ|trade.?off|prioriti|เชื่อมโยง|หลายเงื่อนไข/i,
+];
+
+/**
+ * Phase 6 eval policy: Qwen is worth its latency on implication-heavy,
+ * deep-search, root-cause, or multi-source comparisons. Plain deep/schedule
+ * turns stay on Gemini with a thinking budget.
+ */
+const HARD_REASONING_PATTERNS: RegExp[] = [
+  /\bdeep search\b/i,
+  /\bimplicat/i,
+  /\bimplied\b.*\bfollow.?up\b/i,
+  /\binfer\b.*\bfollow.?up\b/i,
+  /\broot cause\b/i,
+  /\baudit\b/i,
+  /\bmulti[- ]source\b/i,
+  /\bcompare\b.*\b(provider|model|evidence|trade.?off|failure)\b/i,
+  /\btrade.?off\b.*\b(provider|model|latency|accuracy)\b/i,
 ];
 
 /** Trivial greeting/ack openers. */
@@ -282,6 +302,18 @@ export function classifyIntent(
   return "casual";
 }
 
+export function classifyReasoningDepth(
+  message: string | undefined,
+  intent: ChatIntent = classifyIntent(message),
+): ReasoningDepth {
+  if (intent !== "deep") return "standard";
+  const m = message?.trim() ?? "";
+  if (m.length > 360) return "hard";
+  return HARD_REASONING_PATTERNS.some((re) => re.test(m))
+    ? "hard"
+    : "standard";
+}
+
 /** Gemini thinking budget per tier (tokens). 0 = no thinking. */
 const TIER_THINKING_BUDGET: Record<ChatIntent, number> = {
   casual: 0,
@@ -300,6 +332,13 @@ const TIER_PREFERENCE: Record<ChatIntent, AiProviderId[]> = {
   schedule: ["gemini", "qwen", "glm", "claude"],
   deep: ["gemini", "qwen", "glm", "claude"],
 };
+
+const HARD_REASONING_PREFERENCE: AiProviderId[] = [
+  "qwen",
+  "gemini",
+  "glm",
+  "claude",
+];
 
 /** First available provider in an ordered preference list. */
 function firstAvailable(ids: AiProviderId[]): AiProvider | undefined {
@@ -321,8 +360,11 @@ export function routeChat(opts: {
   hasFiles?: boolean;
 }): ResolvedProvider {
   const intent = classifyIntent(opts.message, { hasFiles: opts.hasFiles });
+  const reasoningDepth = classifyReasoningDepth(opts.message, intent);
   const preference = opts.hasFiles
     ? (["gemini", "claude"] as AiProviderId[])
+    : intent === "deep" && reasoningDepth === "hard"
+      ? HARD_REASONING_PREFERENCE
     : TIER_PREFERENCE[intent];
 
   const provider =
@@ -335,9 +377,10 @@ export function routeChat(opts: {
     selectedProvider: provider.id,
     selectedModel: provider.model,
     intent,
+    reasoningDepth,
     thinkingBudget: budget,
     stream: intent === "schedule" || intent === "deep",
-    reason: `auto: intent=${intent}${opts.hasFiles ? "+files" : ""} → ${provider.id} (${provider.model ?? "default"})`,
+    reason: `auto: intent=${intent}${opts.hasFiles ? "+files" : ""} depth=${reasoningDepth} → ${provider.id} (${provider.model ?? "default"})`,
   });
 }
 
