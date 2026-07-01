@@ -115,12 +115,19 @@ User Prompt ──> chat.runChat
 **Branch:** `phase/step22-ux`
 **Goal:** Build the dynamic UI without real AI logic, ensuring flawless layout transitions.
 
+**UX/UI Masterpiece Presentation:**
+Currently, `JobProgressInline` and `SourcePreviewPanel` are monolithic blocks appended to the bottom of the chat bubble, causing visual clutter when multiple sources are fetched. To fix this:
+1. **Task-Scoped Cards:** Introduce `TaskProgressStack`, an accordion-style component rendered *before* or *interleaved with* the chat text.
+2. **Progressive Disclosure:** Each tool call (e.g., `gmail.search`) renders a sleek glassy skeleton ("🔍 กำลังหาอีเมล..."). Once finished, it snaps into a compact summary card ("📧 หาอีเมลเจอ 3 ฉบับ").
+3. **Embedded Previews:** `SourcePreviewPanel` will no longer be monolithic. It will be refactored to embed *inside* the respective Task Card. Users must tap to expand it, preserving vertical space.
+4. **Fluid Layout:** Use `framer-motion` (`<motion.div layout>`) so when a task completes, the UI gently rearranges itself without jarring jumps.
+
 - **Sprint 2.1: Client-side State & Streaming API**
   - Update `api.ts` (`ChatStreamCallbacks`) and `psuClient.ts` to parse `task_*` events. Add `tasks` to `ChatMessage`.
   - Tests: Static mock rendering. `npm run build:dashboard`.
 - **Sprint 2.2: `TaskProgressStack` & Micro-Cards**
-  - Build `TaskProgressStack` using `framer-motion` `<motion.div layout>`.
-  - Refactor `SourcePreviewPanel` variants for single-task embed.
+  - Build `TaskProgressStack` using `framer-motion`.
+  - Refactor `SourcePreviewPanel` to embed directly inside expanded task cards.
   - Tests: Visual regression / layout shift check.
 - **Sprint 2.3: Connect to Mock Route**
   - Hook chat input (via debug mode) to the mock route. Verify animations.
