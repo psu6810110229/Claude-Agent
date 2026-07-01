@@ -166,7 +166,7 @@ async function main(): Promise<void> {
 
   // ---- HTTP: stub invoker, auto routing end-to-end ----
   let currentInvoker = async (): Promise<string> =>
-    JSON.stringify({ reply: "ok", actions: [] });
+    JSON.stringify({ _analysis: "fixture constraint audit", reply: "ok", actions: [] });
   const dynamicInvoker = (_p: string, _o?: unknown) => currentInvoker();
   const app = buildServer({
     aiInvoker: dynamicInvoker as never,

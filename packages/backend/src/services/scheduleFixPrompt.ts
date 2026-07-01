@@ -145,7 +145,8 @@ ${eventLines(ctx.events)}
 
 OUTPUT CONTRACT (must follow exactly):
 - Output a SINGLE JSON object and nothing else. No prose, no markdown, no fences.
-- Shape: { "proposals": Proposal[], "notes"?: string }
+- Shape: { "_analysis": string, "proposals": Proposal[], "notes"?: string }
+- "_analysis" is REQUIRED and MUST be the first field. Use it as a concise internal constraint audit BEFORE "proposals": identify the finding, candidate event id, Bangkok→UTC conversion, work-hours/buffer checks, and why the proposal is safe or why no proposal is safe.
 - Each Proposal: { "payload": <google_event.update>, "reason": string, "finding_ref"?: number }
 - "proposals" may contain at most ${SCHEDULE_FIX_MAX_PROPOSALS} items. If nothing can be
   safely fixed, return { "proposals": [] }.`;

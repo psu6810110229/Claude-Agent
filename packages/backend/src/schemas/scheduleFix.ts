@@ -36,6 +36,11 @@ export const scheduleFixAiProposalSchema = z.object({
 /** Strict envelope the AI must return. Empty `proposals` is valid (nothing to fix). */
 export const scheduleFixAiOutputSchema = z
   .object({
+    _analysis: z
+      .string()
+      .trim()
+      .min(1)
+      .max(2000),
     proposals: z
       .array(scheduleFixAiProposalSchema)
       .max(SCHEDULE_FIX_MAX_PROPOSALS),

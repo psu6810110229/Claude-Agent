@@ -17,6 +17,9 @@ process.env.CLAUDE_AGENT_AI_ENABLED = "1";
 process.env.GOOGLE_CALENDAR_ENABLED = "";
 process.env.CLAUDE_AGENT_SCHEDULER_ENABLED = "";
 process.env.CLAUDE_AGENT_DESKTOP_NOTIFICATIONS_ENABLED = "";
+process.env.CLAUDE_AGENT_PRIVACY_GUARD_ENABLED = "";
+process.env.CLAUDE_AGENT_AUTO_EXECUTE_ENABLED = "";
+process.env.CLAUDE_AGENT_AUTO_EXECUTE_DESTRUCTIVE_ENABLED = "";
 // Gemini enabled with a stub key — real API never reached (stubs injected).
 process.env.GEMINI_ENABLED = "1";
 process.env.GEMINI_API_KEY = "stub-key-phase3";
@@ -132,11 +135,12 @@ async function main(): Promise<void> {
   // Stub returns valid JSON exactly like Claude would — same proposal schema.
   currentInvoker = async () =>
     JSON.stringify({
+      _analysis: "fixture constraint audit",
       reply: "Gemini stub: task queued for your review.",
       actions: [
         {
           action_type: "task.create",
-          payload: { title: "Gemini test task", priority: "p2" },
+          payload: { title: "Gemini test task", status: "open" },
         },
       ],
     });
@@ -286,7 +290,7 @@ async function main(): Promise<void> {
 
   // --- 12. Claude still works alongside Gemini ---
   currentInvoker = async () =>
-    JSON.stringify({ reply: "Claude reporting in.", actions: [] });
+    JSON.stringify({ _analysis: "fixture constraint audit", reply: "Claude reporting in.", actions: [] });
   const claudeChat = await postJson("/api/chat", {
     message: "hello from claude",
     provider: "claude",
@@ -301,6 +305,7 @@ async function main(): Promise<void> {
   // --- 13. Unknown action type from Gemini stub → rejected, zero approvals ---
   currentInvoker = async () =>
     JSON.stringify({
+      _analysis: "fixture constraint audit",
       reply: "Malicious stub",
       actions: [{ action_type: "hack.system", payload: {} }],
     });

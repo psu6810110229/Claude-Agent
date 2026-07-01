@@ -153,7 +153,7 @@ async function main(): Promise<void> {
 
   // 1. mode=auto + low-risk → routed to gemini, mode + reason echoed.
   currentInvoker = async () =>
-    JSON.stringify({ reply: "Here is your summary.", actions: [] });
+    JSON.stringify({ _analysis: "fixture constraint audit", reply: "Here is your summary.", actions: [] });
   const autoSummary = await postJson("/api/chat", {
     message: "summarize my open tasks",
     mode: "auto",
@@ -178,7 +178,7 @@ async function main(): Promise<void> {
 
   // 2. mode=auto + complex → routed to claude.
   currentInvoker = async () =>
-    JSON.stringify({ reply: "Let me reason through this.", actions: [] });
+    JSON.stringify({ _analysis: "fixture constraint audit", reply: "Let me reason through this.", actions: [] });
   const autoPlan = await postJson("/api/chat", {
     message: "help me architect a multi-step delivery plan",
     mode: "auto",
@@ -193,6 +193,7 @@ async function main(): Promise<void> {
   // 3. mode=auto + low-risk that proposes an action → approval pending only.
   currentInvoker = async () =>
     JSON.stringify({
+      _analysis: "fixture constraint audit",
       reply: "Queued for your review.",
       actions: [
         {
@@ -259,7 +260,7 @@ async function main(): Promise<void> {
 
   // 6. Manual mode still works and is NOT auto.
   currentInvoker = async () =>
-    JSON.stringify({ reply: "Manual claude here.", actions: [] });
+    JSON.stringify({ _analysis: "fixture constraint audit", reply: "Manual claude here.", actions: [] });
   const manualClaude = await postJson("/api/chat", {
     message: "summarize my tasks", // low-risk text, but manual must ignore auto policy
     provider: "claude",
